@@ -159,3 +159,47 @@ class SelfEvolutionPlugin(Star):
         except Exception as e:
             logger.error(f"[SelfEvolution] 检索记忆失败: {str(e)}")
             return f"检索记忆时出错: {str(e)}"
+
+    @llm_tool(name="list_tools")
+    async def list_tools(self, event: AstrMessageEvent):
+        """
+        列出当前所有已注册的工具及其激活状态。
+        """
+        try:
+            tool_mgr = self.context.get_llm_tool_manager()
+            tools = tool_mgr.func_list
+            
+            result = ["当前工具列表："]
+            for t in tools:
+                status = "✅ 激活" if t.active else "❌ 停用"
+                result.append(f"- {t.name}: {status} ({t.description[:50]}...)")
+            
+            return "\n".join(result)
+        except Exception as e:
+            return f"获取工具列表失败: {str(e)}"
+
+    @llm_tool(name="toggle_tool")
+    async def toggle_tool(self, event: AstrMessageEvent, tool_name: str, enable: bool):
+        """
+        动态激活或停用某个工具。
+        :param tool_name: 工具名称。
+        :param enable: True 表示激活，False 表示停用。
+        """
+        try:
+            if tool_name == "toggle_tool":
+                return "为了防止死锁，不允许停用 toggle_tool 自身。"
+            
+            if enable:
+                success = self.context.activate_llm_tool(tool_name)
+                action = "激活"
+            else:
+                success = self.context.deactivate_llm_tool(tool_name)
+                action = "停用"
+            
+            if success:
+                logger.info(f"[SelfEvolution] 成功{action}工具: {tool_name}")
+                return f"已成功{action}工具: {tool_name}"
+            else:
+                return f"未找到名为 {tool_name} 的工具。"
+        except Exception as e:
+            return f"操作失败: {str(e)}"
