@@ -1,0 +1,18 @@
+{
+    "items": [
+        {
+            "id": "review_mode",
+            "name": "管理员审核模式",
+            "desc": "开启后，大模型的自我进化操作（如修改 Prompt）需要管理员在控制台确认。",
+            "type": "boolean",
+            "default": true
+        },
+        {
+            "id": "memory_kb_name",
+            "name": "记忆知识库名称",
+            "desc": "用于存储大模型长期记忆的知识库名称。",
+            "type": "string",
+            "default": "self_evolution_memory"
+        }
+    ]
+}
