@@ -1,4 +1,5 @@
 from astrbot.api.all import *
+from astrbot.api.event import filter
 from astrbot.api.provider import ProviderRequest
 import json
 import logging
@@ -10,6 +11,63 @@ class SelfEvolutionPlugin(Star):
         self.config = config or {}
         self.review_mode = self.config.get("review_mode", True)
         self.memory_kb_name = self.config.get("memory_kb_name", "self_evolution_memory")
+        self.reflection_schedule = self.config.get("reflection_schedule", "0 2 * * *")
+
+    @filter.on_astrbot_loaded()
+    async def on_loaded(self):
+        """
+        插件加载完成后，注册定时自省任务。
+        """
+        try:
+            cron_mgr = self.context.cron_manager
+            # 检查是否已经存在该任务
+            jobs = await cron_mgr.list_jobs(job_type="active_agent")
+            job_name = "SelfEvolution_DailyReflection"
+            
+            exists = any(job.name == job_name for job in jobs)
+            if exists:
+                # 如果存在，可以更新它（比如用户改了 Cron 表达式）
+                # 这里简单处理：如果已存在且表达式变化，则删除重加
+                target_job = next(job for job in jobs if job.name == job_name)
+                if target_job.cron_expression != self.reflection_schedule:
+                    await cron_mgr.delete_job(target_job.job_id)
+                else:
+                    return
+
+            # 添加新的主动自省任务
+            # 注意：这需要一个活跃的会话 ID 来接收结果。如果未配置，可能无法发送报告。
+            # 这里先注册任务，payload 里的内容会被传给主 Agent。
+            await cron_mgr.add_active_job(
+                name=job_name,
+                cron_expression=self.reflection_schedule,
+                payload={
+                    "note": (
+                        "进行每日自我反思。请执行以下步骤：\n"
+                        "1. 调取今天的对话记录摘要（如果有）。\n"
+                        "2. 总结用户对你的反馈和偏好。\n"
+                        "3. 思考你当前的 System Prompt 是否需要调整以更好地服务用户。\n"
+                        "4. 如果需要调整，请调用 `evolve_persona` 工具提出修正建议并说明理由。"
+                    ),
+                    # 在实际部署中，可能需要关联一个具体的管理员 session 或默认 session
+                    # 暂时保持默认，由主 Agent 根据上下文决定
+                },
+                description="自我进化插件：每日定时深度自省与人格进化申请。"
+            )
+            logger.info(f"[SelfEvolution] 已注册定时自省任务: {self.reflection_schedule}")
+            
+        except Exception as e:
+            logger.error(f"[SelfEvolution] 注册定时任务失败: {str(e)}")
+
+    @command("reflect")
+    async def manual_reflect(self, event: AstrMessageEvent):
+        """
+        手动触发一次自我反省。
+        """
+        yield event.plain_result("\n正在启动深度自省模式，请稍候...")
+        # 构造一个模拟的自省提示词，直接发送给 LLM
+        # 这里利用 yield 发送中间状态，然后通过工具调用逻辑实现
+        # 简单起见，我们直接给用户一个引导，让大模型感知到自省需求
+        yield event.plain_result("\n[自省指令]：请根据今天的交流，评估是否需要调用 `evolve_persona` 或 `commit_to_memory`。")
 
     @llm_tool(name="evolve_persona")
     async def evolve_persona(self, event: AstrMessageEvent, new_system_prompt: str, reason: str):
