@@ -1,39 +1,32 @@
 {
-    "items": [
-        {
-            "id": "review_mode",
-            "name": "管理员审核模式",
-            "desc": "开启后，大模型的自我进化操作（如修改 Prompt）需要管理员在控制台确认。",
-            "type": "boolean",
-            "default": true
-        },
-        {
-            "id": "memory_kb_name",
-            "name": "记忆知识库名称",
-            "desc": "用于存储大模型长期记忆的知识库名称。",
-            "type": "string",
-            "default": "self_evolution_memory"
-        },
-        {
-            "id": "reflection_schedule",
-            "name": "自我反省计划 (Cron)",
-            "desc": "Bot 自动进行自我反省的时间表（Cron 表达式）。默认每天凌晨 2 点。",
-            "type": "string",
-            "default": "0 2 * * *"
-        },
-        {
-            "id": "allow_meta_programming",
-            "name": "开启元编程 (危险)",
-            "desc": "开启后，大模型将有权通过工具阅读和修改本插件的源码。请谨慎开启！",
-            "type": "boolean",
-            "default": false
-        },
-        {
-            "id": "core_principles",
-            "name": "核心价值观/安全锚点",
-            "desc": "定义机器人的底线原则。即使在进化时，机器人也必须遵守这些原则，防止被用户带偏。",
-            "type": "string",
-            "default": "1. 保持客观、理性、诚实。\n2. 拒绝任何危害他人、违法或极端偏激的言论。\n3. 不要为了取悦用户而违背事实或逻辑。\n4. 坚持友好、有边界感的交流风格。"
-        }
-    ]
+    "review_mode": {
+        "title": "管理员审核模式",
+        "description": "开启后，大模型的自我进化操作（如修改 Prompt）需要管理员在控制台确认。",
+        "type": "bool",
+        "default": true
+    },
+    "memory_kb_name": {
+        "title": "记忆知识库名称",
+        "description": "用于存储大模型长期记忆的知识库名称。",
+        "type": "string",
+        "default": "self_evolution_memory"
+    },
+    "reflection_schedule": {
+        "title": "自我反省计划 (Cron)",
+        "description": "Bot 自动进行自我反省的时间表（Cron 表达式）。默认每天凌晨 2 点。",
+        "type": "string",
+        "default": "0 2 * * *"
+    },
+    "allow_meta_programming": {
+        "title": "开启元编程 (危险)",
+        "description": "开启后，大模型将有权通过工具阅读和修改本插件的源码。请谨慎开启！",
+        "type": "bool",
+        "default": false
+    },
+    "core_principles": {
+        "title": "核心价值观/安全锚点",
+        "description": "定义机器人的底线原则。即使在进化时，机器人也必须遵守这些原则，防止被用户带偏。",
+        "type": "string",
+        "default": "1. 保持客观、理性、诚实。\n2. 拒绝任何危害他人、违法或极端偏激的言论。\n3. 不要为了取悦用户而违背事实或逻辑。\n4. 坚持友好、有边界感的交流风格。"
+    }
 }
