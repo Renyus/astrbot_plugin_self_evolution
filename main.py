@@ -65,74 +65,72 @@ class SelfEvolutionDAO:
         except aiosqlite.Error as e:
             logger.error(f"[SelfEvolution] DAO: 初始化 aiosqlite 数据库失败: {e}")
 
+    async def _init_schema(self, db):
+        """内部集中化执行数据库 DDL 初始构建"""
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS pending_evolutions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                persona_id TEXT NOT NULL,
+                new_prompt TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                status TEXT NOT NULL
+            )
+        ''')
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS pending_reflections (
+                session_id TEXT PRIMARY KEY,
+                is_pending INTEGER NOT NULL DEFAULT 1
+            )
+        ''')
+        await db.commit()
+
     async def get_conn(self):
-        """带有存活检测的全局连接获取器，兼顾长连接性能与雪崩恢复，受协程并发锁严密保护"""
+        """带有存活检测的全局连接获取器，兼顾长连接性能与雪崩恢复，防阻塞分离读写锁"""
         async with self._db_lock:
             if self.db_conn is None:
                 self.db_conn = await aiosqlite.connect(self.db_path)
                 await self.db_conn.execute("PRAGMA journal_mode=WAL;")
                 self.db_conn.row_factory = aiosqlite.Row
+                await self._init_schema(self.db_conn)
                 
-                # 初始化表结构，统一在全局 _db_lock 的保护下执行
-                await self.db_conn.execute('''
-                    CREATE TABLE IF NOT EXISTS pending_evolutions (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        timestamp TEXT NOT NULL,
-                        persona_id TEXT NOT NULL,
-                        new_prompt TEXT NOT NULL,
-                        reason TEXT NOT NULL,
-                        status TEXT NOT NULL
-                    )
-                ''')
-                await self.db_conn.execute('''
-                    CREATE TABLE IF NOT EXISTS pending_reflections (
-                        session_id TEXT PRIMARY KEY,
-                        is_pending INTEGER NOT NULL DEFAULT 1
-                    )
-                ''')
-                await self.db_conn.commit()
-            try:
-                # 修复: 完整消费游标，彻底释放底层句柄
-                async with self.db_conn.execute("SELECT 1") as cursor:
-                    await cursor.fetchone()
-            except Exception:
-                logger.warning("[SelfEvolution] DAO: 侦测到 SQLite 长连接句柄丢失或断裂，尝试热重连机制...")
-                if self.db_conn:
+        try:
+            # 存活检测移出 _db_lock 死区，防止高频探针遭遇 SQLite 锁引发并发雪崩
+            async with self.db_conn.execute("SELECT 1") as cursor:
+                await cursor.fetchone()
+        except Exception:
+            logger.warning("[SelfEvolution] DAO: 侦测到 SQLite 长连接句柄丢失或断裂，尝试热重连机制...")
+            async with self._db_lock:
+                # Double-check 预防并发协程在等待锁时已经被前面的人重设连接
+                try:
+                    async with self.db_conn.execute("SELECT 1") as cursor:
+                        await cursor.fetchone()
+                except Exception:
+                    if self.db_conn:
+                        try:
+                            # 显式关闭旧连接，确保操作系统回收底层文件描述符
+                            await self.db_conn.close()
+                        except Exception:
+                            pass
                     try:
-                        # 显式关闭旧连接，确保操作系统回收底层文件描述符，防范泄露炸弹
-                        await self.db_conn.close()
-                    except Exception:
-                        pass
-                self.db_conn = await aiosqlite.connect(self.db_path)
-                await self.db_conn.execute("PRAGMA journal_mode=WAL;")
-                self.db_conn.row_factory = aiosqlite.Row
-
-                # 必须重修 DDL 以防止因为物理 .db 逃逸移除导致的新空库直接报 "no such table" 错
-                await self.db_conn.execute('''
-                    CREATE TABLE IF NOT EXISTS pending_evolutions (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        timestamp TEXT NOT NULL,
-                        persona_id TEXT NOT NULL,
-                        new_prompt TEXT NOT NULL,
-                        reason TEXT NOT NULL,
-                        status TEXT NOT NULL
-                    )
-                ''')
-                await self.db_conn.execute('''
-                    CREATE TABLE IF NOT EXISTS pending_reflections (
-                        session_id TEXT PRIMARY KEY,
-                        is_pending INTEGER NOT NULL DEFAULT 1
-                    )
-                ''')
-                await self.db_conn.commit()
-            return self.db_conn
+                        self.db_conn = await aiosqlite.connect(self.db_path)
+                        await self.db_conn.execute("PRAGMA journal_mode=WAL;")
+                        self.db_conn.row_factory = aiosqlite.Row
+                        await self._init_schema(self.db_conn)
+                    except Exception as e:
+                        logger.error(f"[SelfEvolution] DAO重连与建表崩溃, 数据库文件极可能已被移出损毁: {e}")
+                        self.db_conn = None
+                        raise
+        return self.db_conn
 
     async def close(self):
-        if self.db_conn is not None:
-            try:
-                await self.db_conn.close()
-            except Exception:
-                pass
+        async with self._db_lock:
+            if self.db_conn is not None:
+                try:
+                    await self.db_conn.close()
+                except Exception:
+                    pass
+                self.db_conn = None
 
     @with_db_retry()
     async def add_pending_evolution(self, persona_id: str, new_prompt: str, reason: str):
@@ -217,7 +215,7 @@ class SelfEvolutionPlugin(Star):
         logger.info(f"[SelfEvolution] 数据存储路径加载至: {self.data_dir}")
 
     @filter.on_plugin_unload()
-    async def on_plugin_unload(self):
+    async def on_plugin_unload(self, event: AstrMessageEvent):
         """
         拦截框架卸载/热重载钩子，执行资源闭环收尾以防止高并发下的 SQLite database is locked
         """
@@ -405,8 +403,10 @@ class SelfEvolutionPlugin(Star):
             logger.error(f"[SelfEvolution] 读取/状态更新发生数据库操作阻断: {e}")
             yield event.plain_result("处理请求期间出现底层数据库异常，请查阅日志。")
         except Exception as e:
-            logger.error(f"[SelfEvolution] 批准进化请求发生泛用异常: {e}")
-            yield event.plain_result("系统执行审批与人格变更时遭遇故障，请查阅日志。")
+            if isinstance(e, (TypeError, ValueError)):
+                raise  # 防止吞噬掉代码层面的严格结构异常
+            logger.error(f"[SelfEvolution] 批准进化请求发生泛用(外部/业务)异常: {e}")
+            yield event.plain_result(f"执行审批与人格变更时遭遇异常({e.__class__.__name__})，请查阅日志。")
 
     @filter.llm_tool(name="commit_to_memory")
     async def commit_to_memory(self, event: AstrMessageEvent, fact: str) -> str:
@@ -422,12 +422,11 @@ class SelfEvolutionPlugin(Star):
         except asyncio.TimeoutError:
             logger.error("[SelfEvolution] 记忆库装载严重超时。")
             return "与知识引擎服务器建立信道超时，中断存入以维持会话流畅。"
-        except (LookupError, KeyError) as e:
-            logger.error(f"[SelfEvolution] 记忆检索时未找到知识库索引或环境失效: {e}")
-            return "遭遇字典键值回溯错误，未能获取到知识库管理器。"
         except Exception as e:
-            logger.error(f"[SelfEvolution] 获取知识库广义失败: {e}")
-            return "系统运行时发生无法预测的中断异常。"
+            if isinstance(e, (TypeError, ValueError)):
+                raise
+            logger.error(f"[SelfEvolution] 记忆检索或系统网络失效: {e}")
+            return "检索长期记忆时发生业务异常，请检查配置与联通状态。"
         
         if not kb_helper:
             logger.warning(f"[SelfEvolution] 记忆知识库 '{self.memory_kb_name}' 不存在。")
@@ -541,7 +540,9 @@ class SelfEvolutionPlugin(Star):
                 logger.debug(f"[SelfEvolution] 工具未找到: {tool_name}")
                 return f"未找到名为 {tool_name} 的工具。"
         except Exception as e:
-            logger.error(f"[SelfEvolution] 工具切换失败: {e}")
+            if isinstance(e, (TypeError, ValueError)):
+                raise
+            logger.error(f"[SelfEvolution] 工具切换业务失败: {e}")
             return "工具切换时遭遇系统异常。"
 
     @filter.llm_tool(name="get_plugin_source")
@@ -562,7 +563,8 @@ class SelfEvolutionPlugin(Star):
             logger.error(f"[SelfEvolution] 动态读取所在模块源码失败 (环境限制/编译闭源): {e}")
             return "动态读取源码模块失败，可能是部署在了受限或闭源预编译的 Python 环境中。"
 
-    def _validate_ast_security(self, new_code: str) -> str | None:
+    @staticmethod
+    def _validate_ast_security(new_code: str) -> str | None:
         """AST 级别的安全校验防线与防绕过警告"""
         try:
             tree = ast.parse(new_code)
