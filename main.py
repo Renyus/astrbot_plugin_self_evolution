@@ -48,7 +48,8 @@ class SelfEvolutionPlugin(Star):
 
         self.data_dir = StarTools.get_data_dir() / "self_evolution"
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self._lock = asyncio.Lock()
+        self._lock = asyncio.Lock() # 用于文件并发写入的锁
+        self._db_lock = asyncio.Lock() # 用于数据库连接池的并发生成锁
         
         # 定义高性能 SQLite 数据库替代方案 (aiosqlite)，避免并发 locked 错误
         self.db_path = self.data_dir / "pending_evolutions.db"
@@ -80,18 +81,25 @@ class SelfEvolutionPlugin(Star):
             logger.error(f"[SelfEvolution] 初始化 aiosqlite 数据库失败: {e}")
 
     async def _get_db_conn(self):
-        """带有存活检测的全局连接获取器，兼顾长连接性能与雪崩恢复"""
-        if self.db_conn is None:
-            self.db_conn = await aiosqlite.connect(self.db_path)
-            self.db_conn.row_factory = aiosqlite.Row
-        try:
-            # 保活探测
-            await self.db_conn.execute("SELECT 1")
-        except Exception:
-            logger.warning("[SelfEvolution] 侦测到 SQLite 长连接句柄丢失或断裂，尝试热重连机制...")
-            self.db_conn = await aiosqlite.connect(self.db_path)
-            self.db_conn.row_factory = aiosqlite.Row
-        return self.db_conn
+        """带有存活检测的全局连接获取器，兼顾长连接性能与雪崩恢复，受协程并发锁严密保护"""
+        async with self._db_lock:
+            if self.db_conn is None:
+                self.db_conn = await aiosqlite.connect(self.db_path)
+                self.db_conn.row_factory = aiosqlite.Row
+            try:
+                # 保活探测
+                await self.db_conn.execute("SELECT 1")
+            except Exception:
+                logger.warning("[SelfEvolution] 侦测到 SQLite 长连接句柄丢失或断裂，尝试热重连机制...")
+                if self.db_conn:
+                    try:
+                        # 显式关闭旧连接，确保操作系统回收底层文件描述符，防范泄露炸弹
+                        await self.db_conn.close()
+                    except Exception:
+                        pass
+                self.db_conn = await aiosqlite.connect(self.db_path)
+                self.db_conn.row_factory = aiosqlite.Row
+            return self.db_conn
 
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
@@ -455,10 +463,30 @@ class SelfEvolutionPlugin(Star):
             
         # 安全防御：AST 语法树级别的前置严格扫描验证，严防注入异常或混淆语法导致后续解析灾难
         try:
-            ast.parse(new_code)
+            tree = ast.parse(new_code)
+            
+            # Rick Sanchez 防线：微型白箱审计。递归遍历所有的语法树节点，绝不允许任何越狱的高危模块被导入，拒绝引发智械危机
+            dangerous_modules = {'os', 'sys', 'subprocess', 'shutil', 'socket', 'urllib', 'requests', 'ctypes'}
+            dangerous_funcs = {'eval', 'exec', 'open', '__import__'}
+            
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name.split('.')[0] in dangerous_modules:
+                            raise ValueError(f"禁止危险导入：{alias.name}")
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module and node.module.split('.')[0] in dangerous_modules:
+                        raise ValueError(f"禁止危险导入：{node.module}")
+                elif isinstance(node, ast.Call):
+                    if isinstance(node.func, ast.Name) and node.func.id in dangerous_funcs:
+                        raise ValueError(f"禁止调用高危函数：{node.func.id}")
+                        
         except SyntaxError as e:
             logger.error(f"[SelfEvolution] META_PROPOSAL_FAILED: 提案未通过 AST 语法树安全性校验: {e}")
             return f"你的代码提案存在严重语法错误或反常的混淆结构，已被 AST 静态分析防火墙拦截，操作拒绝。错误定位: {e}"
+        except ValueError as e:
+            logger.error(f"[SelfEvolution] META_PROPOSAL_REJECTED: 拦截到尝试引入系统危险接口的动作: {e}")
+            return f"安全防线已激活：你的代码中存在针对底层操作系统或网络 IO 的敏感/非法调用（{e}）。为防止越权沙盒逃逸或恶意行为，该提案已被彻底销毁！"
         
         # 剥离极高危 RCE 漏洞，改为安全保存 Diff proposal 供管理员手动审核
         proposal_dir = self.data_dir / "code_proposals"
