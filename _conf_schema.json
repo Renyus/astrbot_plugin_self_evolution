@@ -40,5 +40,11 @@
         "description": "从知识库读取信息时的强制超时时间。",
         "type": "float",
         "default": 12.0
+    },
+    "admin_users": {
+        "title": "管理员 ID 列表",
+        "description": "除了系统全局管理员外，额外允许执行插件敏感操作（如审批进化）的用户 ID 列表。",
+        "type": "list",
+        "default": []
     }
 }

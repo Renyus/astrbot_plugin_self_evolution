@@ -367,7 +367,7 @@ class SelfEvolutionPlugin(Star):
         【管理员接口】列出待审核的人格进化请求，支持分页查询。
         :param int page: 请求列表的翻页页码
         """
-        if not self.admin_users or str(event.sender.user_id) not in self.admin_users:
+        if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
             yield event.plain_result("权限拒绝：此操作仅限系统管理员执行。已记录越权尝试。")
             return
             
@@ -398,7 +398,7 @@ class SelfEvolutionPlugin(Star):
         """
         【管理员接口】批准指定 ID 的人格进化请求。
         """
-        if not self.admin_users or str(event.sender.user_id) not in self.admin_users:
+        if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
             yield event.plain_result("权限拒绝：此操作仅限系统管理员执行。已记录越权尝试。")
             return
             
