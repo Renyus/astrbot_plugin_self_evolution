@@ -60,6 +60,16 @@ class SelfEvolutionPlugin(Star):
         logger.info(f"[SelfEvolution] === 插件初始化 | review_mode={self.review_mode} | meta_programming={self.allow_meta_programming} ===")
         logger.info(f"[SelfEvolution] 数据存储路径加载至: {self.data_dir}")
         
+    def __del__(self):
+        """拦截框架卸载、热重载或垃圾回收时的析构事件，关闭游离数据库连接文件句柄以彻底防范泄露"""
+        if getattr(self, 'db_conn', None) is not None:
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(self.db_conn.close())
+            except Exception:
+                pass
+
     async def _init_db(self):
         """异步初始化建议列表所用的 SQLite 数据库，使用短连接防止重载资源泄露"""
         try:
@@ -87,8 +97,9 @@ class SelfEvolutionPlugin(Star):
                 self.db_conn = await aiosqlite.connect(self.db_path)
                 self.db_conn.row_factory = aiosqlite.Row
             try:
-                # 保活探测
-                await self.db_conn.execute("SELECT 1")
+                # 保活探测。显式包裹在 async with 游标上下文中，防止 heartbeat 频繁调用产生未回收的 cursor 游离句柄
+                async with self.db_conn.execute("SELECT 1"):
+                    pass
             except Exception:
                 logger.warning("[SelfEvolution] 侦测到 SQLite 长连接句柄丢失或断裂，尝试热重连机制...")
                 if self.db_conn:
