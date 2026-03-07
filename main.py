@@ -3,22 +3,42 @@ from astrbot.api.event import filter
 from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import StarTools
 from astrbot.api import logger
-import json
 import os
 import time
 import asyncio
 import uuid
 import aiosqlite
 from datetime import datetime
+
+# 全局不可变常量提取
+ANCHOR_MARKER = "Core Safety Anchor"
+PROTECTED_TOOLS = frozenset({"toggle_tool", "list_tools", "evolve_persona", "recall_memories", "review_evolutions", "approve_evolution"})
+MAX_PROPOSAL_FILES = 50
+
+DAILY_REFLECTION_PROMPT = (
+    "进行每日自我反思。请执行以下步骤：\n"
+    "1. 调取今天的对话记录摘要（如果有）。\n"
+    "2. 总结用户对你的反馈和偏好。\n"
+    "3. 思考你当前的 System Prompt 是否需要调整以更好地服务用户。\n"
+    "4. 如果需要调整，请调用 `evolve_persona` 工具提出修正建议并说明理由。"
+)
+
+def _parse_bool(val, default):
+    """更严谨地将配置项解析为布尔值，防止字符串 'false' 被判为 True"""
+    if isinstance(val, bool): return val
+    if isinstance(val, str): return val.lower() not in ('false', '0', 'no', 'off')
+    return default
+
 @register("astrbot_plugin_self_evolution", "自我进化 (Self-Evolution)", "让大模型具备自我迭代、记忆沉淀和人格进化能力的插件。", "2.0.0")
 class SelfEvolutionPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
         self.config = config or {}
-        self.review_mode = self.config.get("review_mode", True)
+        # 修正隐式布尔转换隐患
+        self.review_mode = _parse_bool(self.config.get("review_mode", True), True)
         self.memory_kb_name = self.config.get("memory_kb_name", "self_evolution_memory")
         self.reflection_schedule = self.config.get("reflection_schedule", "0 2 * * *")
-        self.allow_meta_programming = self.config.get("allow_meta_programming", False)
+        self.allow_meta_programming = _parse_bool(self.config.get("allow_meta_programming", False), False)
         self.core_principles = self.config.get("core_principles", "保持客观、理性、诚实。")
 
         self.data_dir = StarTools.get_data_dir() / "self_evolution"
@@ -27,7 +47,8 @@ class SelfEvolutionPlugin(Star):
         
         # 定义高性能 SQLite 数据库替代方案 (aiosqlite)，避免并发 locked 错误
         self.db_path = self.data_dir / "pending_evolutions.db"
-        self.pending_reflection = False
+        # 修复多用户并发导致的精神分裂漏洞：使用 session_id 隔离反省状态
+        self.pending_reflections: dict[str, bool] = {}
 
         logger.info(f"[SelfEvolution] === 插件初始化 | review_mode={self.review_mode} | meta_programming={self.allow_meta_programming} ===")
         logger.info(f"[SelfEvolution] 数据存储路径加载至: {self.data_dir}")
@@ -56,19 +77,18 @@ class SelfEvolutionPlugin(Star):
         Level 3: 情绪驱动进化与后台反思。
         将用户反馈与“核心原则”进行柔性对齐，并支持静默上下文中执行后台自省。
         """
-        # 静默处理：后台反思指令钩子
-        if getattr(self, "pending_reflection", False):
+        # 静默处理：后台反思指令钩子 (通过 session_id 隔离不同用户的状态)
+        session_id = event.session_id
+        if self.pending_reflections.pop(session_id, False):
             reflection_prompt = (
                 "\n\n[管理员后台指令]：请在本次回复中，针对今天的整体交互记录进行一次深度的客观自我反思。"
                 "不仅要评估你的各项表现，更要思考是否需要通过 `evolve_persona` 工具请求调整自己的人格原则，"
                 "或使用 `commit_to_memory` 留存重大信息。"
             )
             req.system_prompt += reflection_prompt
-            self.pending_reflection = False
-            logger.debug("[SelfEvolution] 已向大模型隐式发起了强制后台自省指令。")
+            logger.debug(f"[SelfEvolution] 已向 session_id:{session_id} 隐式发起了强制后台自省指令。")
         
         # 系统核心锚点 (优化为更自然柔和的引导，响应设计优雅性反馈)
-        ANCHOR_MARKER = "Core Safety Anchor"
         if ANCHOR_MARKER not in req.system_prompt:
             injection = (
                 f"\n\n({ANCHOR_MARKER}) 当你接收到用户的评价或批评时，请以你的核心原则为准绳（{self.core_principles}）。"
@@ -99,19 +119,11 @@ class SelfEvolutionPlugin(Star):
                     return
 
             # 添加新的主动自省任务
-            # 注意：这需要一个活跃的会话 ID 来接收结果。如果未配置，可能无法发送报告。
-            # 这里先注册任务，payload 里的内容会被传给主 Agent。
             await cron_mgr.add_active_job(
                 name=job_name,
                 cron_expression=self.reflection_schedule,
                 payload={
-                    "note": (
-                        "进行每日自我反思。请执行以下步骤：\n"
-                        "1. 调取今天的对话记录摘要（如果有）。\n"
-                        "2. 总结用户对你的反馈和偏好。\n"
-                        "3. 思考你当前的 System Prompt 是否需要调整以更好地服务用户。\n"
-                        "4. 如果需要调整，请调用 `evolve_persona` 工具提出修正建议并说明理由。"
-                    ),
+                    "note": DAILY_REFLECTION_PROMPT,
                     # 在实际部署中，可能需要关联一个具体的管理员 session 或默认 session
                     # 暂时保持默认，由主 Agent 根据上下文决定
                 },
@@ -131,7 +143,7 @@ class SelfEvolutionPlugin(Star):
         手动触发一次自我反省。
         """
         # 静默标志位设置，LLM 将在下一次收到消息时被隐式注入上下文指令，避免界面粗暴弹出系统提示语
-        self.pending_reflection = True
+        self.pending_reflections[event.session_id] = True
         yield event.plain_result("后台自省协议已就绪，将在下一次对话时无缝切入大模型思维链路。")
 
     @filter.llm_tool(name="evolve_persona")
@@ -174,6 +186,62 @@ class SelfEvolutionPlugin(Star):
         except Exception as e:
             logger.error(f"[SelfEvolution] EVOLVE_FAILED: 进化失败: {str(e)}")
             return "进化过程中出现内部错误，请通知管理员检查日志。"
+
+    @filter.command("review_evolutions")
+    async def review_evolutions(self, event: AstrMessageEvent):
+        """
+        【管理员接口】列出待审核的人格进化请求。
+        """
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute("SELECT id, persona_id, reason, status FROM pending_evolutions WHERE status = 'pending_approval' LIMIT 10") as cursor:
+                    rows = await cursor.fetchall()
+            
+            if not rows:
+                yield event.plain_result("当前没有待审核的进化请求。")
+                return
+            
+            result = ["待审核的进化请求列表 (前10条):"]
+            for row in rows:
+                result.append(f"ID: {row['id']} | Persona: {row['persona_id']}\n理由: {row['reason'][:50]}")
+            
+            result.append("\n如需批准，请调用 '/approve_evolution <ID>'")
+            yield event.plain_result("\n".join(result))
+        except Exception as e:
+            logger.error(f"[SelfEvolution] 获取审核列表失败: {e}")
+            yield event.plain_result("获取审核列表失败，请查看日志。")
+
+    @filter.command("approve_evolution")
+    async def approve_evolution(self, event: AstrMessageEvent, request_id: int):
+        """
+        【管理员接口】批准指定 ID 的人格进化请求。
+        """
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute("SELECT persona_id, new_prompt FROM pending_evolutions WHERE id = ? AND status = 'pending_approval'", (request_id,)) as cursor:
+                    row = await cursor.fetchone()
+                
+                if not row:
+                    yield event.plain_result(f"找不到待处理的请求 ID {request_id}。")
+                    return
+                
+                # 执行更新
+                await self.context.persona_manager.update_persona(
+                    persona_id=row['persona_id'],
+                    system_prompt=row['new_prompt']
+                )
+                
+                # 更新状态
+                await db.execute("UPDATE pending_evolutions SET status = 'approved' WHERE id = ?", (request_id,))
+                await db.commit()
+                
+            logger.info(f"[SelfEvolution] 管理员批准了进化请求 ID: {request_id}")
+            yield event.plain_result(f"成功批准了进化请求 {request_id}，大模型人格已更新！")
+        except Exception as e:
+            logger.error(f"[SelfEvolution] 批准进化请求失败: {e}")
+            yield event.plain_result("批准请求期间出现内部异常，请查阅日志。")
 
     @filter.llm_tool(name="commit_to_memory")
     async def commit_to_memory(self, event: AstrMessageEvent, fact: str):
@@ -263,7 +331,6 @@ class SelfEvolutionPlugin(Star):
         :param bool enable: True 表示激活，False 表示停用。
         """
         try:
-            PROTECTED_TOOLS = {"toggle_tool", "list_tools", "evolve_persona", "recall_memories"}
             if tool_name in PROTECTED_TOOLS and not enable:
                 return f"为了系统稳定，不允许停用核心基础工具：{tool_name}。"
             
@@ -332,6 +399,19 @@ class SelfEvolutionPlugin(Star):
             proposal_dir = self.data_dir / "code_proposals"
             proposal_dir.mkdir(parents=True, exist_ok=True)
             
+            # 防御磁盘耗尽：控制审计目录下的最大提案文件数量，滚动删除最旧文件
+            async with self._lock:
+                try:
+                    files = list(proposal_dir.glob("main_proposed_*.py"))
+                    if len(files) >= MAX_PROPOSAL_FILES:
+                        # 按时间排序，删除多余的最旧文件
+                        files.sort(key=lambda p: p.stat().st_mtime)
+                        for old_file in files[:len(files) - MAX_PROPOSAL_FILES + 1]:
+                            old_file.unlink(missing_ok=True)
+                        logger.info("[SelfEvolution] 提案数量过多，已触发机制清理陈旧代码提案文件。")
+                except Exception as e:
+                    logger.warning(f"[SelfEvolution] 清理旧提案文件失败: {e}")
+
             # 使用 UUIDv4 作为随机文件名，彻底规避极端并发下的时间戳碰撞
             proposal_file = proposal_dir / f"main_proposed_{uuid.uuid4().hex}.py"
             
