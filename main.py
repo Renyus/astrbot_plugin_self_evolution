@@ -131,7 +131,7 @@ class SelfEvolutionDAO:
         async with self._write_lock:
             cursor = await db.execute("UPDATE pending_reflections SET is_pending = 0 WHERE session_id = ? AND is_pending = 1", (session_id,))
             await db.commit()
-            return False
+            return cursor.rowcount > 0
 
 
 @register("astrbot_plugin_self_evolution", "自我进化 (Self-Evolution)", "让大模型具备自我迭代、记忆沉淀和人格进化能力的插件。", "2.0.0")
@@ -166,6 +166,17 @@ class SelfEvolutionPlugin(Star):
         
         logger.info(f"[SelfEvolution] === 插件初始化 | review_mode={self.review_mode} | meta_programming={self.allow_meta_programming} ===")
         logger.info(f"[SelfEvolution] 数据存储路径加载至: {self.data_dir}")
+
+    @filter.on_plugin_unload()
+    async def on_plugin_unload(self):
+        """
+        拦截框架卸载/热重载钩子，执行资源闭环收尾以防止高并发下的 SQLite database is locked
+        """
+        try:
+            await self.dao.close()
+            logger.info("[SelfEvolution] 插件卸载钩子触发：DAO 长连接及底层句柄已安全脱离释放。")
+        except Exception as e:
+            logger.error(f"[SelfEvolution] 释放 DAO 资源异常: {e}")
 
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
