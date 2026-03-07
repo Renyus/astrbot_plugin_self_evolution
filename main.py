@@ -8,7 +8,7 @@ import os
 import time
 import asyncio
 import uuid
-import sqlite3
+import aiosqlite
 from datetime import datetime
 @register("astrbot_plugin_self_evolution", "自我进化 (Self-Evolution)", "让大模型具备自我迭代、记忆沉淀和人格进化能力的插件。", "2.0.0")
 class SelfEvolutionPlugin(Star):
@@ -25,19 +25,18 @@ class SelfEvolutionPlugin(Star):
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self._lock = asyncio.Lock()
         
-        # 初始化高性能 SQLite 数据库替代之前的单一 JSON 文件，以缓解长时间审核队列积压导致的性能噩梦
+        # 定义高性能 SQLite 数据库替代方案 (aiosqlite)，避免并发 locked 错误
         self.db_path = self.data_dir / "pending_evolutions.db"
-        self._init_db()
+        self.pending_reflection = False
 
         logger.info(f"[SelfEvolution] === 插件初始化 | review_mode={self.review_mode} | meta_programming={self.allow_meta_programming} ===")
         logger.info(f"[SelfEvolution] 数据存储路径加载至: {self.data_dir}")
         
-    def _init_db(self):
-        """初始化建议列表所用的 SQLite 数据库"""
+    async def _init_db(self):
+        """异步初始化建议列表所用的 SQLite 数据库"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute('''
                     CREATE TABLE IF NOT EXISTS pending_evolutions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp TEXT NOT NULL,
@@ -47,23 +46,33 @@ class SelfEvolutionPlugin(Star):
                         status TEXT NOT NULL
                     )
                 ''')
-                conn.commit()
-        except sqlite3.Error as e:
-            logger.error(f"[SelfEvolution] 初始化 SQLite 数据库失败: {e}")
+                await db.commit()
+        except Exception as e:
+            logger.error(f"[SelfEvolution] 初始化 aiosqlite 数据库失败: {e}")
+
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
         """
-        Level 3: 情绪驱动进化（升级版：辩证反思）。
-        不再盲目讨好用户，而是引导模型将用户反馈与“核心原则”进行对齐分析。
+        Level 3: 情绪驱动进化与后台反思。
+        将用户反馈与“核心原则”进行柔性对齐，并支持静默上下文中执行后台自省。
         """
-        ANCHOR_MARKER = "[系统规则 - 安全锚点]"
+        # 静默处理：后台反思指令钩子
+        if getattr(self, "pending_reflection", False):
+            reflection_prompt = (
+                "\n\n[管理员后台指令]：请在本次回复中，针对今天的整体交互记录进行一次深度的客观自我反思。"
+                "不仅要评估你的各项表现，更要思考是否需要通过 `evolve_persona` 工具请求调整自己的人格原则，"
+                "或使用 `commit_to_memory` 留存重大信息。"
+            )
+            req.system_prompt += reflection_prompt
+            self.pending_reflection = False
+            logger.debug("[SelfEvolution] 已向大模型隐式发起了强制后台自省指令。")
+        
+        # 系统核心锚点 (优化为更自然柔和的引导，响应设计优雅性反馈)
+        ANCHOR_MARKER = "Core Safety Anchor"
         if ANCHOR_MARKER not in req.system_prompt:
             injection = (
-                f"\n\n{ANCHOR_MARKER}：如果在当前或后续对话中，检测到用户对你的表现、价值观、代码或交互逻辑提出了质疑、批评或修正要求，"
-                f"请立即结合你的核心原则（{self.core_principles}）执行【辩证思考流程】：\n"
-                "1. 分析用户的反馈是否具有建设性，是否基于事实或客观逻辑。\n"
-                "2. 若反馈带偏价值观或违背事实，请礼貌且坚定地坚持原则。\n"
-                "3. 若反馈确实能让你在遵守原则的前提下变得更好，请调用 `evolve_persona` 工具提出修正建议并说明理由。"
+                f"\n\n({ANCHOR_MARKER}) 当你接收到用户的评价或批评时，请以你的核心原则为准绳（{self.core_principles}）。"
+                "如果反馈具备客观建设性，请随时调用 `evolve_persona` 主动寻求进化。如果在道德或事实上存在冲突，请坚守底线并优雅地拒绝。"
             )
             req.system_prompt += injection
             logger.debug("[SelfEvolution] 已在上下文中注入常驻辩证反省指令。")
@@ -111,16 +120,19 @@ class SelfEvolutionPlugin(Star):
             logger.info(f"[SelfEvolution] 已注册定时自省任务: {self.reflection_schedule}")
             
         except Exception as e:
-            logger.error(f"[SelfEvolution] 注册定时任务失败: {str(e)}")
+            logger.error(f"[SelfEvolution] 注册定时任务失败: {e}")
+        
+        # 异步初始化长期存储
+        await self._init_db()
 
     @filter.command("reflect")
     async def manual_reflect(self, event: AstrMessageEvent):
         """
         手动触发一次自我反省。
         """
-        yield event.plain_result("\n正在启动深度自省模式，请稍候...")
-        # 真正触发 LLM 思考，请求提供历史信息进行自省
-        yield event.plain_result("\n我是你的系统管理员，请立即针对今天的交流记录进行一次深度自我反思。评估是否需要调用 `evolve_persona` 更新你的人格，或调用 `commit_to_memory` 记录重要的常驻信息。")
+        # 静默标志位设置，LLM 将在下一次收到消息时被隐式注入上下文指令，避免界面粗暴弹出系统提示语
+        self.pending_reflection = True
+        yield event.plain_result("后台自省协议已就绪，将在下一次对话时无缝切入大模型思维链路。")
 
     @filter.llm_tool(name="evolve_persona")
     async def evolve_persona(self, event: AstrMessageEvent, new_system_prompt: str, reason: str):
@@ -136,20 +148,19 @@ class SelfEvolutionPlugin(Star):
         
         if self.review_mode:
             try:
-                async with self._lock:
-                    with sqlite3.connect(self.db_path) as conn:
-                        cursor = conn.cursor()
-                        cursor.execute(
-                            "INSERT INTO pending_evolutions (timestamp, persona_id, new_prompt, reason, status) "
-                            "VALUES (?, ?, ?, ?, ?)",
-                            (datetime.now().isoformat(), curr_persona_id, new_system_prompt, reason, "pending_approval")
-                        )
-                        conn.commit()
+                # 采用高度并发安全的 aiosqlite 构建持久化操作
+                async with aiosqlite.connect(self.db_path) as db:
+                    await db.execute(
+                        "INSERT INTO pending_evolutions (timestamp, persona_id, new_prompt, reason, status) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (datetime.now().isoformat(), curr_persona_id, new_system_prompt, reason, "pending_approval")
+                    )
+                    await db.commit()
 
                 logger.warning(f"[SelfEvolution] EVOLVE_QUEUED: 收到进化请求，已加入审核队列。原因: {reason}")
                 return f"进化请求已录入系统审核队列，等待管理员确认。进化理由：{reason}"
-            except sqlite3.Error as e:
-                logger.error(f"[SelfEvolution] EVOLVE_FAILED: 写入审核队列时发生数据库异常: {e}")
+            except Exception as e:
+                logger.error(f"[SelfEvolution] EVOLVE_FAILED: 写入审核队列时发生异步数据库异常: {e}")
                 return "写入审核队列时发生持久化存储异常，请告知管理员。"
         
         # 执行更新
@@ -226,18 +237,23 @@ class SelfEvolutionPlugin(Star):
         """
         try:
             tool_mgr = self.context.get_llm_tool_manager()
+            if not hasattr(tool_mgr, 'func_list'):
+                logger.error("[SelfEvolution] 底层 API 异常: 工具管理器的 func_list 接口不可用。")
+                return "安全保护：框架底层结构发生异常，无法获取当前激活状态。"
+                
             tools = tool_mgr.func_list
-            
             result = ["当前工具列表："]
             for t in tools:
-                status = "✅ 激活" if t.active else "❌ 停用"
-                desc = (t.description or "无描述")[:50]
-                result.append(f"- {t.name}: {status} ({desc})")
+                status = "✅ 激活" if getattr(t, 'active', True) else "❌ 停用"
+                desc = getattr(t, 'description', "无描述")
+                if desc:
+                    desc = desc[:50]
+                result.append(f"- {getattr(t, 'name', 'Unknown')}: {status} ({desc})")
             
             return "\n".join(result)
         except Exception as e:
-            logger.error(f"[SelfEvolution] 获取工具列表失败: {str(e)}")
-            return "获取工具列表时出现内部错误。"
+            logger.error(f"[SelfEvolution] 获取工具列表失败: {e}")
+            return "获取工具列表时出现内部异常处理错误。"
 
     @filter.llm_tool(name="toggle_tool")
     async def toggle_tool(self, event: AstrMessageEvent, tool_name: str, enable: bool):
@@ -250,6 +266,11 @@ class SelfEvolutionPlugin(Star):
             PROTECTED_TOOLS = {"toggle_tool", "list_tools", "evolve_persona", "recall_memories"}
             if tool_name in PROTECTED_TOOLS and not enable:
                 return f"为了系统稳定，不允许停用核心基础工具：{tool_name}。"
+            
+            # API 级别可用性校验
+            if not hasattr(self.context, 'activate_llm_tool') or not hasattr(self.context, 'deactivate_llm_tool'):
+                logger.error("[SelfEvolution] 底层 API 异常: 工具激活机制的底层接口缺失。")
+                return "安全保护：框架底层管理结构发生异常，无法调整工具激活状态。"
             
             if enable:
                 success = self.context.activate_llm_tool(tool_name)
@@ -265,8 +286,8 @@ class SelfEvolutionPlugin(Star):
                 logger.debug(f"[SelfEvolution] 工具未找到: {tool_name}")
                 return f"未找到名为 {tool_name} 的工具。"
         except Exception as e:
-            logger.error(f"[SelfEvolution] 工具切换失败: {str(e)}")
-            return "工具切换时出现内部错误。"
+            logger.error(f"[SelfEvolution] 工具切换失败: {e}")
+            return "工具切换时遭遇系统异常。"
 
     @filter.llm_tool(name="get_plugin_source")
     async def get_plugin_source(self, event: AstrMessageEvent):
