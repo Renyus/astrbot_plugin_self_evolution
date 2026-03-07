@@ -26,7 +26,8 @@ DAILY_REFLECTION_PROMPT = (
 def _parse_bool(val, default):
     """更严谨地将配置项解析为布尔值，防止字符串 'false' 被判为 True"""
     if isinstance(val, bool): return val
-    if isinstance(val, str): return val.lower() not in ('false', '0', 'no', 'off')
+    if isinstance(val, str): 
+        return val.lower() in ('true', '1', 'yes', 'on')
     return default
 
 @register("astrbot_plugin_self_evolution", "自我进化 (Self-Evolution)", "让大模型具备自我迭代、记忆沉淀和人格进化能力的插件。", "2.0.0")
@@ -188,25 +189,31 @@ class SelfEvolutionPlugin(Star):
             return "进化过程中出现内部错误，请通知管理员检查日志。"
 
     @filter.command("review_evolutions")
-    async def review_evolutions(self, event: AstrMessageEvent):
+    async def review_evolutions(self, event: AstrMessageEvent, page: int = 1):
         """
-        【管理员接口】列出待审核的人格进化请求。
+        【管理员接口】列出待审核的人格进化请求，支持分页查询。
+        :param int page: 请求列表的翻页页码
         """
         try:
+            limit = 10
+            offset = (max(1, page) - 1) * limit
             async with aiosqlite.connect(self.db_path) as db:
                 db.row_factory = aiosqlite.Row
-                async with db.execute("SELECT id, persona_id, reason, status FROM pending_evolutions WHERE status = 'pending_approval' LIMIT 10") as cursor:
+                async with db.execute("SELECT id, persona_id, reason, status FROM pending_evolutions WHERE status = 'pending_approval' ORDER BY id DESC LIMIT ? OFFSET ?", (limit, offset)) as cursor:
                     rows = await cursor.fetchall()
             
             if not rows:
-                yield event.plain_result("当前没有待审核的进化请求。")
+                if page == 1:
+                    yield event.plain_result("当前没有待审核的进化请求。")
+                else:
+                    yield event.plain_result(f"第 {page} 页尚未发现待审核的进化请求。")
                 return
             
-            result = ["待审核的进化请求列表 (前10条):"]
+            result = [f"待审核的进化请求列表 (第 {page} 页):"]
             for row in rows:
                 result.append(f"ID: {row['id']} | Persona: {row['persona_id']}\n理由: {row['reason'][:50]}")
             
-            result.append("\n如需批准，请调用 '/approve_evolution <ID>'")
+            result.append("\n如需批准，请调用 '/approve_evolution <ID>'。如需翻看下一页，请调用 '/review_evolutions <页码>'")
             yield event.plain_result("\n".join(result))
         except Exception as e:
             logger.error(f"[SelfEvolution] 获取审核列表失败: {e}")
@@ -218,22 +225,24 @@ class SelfEvolutionPlugin(Star):
         【管理员接口】批准指定 ID 的人格进化请求。
         """
         try:
+            # 阶段 1: 短连接快速读取数据
             async with aiosqlite.connect(self.db_path) as db:
                 db.row_factory = aiosqlite.Row
                 async with db.execute("SELECT persona_id, new_prompt FROM pending_evolutions WHERE id = ? AND status = 'pending_approval'", (request_id,)) as cursor:
                     row = await cursor.fetchone()
                 
-                if not row:
-                    yield event.plain_result(f"找不到待处理的请求 ID {request_id}。")
-                    return
-                
-                # 执行更新
-                await self.context.persona_manager.update_persona(
-                    persona_id=row['persona_id'],
-                    system_prompt=row['new_prompt']
-                )
-                
-                # 更新状态
+            if not row:
+                yield event.plain_result(f"找不到待处理的请求 ID {request_id}。")
+                return
+            
+            # 阶段 2: 执行耗时/外部 API 更新，脱离数据库连接池上下文，避免长期阻塞占用
+            await self.context.persona_manager.update_persona(
+                persona_id=row['persona_id'],
+                system_prompt=row['new_prompt']
+            )
+            
+            # 阶段 3: 重新建立短连接以更新结果状态
+            async with aiosqlite.connect(self.db_path) as db:
                 await db.execute("UPDATE pending_evolutions SET status = 'approved' WHERE id = ?", (request_id,))
                 await db.commit()
                 
@@ -394,34 +403,37 @@ class SelfEvolutionPlugin(Star):
             logger.error("[SelfEvolution] META_PROPOSAL_FAILED: 拦截到超过 100KB 的超长代码提案，拒绝写入以防范 DoS 风险。")
             return "为了服务器安全，代码修改提案最大限制为 100KB，你提供的代码已超出此限制，操作被拦截。"
         
+        # 剥离极高危 RCE 漏洞，改为安全保存 Diff proposal 供管理员手动审核
+        proposal_dir = self.data_dir / "code_proposals"
         try:
-            # 剥离极高危 RCE 漏洞，改为安全保存 Diff proposal 供管理员手动审核
-            proposal_dir = self.data_dir / "code_proposals"
             proposal_dir.mkdir(parents=True, exist_ok=True)
-            
-            # 防御磁盘耗尽：控制审计目录下的最大提案文件数量，滚动删除最旧文件
-            async with self._lock:
-                try:
-                    files = list(proposal_dir.glob("main_proposed_*.py"))
-                    if len(files) >= MAX_PROPOSAL_FILES:
-                        # 按时间排序，删除多余的最旧文件
-                        files.sort(key=lambda p: p.stat().st_mtime)
-                        for old_file in files[:len(files) - MAX_PROPOSAL_FILES + 1]:
-                            old_file.unlink(missing_ok=True)
-                        logger.info("[SelfEvolution] 提案数量过多，已触发机制清理陈旧代码提案文件。")
-                except Exception as e:
-                    logger.warning(f"[SelfEvolution] 清理旧提案文件失败: {e}")
+        except OSError as e:
+            logger.error(f"[SelfEvolution] 建立提案隔离目录系统级 I/O 错误: {e}")
+            return "文件系统异常导致隔离目录无法建立，请管理员检查权限。"
+        
+        # 防御磁盘耗尽：控制审计目录下的最大提案文件数量，滚动删除最旧文件
+        async with self._lock:
+            try:
+                # 修改后缀为 .proposal 去除意外 import 导致的 RCE 执行风险
+                files = list(proposal_dir.glob("main_proposed_*.proposal"))
+                if len(files) >= MAX_PROPOSAL_FILES:
+                    # 按时间排序，删除多余的最旧文件
+                    files.sort(key=lambda p: p.stat().st_mtime)
+                    for old_file in files[:len(files) - MAX_PROPOSAL_FILES + 1]:
+                        old_file.unlink(missing_ok=True)
+                    logger.info("[SelfEvolution] 提案数量过多，已触发机制清理陈旧代码提案文件。")
+            except OSError as e:
+                logger.warning(f"[SelfEvolution] 操作清理陈旧隔离文件引发操作系统异常: {e}")
 
-            # 使用 UUIDv4 作为随机文件名，彻底规避极端并发下的时间戳碰撞
-            proposal_file = proposal_dir / f"main_proposed_{uuid.uuid4().hex}.py"
+            # 使用 UUIDv4 并应用防御级安全后缀，完全阻断目录注入
+            proposal_file = proposal_dir / f"main_proposed_{uuid.uuid4().hex}.proposal"
             
-            async with self._lock:
+            try:
                 with open(proposal_file, "w", encoding="utf-8") as f:
                     f.write(new_code)
-            
-            logger.warning(f"[SelfEvolution] META_PROPOSAL: 接收到元编程修改提案！已保存供管理员审计。安全缓存于: {proposal_file}。描述: {description}")
-            return f"你的代码修改提案已经安全保存至独立审计目录中 ({proposal_file})。安全与架构团队将会审查你的代码。未通过安全评估前，新代码不会应用。提案描述：" + description
-            
-        except OSError as e:
-            logger.error(f"[SelfEvolution] 提供元编程提案生成失败 (I/O Error): {e}")
-            return "元编程提案操作触发文件系统安全阻断或 I/O 错误，请通知人类审计员排查环境限制。"
+            except OSError as e:
+                logger.error(f"[SelfEvolution] 提供元编程提案生成失败 (I/O Error): {e}")
+                return "操作系统安全限制阻断，请通知人类审计员排查文件权限树。"
+        
+        logger.warning(f"[SelfEvolution] META_PROPOSAL: 接收到元编程修改提案！已保存供管理员审计。安全缓存于: {proposal_file}。描述: {description}")
+        return f"你的代码修改提案已经安全隔离至审计目录 ({proposal_file})。安全与架构团队将会审查你的代码。未通过安全评估前，新代码不会被部署。提案描述：" + description
