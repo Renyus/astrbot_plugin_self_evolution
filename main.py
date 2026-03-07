@@ -100,16 +100,20 @@ class SelfEvolutionDAO:
                 await self._init_schema(self.db_conn)
                 
         try:
-            # 存活检测移出 _db_lock 死区，防止高频探针遭遇 SQLite 锁引发并发雪崩
-            async with self.db_conn.execute("SELECT 1") as cursor:
-                await cursor.fetchone()
+            # 存活检测移出 _db_lock 死区，防止高频探针遭遇 SQLite 锁引发并发雪崩，并增加防挂起硬超时
+            async def probe():
+                async with self.db_conn.execute("SELECT 1") as cursor:
+                    await cursor.fetchone()
+            await asyncio.wait_for(probe(), timeout=2.0)
         except Exception:
             logger.warning("[SelfEvolution] DAO: 侦测到 SQLite 长连接句柄丢失或断裂，尝试热重连机制...")
             async with self._db_lock:
-                # Double-check 预防并发协程在等待锁时已经被前面的人重设连接
+                # Double-check 预防并发协程在等待锁时已经被前面的人重设连接，同样增加时限防护
                 try:
-                    async with self.db_conn.execute("SELECT 1") as cursor:
-                        await cursor.fetchone()
+                    async def p_probe():
+                        async with self.db_conn.execute("SELECT 1") as cursor:
+                            await cursor.fetchone()
+                    await asyncio.wait_for(p_probe(), timeout=2.0)
                 except Exception:
                     if self.db_conn:
                         try:
@@ -129,14 +133,28 @@ class SelfEvolutionDAO:
         return self.db_conn
 
     async def close(self):
+        """带死锁防范的优雅停机"""
         if self._db_lock is not None:
-            async with self._db_lock:
-                if self.db_conn is not None:
+            try:
+                # 尝试拿锁，但强制赋予极短的界限，若遭遇他方恶意挂起占锁，则强行击穿进行底层脱轨回收
+                await asyncio.wait_for(self._db_lock.acquire(), timeout=3.0)
+                try:
+                    if self.db_conn is not None:
+                        try:
+                            await self.db_conn.close()
+                        except Exception:
+                            pass
+                        self.db_conn = None
+                finally:
+                    self._db_lock.release()
+            except asyncio.TimeoutError:
+                logger.error("[SelfEvolution] 紧急关闭：_db_lock 被阻断超时！强制越权解除底层 aiosqlite 绑定以防宿主平台卸载雪崩。")
+                if self.db_conn:
                     try:
                         await self.db_conn.close()
                     except Exception:
                         pass
-                    self.db_conn = None
+                self.db_conn = None
 
     @with_db_retry()
     async def add_pending_evolution(self, persona_id: str, new_prompt: str, reason: str):
