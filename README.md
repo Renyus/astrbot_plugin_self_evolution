@@ -1,4 +1,4 @@
-# [SYSTEM_CORE] 自我进化 (Self-Evolution) 插件 (v3.1.5: CognitionCore 3.5.5)
+# [SYSTEM_CORE] 自我进化 (Self-Evolution) 插件 (v3.1.6: CognitionCore 3.5.6)
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 
