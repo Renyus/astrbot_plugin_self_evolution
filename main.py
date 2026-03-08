@@ -3,245 +3,21 @@ from astrbot.api.event import filter
 from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import StarTools
 from astrbot.api import logger
-import ast
-import os
-import time
 import asyncio
 import uuid
-import aiosqlite
 from datetime import datetime
-import sys
 import inspect
 
-# 全局不可变常量提取
+# 导入模块化组件
+from .dao import SelfEvolutionDAO
+from .engine.eavesdropping import EavesdroppingEngine
+from .engine.meta_infra import MetaInfra
+
+
+# 全局不可变常量提取 (迁移至主类管理)
 ANCHOR_MARKER = "Core Safety Anchor"
 PROTECTED_TOOLS = frozenset({"toggle_tool", "list_tools", "evolve_persona", "recall_memories", "review_evolutions", "approve_evolution"})
-MAX_PROPOSAL_FILES = 50
 PAGE_LIMIT = 10
-
-DAILY_REFLECTION_PROMPT = (
-    "进行每日自我反思。请执行以下步骤：\n"
-    "1. 调取今天的对话记录摘要（如果有）。\n"
-    "2. 总结用户对你的反馈和偏好。\n"
-    "3. 思考你当前的 System Prompt 是否需要调整以更好地服务用户。\n"
-    "4. 如果需要调整，请调用 `evolve_persona` 工具提出修正建议并说明理由。"
-)
-
-
-from functools import wraps
-
-def with_db_retry(retries=3, delay=0.5):
-    """
-    异步指数退避重试装饰器，用于封装 DAO 的数据库读写。
-    消除重复样板代码，提升可维护性和 DRY 性。
-    """
-    def decorator(func):
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            for attempt in range(retries):
-                try:
-                    return await func(*args, **kwargs)
-                except Exception as e:
-                    if attempt < retries - 1:
-                        await asyncio.sleep(delay)
-                    else:
-                        raise e
-        return wrapper
-    return decorator
-
-
-class SelfEvolutionDAO:
-    def __init__(self, db_path: str):
-        self.db_path = db_path
-        self.db_conn = None
-        self._db_lock = None
-        self._write_lock = None
-
-    async def init_db(self):
-        """兼容旧接口，内部实际上已融入 get_conn 的连接池锁机制，从而规避初始化并发造成的 WAL 锁定冲突"""
-        try:
-            await self.get_conn()
-            logger.info("[SelfEvolution] DAO: 成功在长连接池状态机的保护下建立/验证数据库。")
-        except aiosqlite.Error as e:
-            logger.error(f"[SelfEvolution] DAO: 初始化 aiosqlite 数据库失败: {e}")
-
-    async def _init_schema(self, db):
-        """内部集中化执行数据库 DDL 初始构建"""
-        await db.execute('''
-            CREATE TABLE IF NOT EXISTS pending_evolutions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                persona_id TEXT NOT NULL,
-                new_prompt TEXT NOT NULL,
-                reason TEXT NOT NULL,
-                status TEXT NOT NULL
-            )
-        ''')
-        await db.execute('''
-            CREATE TABLE IF NOT EXISTS pending_reflections (
-                session_id TEXT PRIMARY KEY,
-                is_pending INTEGER NOT NULL DEFAULT 1
-            )
-        ''')
-        # CognitionCore 2.0: 情感关系矩阵表
-        await db.execute('''
-            CREATE TABLE IF NOT EXISTS user_relationships (
-                user_id TEXT PRIMARY KEY,
-                affinity_score INTEGER NOT NULL DEFAULT 50,
-                last_interaction TEXT NOT NULL
-            )
-        ''')
-        await db.commit()
-
-    async def get_conn(self):
-        """带有存活检测的全局连接获取器，兼顾长连接性能与雪崩恢复，防阻塞分离读写锁"""
-        if self._db_lock is None:
-            self._db_lock = asyncio.Lock()
-        if self._write_lock is None:
-            self._write_lock = asyncio.Lock()
-            
-        async with self._db_lock:
-            if self.db_conn is None:
-                self.db_conn = await aiosqlite.connect(self.db_path)
-                await self.db_conn.execute("PRAGMA journal_mode=WAL;")
-                self.db_conn.row_factory = aiosqlite.Row
-                await self._init_schema(self.db_conn)
-                
-        try:
-            # 存活检测移出 _db_lock 死区，防止高频探针遭遇 SQLite 锁引发并发雪崩，并增加防挂起硬超时
-            async def probe():
-                async with self.db_conn.execute("SELECT 1") as cursor:
-                    await cursor.fetchone()
-            await asyncio.wait_for(probe(), timeout=2.0)
-        except Exception:
-            logger.warning("[SelfEvolution] DAO: 侦测到 SQLite 长连接句柄丢失或断裂，尝试热重连机制...")
-            async with self._db_lock:
-                # Double-check 预防并发协程在等待锁时已经被前面的人重设连接，同样增加时限防护
-                try:
-                    async def p_probe():
-                        async with self.db_conn.execute("SELECT 1") as cursor:
-                            await cursor.fetchone()
-                    await asyncio.wait_for(p_probe(), timeout=2.0)
-                except Exception:
-                    if self.db_conn:
-                        try:
-                            # 显式关闭旧连接，确保操作系统回收底层文件描述符
-                            await self.db_conn.close()
-                        except Exception:
-                            pass
-                    try:
-                        self.db_conn = await aiosqlite.connect(self.db_path)
-                        await self.db_conn.execute("PRAGMA journal_mode=WAL;")
-                        self.db_conn.row_factory = aiosqlite.Row
-                        await self._init_schema(self.db_conn)
-                    except Exception as e:
-                        logger.error(f"[SelfEvolution] DAO重连与建表崩溃, 数据库文件极可能已被移出损毁: {e}")
-                        self.db_conn = None
-                        raise
-        return self.db_conn
-
-    async def close(self):
-        """带死锁防范的优雅停机"""
-        if self._db_lock is not None:
-            try:
-                # 尝试拿锁，但强制赋予极短的界限，若遭遇他方恶意挂起占锁，则强行击穿进行底层脱轨回收
-                await asyncio.wait_for(self._db_lock.acquire(), timeout=3.0)
-                try:
-                    if self.db_conn is not None:
-                        try:
-                            await self.db_conn.close()
-                        except Exception:
-                            pass
-                        self.db_conn = None
-                finally:
-                    self._db_lock.release()
-            except asyncio.TimeoutError:
-                logger.error("[SelfEvolution] 紧急关闭：_db_lock 被阻断超时！强制越权解除底层 aiosqlite 绑定以防宿主平台卸载雪崩。")
-                if self.db_conn:
-                    try:
-                        await self.db_conn.close()
-                    except Exception:
-                        pass
-                self.db_conn = None
-
-    @with_db_retry()
-    async def add_pending_evolution(self, persona_id: str, new_prompt: str, reason: str):
-        db = await self.get_conn()
-        async with self._write_lock:
-            await db.execute(
-                "INSERT INTO pending_evolutions (timestamp, persona_id, new_prompt, reason, status) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (datetime.now().isoformat(), persona_id, new_prompt, reason, "pending_approval")
-            )
-            await db.commit()
-
-    @with_db_retry()
-    async def get_pending_evolutions(self, limit: int, offset: int):
-        db = await self.get_conn()
-        async with db.execute("SELECT id, persona_id, reason, status FROM pending_evolutions WHERE status = 'pending_approval' ORDER BY id DESC LIMIT ? OFFSET ?", (limit, offset)) as cursor:
-            return await cursor.fetchall()
-
-    @with_db_retry()
-    async def get_evolution(self, request_id: int):
-        db = await self.get_conn()
-        async with db.execute("SELECT persona_id, new_prompt FROM pending_evolutions WHERE id = ? AND status = 'pending_approval'", (request_id,)) as cursor:
-            return await cursor.fetchone()
-
-    @with_db_retry()
-    async def update_evolution_status(self, request_id: int, status: str):
-        db = await self.get_conn()
-        async with self._write_lock:
-            await db.execute("UPDATE pending_evolutions SET status = ? WHERE id = ?", (status, request_id))
-            await db.commit()
-
-    @with_db_retry()
-    async def clear_pending_evolutions(self):
-        """批量清理（标记为已清除）所有待审批的进化请求"""
-        db = await self.get_conn()
-        async with self._write_lock:
-            await db.execute("UPDATE pending_evolutions SET status = 'cleared' WHERE status = 'pending_approval'")
-            await db.commit()
-
-    @with_db_retry()
-    async def set_pending_reflection(self, session_id: str, is_pending: bool):
-        db = await self.get_conn()
-        async with self._write_lock:
-            await db.execute(
-                "INSERT INTO pending_reflections (session_id, is_pending) VALUES (?, ?) ON CONFLICT(session_id) DO UPDATE SET is_pending=?", 
-                (session_id, int(is_pending), int(is_pending))
-            )
-            await db.commit()
-
-    @with_db_retry()
-    async def pop_pending_reflection(self, session_id: str) -> bool:
-        db = await self.get_conn()
-        async with self._write_lock:
-            cursor = await db.execute("UPDATE pending_reflections SET is_pending = 0 WHERE session_id = ? AND is_pending = 1", (session_id,))
-            await db.commit()
-            return cursor.rowcount > 0
-
-    # --- CognitionCore 2.0: 情感矩阵 DAO ---
-    @with_db_retry()
-    async def get_affinity(self, user_id: str) -> int:
-        db = await self.get_conn()
-        async with db.execute("SELECT affinity_score FROM user_relationships WHERE user_id = ?", (user_id,)) as cursor:
-            row = await cursor.fetchone()
-            return row['affinity_score'] if row else 50
-
-    @with_db_retry()
-    async def update_affinity(self, user_id: str, delta: int):
-        db = await self.get_conn()
-        from datetime import datetime
-        async with self._write_lock:
-            # 使用原子操作更新并限制在 0-100
-            await db.execute('''
-                INSERT INTO user_relationships (user_id, affinity_score, last_interaction)
-                VALUES (?, MAX(0, MIN(100, 50 + ?)), ?)
-                ON CONFLICT(user_id) DO UPDATE SET 
-                    affinity_score = MAX(0, MIN(100, affinity_score + ?)),
-                    last_interaction = ?
-            ''', (user_id, delta, datetime.now().isoformat(), delta, datetime.now().isoformat()))
-            await db.commit()
 
 @register("astrbot_plugin_self_evolution", "自我进化 (Self-Evolution)", "具备主动环境感知及插嘴引擎的 CognitionCore 3.0 数字生命。", "3.0.0")
 class SelfEvolutionPlugin(Star):
@@ -253,27 +29,6 @@ class SelfEvolutionPlugin(Star):
         if isinstance(val, str): 
             return val.lower() in ('true', '1', 'yes', 'on')
         return default
-
-    def __init__(self, context: Context, config: dict | None = None):
-        super().__init__(context)
-        self.config = config or {}
-        # 修正隐式布尔转换隐患
-        self.review_mode = self._parse_bool(self.config.get("review_mode", True), True)
-        self.memory_kb_name = self.config.get("memory_kb_name", "self_evolution_memory")
-        self.reflection_schedule = self.config.get("reflection_schedule", "0 2 * * *")
-        self.allow_meta_programming = self._parse_bool(self.config.get("allow_meta_programming", False), False)
-        self.core_principles = self.config.get("core_principles", "保持客观、理性、诚实。")
-        self.admin_users = [str(u) for u in self.config.get("admin_users", [])]
-        self.timeout_memory_commit = float(self.config.get("timeout_memory_commit", 10.0))
-        self.timeout_memory_recall = float(self.config.get("timeout_memory_recall", 12.0))
-
-        self.data_dir = StarTools.get_data_dir() / "self_evolution"
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        self._lock = None # 延迟初始化，防范无事件循环导致的 RuntimeError
-        
-        # 实例化统一的 DAO 层对象
-        db_path = self.data_dir / "pending_evolutions.db"
-        self.dao = SelfEvolutionDAO(str(db_path))
 
         # CognitionCore 3.0: 主动插嘴缓冲池
         self.buffer_threshold = int(self.config.get("buffer_threshold", 8))
@@ -371,78 +126,9 @@ class SelfEvolutionPlugin(Star):
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message_listener(self, event: AstrMessageEvent):
-        """CognitionCore 3.0: 全环境被动监听与插嘴决策"""
-        # 排除黑名单、艾特机器人的消息（艾特已由常规流程处理）
-        if event.is_at_or_wake_command: return
-        
-        session_id = event.session_id
-        user_id = event.get_sender_id()
-        score = await self.dao.get_affinity(user_id)
-        
-        if score <= 0: return # 忽略黑名单用户的闲聊
-        
-        # 维护缓冲池
-        if session_id not in self.active_buffers:
-            self.active_buffers[session_id] = []
-        
-        msg_text = event.message_str
-        sender_name = event.get_sender_name() or "Unknown"
-        self.active_buffers[session_id].append(f"{sender_name}({user_id}): {msg_text}")
-        
-        # 防止溢出
-        if len(self.active_buffers[session_id]) > self.max_buffer_size:
-            self.active_buffers[session_id].pop(0)
-            
-        # 触发评估决策
-        if len(self.active_buffers[session_id]) >= self.buffer_threshold and session_id not in self.processing_sessions:
-            # 必须用 async for 迭代异步生成器，以便将其 Yield 传递给请求流水线
-            async for result in self._evaluate_interjection(event, session_id):
-                yield result
-
-    async def _evaluate_interjection(self, event: AstrMessageEvent, session_id: str):
-        """插嘴评估层：决定是否发言"""
-        self.processing_sessions.add(session_id)
-        try:
-            buffer = self.active_buffers[session_id]
-            # 获取当前快照的快照长度
-            snap_len = len(buffer)
-            chat_history = "\n".join(buffer[:snap_len])
-            
-            # 构建决策指令
-            decision_prompt = (
-                f"你现在是黑塔的人偶辅助AI。以下是当前群聊的实时闲聊片段：\n\n{chat_history}\n\n"
-                "【决策指令】：这些人类正在聊什么？是否有嘲讽价值、技术价值或插嘴必要？\n"
-                "1. 如果话题无聊、与你无关或不值得回应，请务必仅回复：[IGNORE]\n"
-                "2. 如果决定插嘴（嘲讽、指正或附和），请直接输出插嘴的内容。语气保持毒舌或高效。"
-            )
-            
-            # 调用底层 LLM 接口
-            
-            # 由于此处是后台静默请求，需要构造一个不触发前台回复的请求
-            llm_provider = self.context.get_using_provider(event.unified_msg_origin)
-            if not llm_provider: return
-            
-            res = await llm_provider.text_chat(
-                prompt=decision_prompt,
-                contexts=[], # 不带长期记忆以减少消耗
-                system_prompt="你现在在进行后台思考，必须严格遵守指令。"
-            )
-            
-            reply_text = res.completion_text.strip()
-            
-            # 只有当模型输出不是 IGNORE 时才真实下发到聊天框
-            if reply_text and "[IGNORE]" not in reply_text:
-                logger.info(f"[CognitionCore] 主动插嘴触发！响应: {reply_text}")
-                yield event.plain_result(reply_text)
-            else:
-                logger.debug(f"[CognitionCore] 插嘴评估完毕：判断为无聊水群，选择潜水。")
-                
-            # 发言或评估后清空缓冲，【仅清空已处理的消息切片】，保留处理期间新产生的消息
-            self.active_buffers[session_id] = self.active_buffers[session_id][snap_len:]
-        except Exception as e:
-            logger.error(f"[CognitionCore] 插嘴评估过程发生异常: {e}")
-        finally:
-            self.processing_sessions.remove(session_id)
+        """CognitionCore 3.0: 被动监听转发至 EavesdroppingEngine"""
+        async for result in self.eavesdropping.handle_message(event):
+            yield result
 
     @filter.on_astrbot_loaded()
     async def on_loaded(self):
@@ -821,132 +507,19 @@ class SelfEvolutionPlugin(Star):
             return "工具切换时遭遇系统异常。"
 
     @filter.llm_tool(name="get_plugin_source")
-    async def get_plugin_source(self, event: AstrMessageEvent) -> str:
+    async def get_plugin_source(self, event: AstrMessageEvent, mod_name: str = "main") -> str:
         """
-        Level 4: 元编程。读取本插件的源码（main.py），以便进行自我分析或修改请求。
-        【极高危安全警告】：开启此功能将本插件底层源码完全暴露给大语言模型！
-        若遭遇 Prompt 注入攻击，存在引发严重核心安全越权的巨大风险，操作需极度谨慎！
+        Level 4: 元编程。读取本插件的源码，以便进行自我分析或修改请求。
+        :param str mod_name: 模块名，可选: main, dao, eavesdropping, meta_infra
         """
-        if not self.allow_meta_programming:
-            return "元编程功能未开启，无法读取源码。请在插件配置中开启“开启元编程”开关。"
-        
-        try:
-            code = inspect.getsource(sys.modules[__name__])
-            logger.warning("[SelfEvolution] META_READ: 插件源码被敏感读取！")
-            return f"本插件源码如下：\n\n```python\n{code}\n```"
-        except Exception as e:
-            logger.error(f"[SelfEvolution] 动态读取所在模块源码失败 (环境限制/编译闭源): {e}")
-            return "动态读取源码模块失败，可能是部署在了受限或闭源预编译的 Python 环境中。"
-
-    @staticmethod
-    def _validate_ast_security(new_code: str) -> str | None:
-        """AST 级别的安全校验防线与防绕过警告"""
-        try:
-            tree = ast.parse(new_code)
-            logger.warning("[SelfEvolution] 【安全审计警告】AST 白名单防线并非坚不可摧！恶意模型仍可通过复杂反射等手法试探。管理员务必保持警惕。")
-            
-            # 放宽了 OS, SYS, IMPORTLIB 等库的限制，因为高级功能与插件框架本身强依赖它们。隔离管控由人工审查兜底。
-            dangerous_modules = {'subprocess', 'shutil', 'socket', 'urllib', 'requests', 'ctypes', 'builtins'}
-            # 放宽了 getattr, setattr, delattr, open，因为大模型的 AST 常常包含自省逻辑和文件读写。
-            dangerous_funcs = {'eval', 'exec', '__import__', 'compile'}
-            
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        if alias.name.split('.')[0] in dangerous_modules:
-                            raise ValueError(f"禁止危险导入：{alias.name}")
-                elif isinstance(node, ast.ImportFrom):
-                    if node.module and node.module.split('.')[0] in dangerous_modules:
-                        raise ValueError(f"禁止危险导入：{node.module}")
-                elif isinstance(node, ast.Call):
-                    if isinstance(node.func, ast.Name) and node.func.id in dangerous_funcs:
-                        raise ValueError(f"禁止调用高危/反射函数：{node.func.id}")
-                elif isinstance(node, ast.Attribute):
-                    # 仅防御高危底层魔术属性沙盒逃逸，放开对 __class__ 或 __dict__ 的限制以支持高级面向对象编程
-                    dangerous_magic_attrs = {'__bases__', '__subclasses__', '__mro__', '__globals__', '__builtins__', '__code__', '__closure__'}
-                    if node.attr in dangerous_magic_attrs:
-                        raise ValueError(f"禁止直接访问高危魔术属性进行越界探测：{node.attr}")
-        except RecursionError:
-            logger.error("[SelfEvolution] META_PROPOSAL_FAILED: 触发 AST 解析过载堆栈深度限制防线。")
-            return "代码包含恶意深层嵌套或无限递归结构，已触发拒绝服务（DoS）深度限制防线，提案被拦截。"
-        except SyntaxError as e:
-            logger.error(f"[SelfEvolution] META_PROPOSAL_FAILED: 语法树校验异常: {e}")
-            return f"代码存在语法错误或混淆结构，被 AST 防火墙拦截: {e}"
-        except ValueError as e:
-            logger.error(f"[SelfEvolution] META_PROPOSAL_REJECTED: 阻断危险接口: {e}")
-            return f"安全防线激活：存在针对底层的敏感调用（{e}）。提案已销毁！"
-        return None
-
-    def _rotate_proposal_files(self, proposal_dir):
-        """滚动清理过旧的代码提案以免磁盘耗尽"""
-        try:
-            files = list(proposal_dir.glob("main_proposed_*.proposal"))
-            if len(files) >= MAX_PROPOSAL_FILES:
-                def safe_mtime(p):
-                    try:
-                        return p.stat().st_mtime
-                    except FileNotFoundError:
-                        return 0
-                
-                files.sort(key=safe_mtime)
-                # 安全的强截断保证只剩下最新的 MAX_PROPOSAL_FILES - 1 个文件
-                files_to_delete = files[:max(0, len(files) - MAX_PROPOSAL_FILES + 1)]
-                for old_file in files_to_delete:
-                    old_file.unlink(missing_ok=True)
-                logger.info("[SelfEvolution] 提案过多，已触发机制彻底清理所有超额陈旧代码提案文件。")
-        except OSError as e:
-            logger.warning(f"[SelfEvolution] 清理陈旧隔离文件发生操作系统异常: {e}")
+        return await self.meta_infra.get_plugin_source(mod_name)
 
     @filter.llm_tool(name="update_plugin_source")
-    async def update_plugin_source(self, event: AstrMessageEvent, new_code: str, description: str) -> str:
+    async def update_plugin_source(self, event: AstrMessageEvent, new_code: str, description: str, target_file: str = "main.py") -> str:
         """
         Level 4: 元编程。针对本插件提出代码修改建议。
-        【极高危安全警告】：此通道接受大语言模型下发的代码提议！哪怕已转为审核保存模式，也必须对 AI 提供的内容保持最高警惕。
-        注意：你不再拥有直接修改正在运行的节点源码的破坏性权限！你的代码会被保存到独立审计目录中，待人类管理员 review。
         :param str new_code: 全新的、完整的 python 代码字符串。
-        :param str description: 为什么要修改代码（修改内容摘要）。
+        :param str description: 为什么要修改代码。
+        :param str target_file: 目标文件名。
         """
-        if not self.allow_meta_programming:
-            return "元编程功能未开启，系统已拒绝源码提案修改通道。"
-        
-        # 1. 拦截超大 Payload DoS
-        max_limit_bytes = 100 * 1024
-        if len(new_code.encode('utf-8')) > max_limit_bytes:
-            logger.error("[SelfEvolution] META_PROPOSAL_FAILED: 拒绝超 100KB 的代码防 DoS。")
-            return "代码提案最大限制为 100KB，你提供的代码已超出此限制被拦截。"
-            
-        # 2. AST 校验抽离调用
-        ast_err = self._validate_ast_security(new_code)
-        if ast_err:
-            return ast_err
-        
-        # 3. 隔离目录准备
-        proposal_dir = self.data_dir / "code_proposals"
-        try:
-            proposal_dir.mkdir(parents=True, exist_ok=True)
-        except OSError as e:
-            logger.error(f"[SelfEvolution] 建立提案隔离目录系统级 I/O 错误: {e}")
-            return "文件系统异常导致隔离目录无法建立，请管理员检查权限。"
-        
-        if self._lock is None:
-            self._lock = asyncio.Lock()
-        async with self._lock:
-            # 4. 文件轮转清理抽离调用
-            self._rotate_proposal_files(proposal_dir)
-
-            # 5. 安全写入沙盒文件
-            proposal_file = proposal_dir / f"main_proposed_{uuid.uuid4().hex}.proposal"
-            try:
-                with open(proposal_file, "w", encoding="utf-8") as f:
-                    f.write(new_code)
-                os.chmod(proposal_file, 0o600)
-            except OSError as e:
-                logger.error(f"[SelfEvolution] 保存提议代码失败: {e}")
-                return "沙盒系统异常，无法保存提案到磁盘。"
-        
-        logger.info(f"[SelfEvolution] 源码提议已生成并隔离至: {proposal_file.name}")
-        return (f"你的代码修改提议已经成功保存为 {proposal_file.name} 供管理员慢慢审查。\n"
-                "⚠️【AST 自动化拦截防线脆弱性免责申明】：\n"
-                "虽然我们启用了白名单防御，但鉴于 Python 黑名单极易被高级反射手段、花块混淆和大模型魔法字符串等拼接绕过，"
-                "本插件从根本上放弃了“自动化检测能包打一切”的虚假安全感理念。\n"
-                "在此明确忠告系统管理员：对于 LLM 大模型生成的任意 Python 文件，请您【必须进行肉眼代码复审】！任何后果由管理员全盘承受。")
+        return await self.meta_infra.update_plugin_source(new_code, description, target_file)
