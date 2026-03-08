@@ -7,6 +7,7 @@ import asyncio
 import uuid
 import os
 import time
+import re
 import aiosqlite
 from datetime import datetime
 import inspect
@@ -136,6 +137,10 @@ class SelfEvolutionPlugin(Star):
     def timeout_memory_recall(self):
         return float(self.config.get("timeout_memory_recall", 12.0))
 
+    @property
+    def max_memory_entries(self):
+        return int(self.config.get("max_memory_entries", 100))
+
     def _post_init(self):
         logger.info(
             f"[SelfEvolution] === 插件初始化完成 | 模式: {'审核' if self.review_mode else '自动'} | 元编程: {self.allow_meta_programming} ==="
@@ -241,8 +246,71 @@ class SelfEvolutionPlugin(Star):
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message_listener(self, event: AstrMessageEvent):
         """CognitionCore 3.0: 被动监听转发至 EavesdroppingEngine"""
+        # 自动学习触发：检测关键场景
+        await self._auto_learn_trigger(event)
+
         async for result in self.eavesdropping.handle_message(event):
             yield result
+
+    async def _auto_learn_trigger(self, event: AstrMessageEvent):
+        """自动学习触发器：检测关键场景并自动提取记忆"""
+        msg_text = event.message_str
+        is_at = event.is_at_or_wake_command
+
+        # 检测是否为关键场景
+        is_key_scene = False
+
+        # 场景1: @AI 的消息
+        if is_at:
+            is_key_scene = True
+
+        # 场景2: 包含关键词
+        if not is_key_scene:
+            try:
+                critical_pattern = re.compile(
+                    f"({self.critical_keywords})", re.IGNORECASE
+                )
+                if critical_pattern.search(msg_text):
+                    is_key_scene = True
+            except Exception:
+                pass
+
+        # 场景3: 用户道别（记住这个用户要离开了）
+        goodbye_keywords = ["再见", "拜拜", "走了", "下线", "休息", "睡觉", "晚安"]
+        if not is_key_scene and any(kw in msg_text for kw in goodbye_keywords):
+            is_key_scene = True
+
+        # 场景4: 用户表达偏好（喜欢/讨厌/想要）
+        preference_keywords = [
+            "我喜欢",
+            "我讨厌",
+            "我想要",
+            "我喜欢",
+            "我不喜欢",
+            "我想要",
+        ]
+        if not is_key_scene and any(kw in msg_text for kw in preference_keywords):
+            is_key_scene = True
+
+        # 如果是关键场景，自动提取记忆
+        if is_key_scene:
+            try:
+                key_info = f"用户说: {msg_text}"
+                sender_name = event.get_sender_name() or "未知用户"
+                formatted_fact = (
+                    f"【记忆条目-自动学习】\n"
+                    f"来源: {event.unified_msg_origin}\n"
+                    f"说话者: {sender_name} (ID: {event.get_sender_id()})\n"
+                    f"群/私聊: {event.get_group_id() or '私聊'}\n"
+                    f"内容: {msg_text}\n"
+                    f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                )
+                await self._do_commit_memory(event, formatted_fact, is_auto=True)
+                logger.info(
+                    f"[SelfEvolution] 自动学习：已提取关键内容: {msg_text[:30]}..."
+                )
+            except Exception as e:
+                logger.warning(f"[SelfEvolution] 自动学习触发失败: {e}")
 
     @filter.on_astrbot_loaded()
     async def on_loaded(self):
@@ -287,7 +355,7 @@ class SelfEvolutionPlugin(Star):
         # [大赦天下]: 每日自动回复所有黑名单用户 2 点好感度，直到恢复到 50 (中立)
         await self.dao.recover_all_affinity(recovery_amount=2)
         logger.info(
-            "[SelfEvolution] 已执行每日“大赦天下”：所有负面评分用户好感度已小幅回升。"
+            '[SelfEvolution] 已执行每日"大赦天下"：所有负面评分用户好感度已小幅回升。'
         )
 
     @filter.command("reflect")
@@ -331,7 +399,7 @@ class SelfEvolutionPlugin(Star):
         """
         if not event.is_admin():
             yield event.plain_result(
-                f"错误：权限不足。只有管理员能干涉 {self.persona_name} 的‘情感矩阵’。"
+                f"错误：权限不足。只有管理员能干涉 {self.persona_name} 的'情感矩阵'。"
             )
             return
 
@@ -364,7 +432,7 @@ class SelfEvolutionPlugin(Star):
         """
         当你认为需要调整自己的语言风格、行为准则或遵循用户的改进建议时，调用此工具来修改你的系统提示词（Persona）。
         :param str new_system_prompt: 新的完整系统提示词（System Prompt）。
-        :param str reason: 为什么要进行这次进化（理由）。你必须在理由中明确说明这次修改如何符合你的“核心原则”。
+        :param str reason: 为什么要进行这次进化（理由）。你必须在理由中明确说明这次修改如何符合你的"核心原则"。
         :return: 进化结果反馈字符串。
         """
         # 兼容性修复：尝试获取当前人格 ID。部分平台 event 对象可能没有 persona_id 属性
@@ -573,9 +641,28 @@ class SelfEvolutionPlugin(Star):
         :param str fact: 需要记住的具体事实或信息。
         :return: 库位存入状态字符串。
         """
+        sender_id = event.get_sender_id()
+        sender_name = event.get_sender_name() or "未知用户"
+        group_id = event.get_group_id() or "私聊"
+        unified_msg_origin = event.unified_msg_origin
+
+        formatted_fact = (
+            f"【记忆条目】\n"
+            f"来源: {unified_msg_origin}\n"
+            f"说话者: {sender_name} (ID: {sender_id})\n"
+            f"群/私聊: {group_id}\n"
+            f"内容: {fact}\n"
+            f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+
+        return await self._do_commit_memory(event, formatted_fact)
+
+    async def _do_commit_memory(
+        self, event: AstrMessageEvent, formatted_fact: str, is_auto: bool = False
+    ) -> str:
+        """执行实际的存入记忆逻辑（包含去重和自动清理）"""
         kb_manager = self.context.kb_manager
         try:
-            # 防御隐性网络延迟，动态读取配置的硬超时
             kb_helper = await asyncio.wait_for(
                 kb_manager.get_kb_by_name(self.memory_kb_name),
                 timeout=self.timeout_memory_commit,
@@ -598,14 +685,51 @@ class SelfEvolutionPlugin(Star):
             )
 
         try:
+            # 记忆去重：检查是否已存在相似内容
+            try:
+                check_results = await asyncio.wait_for(
+                    kb_manager.retrieve(
+                        query=formatted_fact[:100],
+                        kb_names=[self.memory_kb_name],
+                        top_m_final=3,
+                    ),
+                    timeout=5.0,
+                )
+                if check_results and check_results.get("results"):
+                    for r in check_results.get("results", []):
+                        if r.get("text") and formatted_fact[:50] in r.get("text", ""):
+                            logger.info(
+                                f"[SelfEvolution] 记忆去重：检测到相似内容已存在，跳过存入。"
+                            )
+                            return "已存在相似记忆，无需重复存储。"
+            except asyncio.TimeoutError:
+                pass
+            except Exception as e:
+                logger.warning(f"[SelfEvolution] 记忆去重检查失败: {e}")
+
+            # 自动清理：检查记忆数量，超过上限时删除最旧的
+            max_memory_entries = getattr(self, "max_memory_entries", 100)
+            try:
+                docs = await kb_helper.list_documents()
+                if docs and len(docs) >= max_memory_entries:
+                    oldest_doc = min(docs, key=lambda d: d.get("created_at", ""))
+                    if oldest_doc.get("doc_id"):
+                        await kb_helper.delete_document(oldest_doc["doc_id"])
+                        logger.info(
+                            f"[SelfEvolution] 自动清理：已删除最旧的记忆条目 {oldest_doc.get('doc_id')}"
+                        )
+            except Exception as e:
+                logger.warning(f"[SelfEvolution] 自动清理失败: {e}")
+
+            # 存入记忆
             await kb_helper.upload_document(
                 file_name=f"memory_{int(time.time() * 1000)}.txt",
                 file_content=b"",
                 file_type="txt",
-                pre_chunked_text=[fact],
+                pre_chunked_text=[formatted_fact],
             )
             logger.info(
-                f"[SelfEvolution] MEMORY_COMMIT: 成功存入一条长期记忆: {fact[:30]}..."
+                f"[SelfEvolution] MEMORY_COMMIT: 成功存入一条长期记忆: {formatted_fact[:50]}..."
             )
             return "事实已成功存入长期记忆库，我以后会记得这件事的。"
         except (TimeoutError, ConnectionError) as e:
@@ -647,6 +771,179 @@ class SelfEvolutionPlugin(Star):
             f"[SelfEvolution] MEMORY_RECALL: 记忆检索成功。查询: {query} -> 找到 {len(results.get('results', []))} 条结果。"
         )
         return f"从我的长期记忆中找到了以下内容：\n\n{context_text}"
+
+    @filter.llm_tool(name="learn_from_context")
+    async def learn_from_context(
+        self, event: AstrMessageEvent, key_info: str = ""
+    ) -> str:
+        """
+        从当前对话中自动提取关键信息并存入长期记忆。当你发现用户表达了重要偏好、约定或事实时调用此工具。
+        :param str key_info: 需要记住的关键信息（如果留空，将自动提取当前对话中的关键内容）。
+        :return: 学习结果的状态字符串。
+        """
+        sender_name = event.get_sender_name() or "未知用户"
+        sender_id = event.get_sender_id()
+        group_id = event.get_group_id() or "私聊"
+        unified_msg_origin = event.unified_msg_origin
+        message_text = event.message_str
+
+        fact = key_info if key_info else f"用户在当前对话中提到: {message_text}"
+
+        formatted_fact = (
+            f"【记忆条目-对话学习】\n"
+            f"来源: {unified_msg_origin}\n"
+            f"说话者: {sender_name} (ID: {sender_id})\n"
+            f"群/私聊: {group_id}\n"
+            f"内容: {fact}\n"
+            f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+
+        return await self._do_commit_memory(event, formatted_fact, is_auto=True)
+
+    @filter.llm_tool(name="clear_all_memory")
+    async def clear_all_memory(
+        self, event: AstrMessageEvent, confirm: bool = False
+    ) -> str:
+        """
+        清空指定知识库中的所有记忆条目。谨慎使用！
+        :param bool confirm: 必须传入 true 才能执行清空操作（防止误操作）。
+        :return: 操作结果的状态字符串。
+        """
+        if not confirm:
+            return "请传入 confirm=true 确认要清空全部记忆，例如: clear_all_memory(confirm=true)"
+
+        kb_manager = self.context.kb_manager
+        try:
+            kb_helper = await asyncio.wait_for(
+                kb_manager.get_kb_by_name(self.memory_kb_name),
+                timeout=self.timeout_memory_commit,
+            )
+        except Exception as e:
+            logger.error(f"[SelfEvolution] 获取知识库失败: {e}")
+            return f"获取知识库失败: {e}"
+
+        if not kb_helper:
+            return f"未找到名为 {self.memory_kb_name} 的记忆知识库"
+
+        try:
+            docs = await kb_helper.list_documents()
+            if not docs:
+                return "记忆库已经是空的了。"
+
+            deleted_count = 0
+            for doc in docs:
+                try:
+                    if doc.get("doc_id"):
+                        await kb_helper.delete_document(doc["doc_id"])
+                        deleted_count += 1
+                except Exception as e:
+                    logger.warning(f"[SelfEvolution] 删除记忆条目失败: {e}")
+
+            logger.info(f"[SelfEvolution] 清空记忆：成功删除 {deleted_count} 条记忆")
+            return f"已成功清空 {deleted_count} 条记忆条目。"
+        except Exception as e:
+            logger.error(f"[SelfEvolution] 清空记忆失败: {e}")
+            return f"清空记忆失败: {e}"
+
+    @filter.llm_tool(name="list_memories")
+    async def list_memories(self, event: AstrMessageEvent, limit: int = 10) -> str:
+        """
+        列出当前存储在知识库中的记忆条目。
+        :param int limit: 最多显示的记忆条目数量，默认10条。
+        :return: 记忆条目列表。
+        """
+        kb_manager = self.context.kb_manager
+        try:
+            kb_helper = await asyncio.wait_for(
+                kb_manager.get_kb_by_name(self.memory_kb_name), timeout=5.0
+            )
+        except Exception as e:
+            return f"获取知识库失败: {e}"
+
+        if not kb_helper:
+            return f"未找到名为 {self.memory_kb_name} 的记忆知识库"
+
+        try:
+            docs = await kb_helper.list_documents()
+            if not docs:
+                return "记忆库中还没有任何记忆。"
+
+            docs = docs[:limit]
+            result = [f"当前记忆库共有 {len(docs)} 条记忆（显示前 {len(docs)} 条）："]
+            for i, doc in enumerate(docs, 1):
+                doc_name = doc.get("doc_name", "未知")
+                created_at = doc.get("created_at", "未知时间")
+                result.append(f"{i}. {doc_name} (创建于: {created_at})")
+
+            return "\n".join(result)
+        except Exception as e:
+            logger.error(f"[SelfEvolution] 列出记忆失败: {e}")
+            return f"列出记忆失败: {e}"
+
+    @filter.llm_tool(name="delete_memory")
+    async def delete_memory(self, event: AstrMessageEvent, doc_id: str) -> str:
+        """
+        删除知识库中的单条记忆。
+        :param str doc_id: 要删除的记忆条目ID。
+        :return: 操作结果的状态字符串。
+        """
+        kb_manager = self.context.kb_manager
+        try:
+            kb_helper = await asyncio.wait_for(
+                kb_manager.get_kb_by_name(self.memory_kb_name), timeout=5.0
+            )
+        except Exception as e:
+            return f"获取知识库失败: {e}"
+
+        if not kb_helper:
+            return f"未找到名为 {self.memory_kb_name} 的记忆知识库"
+
+        try:
+            await kb_helper.delete_document(doc_id)
+            logger.info(f"[SelfEvolution] 删除记忆：成功删除 doc_id={doc_id}")
+            return f"已成功删除记忆条目 {doc_id}。"
+        except Exception as e:
+            logger.error(f"[SelfEvolution] 删除记忆失败: {e}")
+            return f"删除记忆失败: {e}"
+
+    @filter.llm_tool(name="auto_recall")
+    async def auto_recall(self, event: AstrMessageEvent, topic: str = "") -> str:
+        """
+        当检测到当前对话涉及历史记忆时，主动将相关记忆注入上下文。
+        :param str topic: 当前对话涉及的话题关键词（如果留空，将使用当前消息内容）。
+        :return: 相关记忆内容或"无相关记忆"的提示。
+        """
+        query = topic if topic else event.message_str
+
+        kb_manager = self.context.kb_manager
+        try:
+            results = await asyncio.wait_for(
+                kb_manager.retrieve(
+                    query=query, kb_names=[self.memory_kb_name], top_m_final=3
+                ),
+                timeout=self.timeout_memory_recall,
+            )
+        except asyncio.TimeoutError:
+            return "检索记忆超时，请稍后重试。"
+        except Exception as e:
+            logger.error(f"[SelfEvolution] auto_recall 失败: {e}")
+            return "检索记忆时发生异常。"
+
+        if not results or not results.get("results"):
+            return "当前对话未涉及任何历史记忆。"
+
+        context_text = results.get("context_text", "")
+        logger.info(
+            f"[SelfEvolution] AUTO_RECALL: 找到 {len(results.get('results', []))} 条相关记忆"
+        )
+
+        return (
+            f"【相关记忆触发】\n"
+            f"当前话题: {query}\n"
+            f"--- 历史记忆 ---\n{context_text}\n"
+            f"----------------\n"
+            f"以上是与你当前话题相关的记忆，请结合这些信息回复用户。"
+        )
 
     @filter.llm_tool(name="list_tools")
     async def list_tools(self, event: AstrMessageEvent) -> str:

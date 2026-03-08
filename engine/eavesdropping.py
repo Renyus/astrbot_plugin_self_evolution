@@ -40,10 +40,22 @@ class EavesdroppingEngine:
         # --- 缓冲池逻辑 ---
         if session_id not in self.plugin.active_buffers:
             self.plugin.active_buffers[session_id] = []
+            self.plugin._session_speakers = getattr(
+                self.plugin, "_session_speakers", {}
+            )
+            if session_id not in self.plugin._session_speakers:
+                self.plugin._session_speakers[session_id] = {}
 
         sender_name = event.get_sender_name() or "Unknown"
+        sender_id = event.get_sender_id()
+
+        speaker_map = self.plugin._session_speakers[session_id]
+        if sender_id not in speaker_map:
+            speaker_map[sender_id] = len(speaker_map) + 1
+        speaker_num = speaker_map[sender_id]
+
         self.plugin.active_buffers[session_id].append(
-            f"{sender_name}({user_id}): {msg_text}"
+            f"[群成员{speaker_num}]{sender_name}({sender_id}): {msg_text}"
         )
 
         if len(self.plugin.active_buffers[session_id]) > self.plugin.max_buffer_size:
@@ -69,8 +81,17 @@ class EavesdroppingEngine:
 
             # 如果是强制立即评估，优先针对当前单条消息
             snap_len = 0
+            sender_name = event.get_sender_name() or "Unknown"
+            sender_id = event.get_sender_id()
+            speaker_map = getattr(self.plugin, "_session_speakers", {}).get(
+                session_id, {}
+            )
+            if sender_id not in speaker_map:
+                speaker_map[sender_id] = len(speaker_map) + 1
+            speaker_num = speaker_map[sender_id]
+
             if force_immediate:
-                chat_history = f"{event.get_sender_name()}({event.get_sender_id()}): {event.message_str}"
+                chat_history = f"[群成员{speaker_num}]{sender_name}({sender_id}): {event.message_str}"
             else:
                 snap_len = len(buffer)
                 chat_history = "\n".join(buffer[:snap_len])
@@ -78,7 +99,7 @@ class EavesdroppingEngine:
             # 使用动态的人设配置构建决策指令 (CognitionCore 5.5)
             decision_prompt = (
                 f"你现在是 {self.plugin.persona_name}（{self.plugin.persona_title}），特点是：{self.plugin.persona_style}。\n"
-                f"【当前社交阈值】：你的“发言意愿”设定为 {self.plugin.interjection_desire}/10。数值越低你越冷漠，只有越重要的话题才值得你开口。\n"
+                f'【当前社交阈值】：你的"发言意愿"设定为 {self.plugin.interjection_desire}/10。数值越低你越冷漠，只有越重要的话题才值得你开口。\n'
                 "【后台监控任务】：评估以下实时对话片段，决定是否需要以你的身份进行[即时干预]。\n\n"
                 f"--- 监控片段 ---\n{chat_history}\n----------------\n\n"
                 "【严格执行指令】：\n"
@@ -89,9 +110,9 @@ class EavesdroppingEngine:
                 "2. **干预判定 [COMMENT]**：唯有满足以下任一条件，方可输出你的简练评论：\n"
                 "   - 话题触及你的核心关键词（如：模拟宇宙、技术原理、空间站管理、或特定的研究话题）。\n"
                 "   - 对方在发表明显的逻辑谬误或常识性错误，让你感到不屑并想纠正。\n"
-                "   - 对话中出现了让你觉得真正“有趣”或具备“研究价值”的信息流。\n"
+                '   - 对话中出现了让你觉得真正"有趣"或具备"研究价值"的信息流。\n'
                 f"3. **表达风格**：回复必须极度简略（通常不超过 20 字），语气要冷淡且专业，像真正的 {self.plugin.persona_name} 一样。\n"
-                "【禁止事项】：**绝对禁止**发表类似“对话缺乏信息密度”、“建议继续检测”、“监控显示...”等关于后台评估过程本身的任何评论。你的回复是发给群聊中用户的，而不是给系统的报告。如果你认为话题无聊，必须直接回复 [IGNORE]。"
+                '【禁止事项】：**绝对禁止**发表类似"对话缺乏信息密度"、"建议继续检测"、"监控显示..."等关于后台评估过程本身的任何评论。你的回复是发给群聊中用户的，而不是给系统的报告。如果你认为话题无聊，必须直接回复 [IGNORE]。'
             )
 
             llm_provider = self.plugin.context.get_using_provider(
@@ -114,7 +135,7 @@ class EavesdroppingEngine:
 
             reply_text = res.completion_text.strip()
 
-            # 增加元评论硬过滤防线：防止 LLM 以“监测报告”形式回复
+            # 增加元评论硬过滤防线：防止 LLM 以"监测报告"形式回复
             meta_indicators = [
                 "监测",
                 "监控",

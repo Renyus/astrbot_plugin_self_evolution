@@ -88,5 +88,11 @@
         "description": "数值越高，机器人越倾向于主动介入对话。1 为极度冷淡，10 为高度活跃。默认 5。",
         "type": "int",
         "default": 5
+    },
+    "max_memory_entries": {
+        "title": "记忆库最大条目数",
+        "description": "知识库中最多存储的记忆条目数量。超过时自动删除最旧的记忆。默认 100。",
+        "type": "int",
+        "default": 100
     }
 }

@@ -1,4 +1,4 @@
-# [SYSTEM_CORE] 自我进化 (Self-Evolution) 插件 (v3.2.6: CognitionCore 5.5)
+# [SYSTEM_CORE] 自我进化 (Self-Evolution) 插件 (v3.2.7: CognitionCore 5.5)
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 
@@ -80,7 +80,20 @@
 
 本项目的所有重大更改都将记录在此文件中。
  
-## [3.2.6] - 2026-03-08
+## [3.2.7] - 2026-03-08
+### 新增 (New Features)
+- **对话幻觉修复**: 修复群聊中多人说话时 AI 混淆说话者的问题，现在每条消息都会标注说话者身份 `[群成员N]`
+- **记忆存取优化**: 
+  - 存入记忆时自动添加说话者ID、群ID、时间等元信息
+  - 新增记忆去重功能，避免重复存储相似内容
+  - 新增自动清理功能，超过上限时自动删除最旧记忆
+- **新增 LLM 工具**:
+  - `learn_from_context`: 从当前对话提取关键信息存入记忆
+  - `clear_all_memory`: 清空知识库全部记忆
+  - `list_memories`: 列出当前记忆条目
+  - `delete_memory`: 删除单条记忆
+  - `auto_recall`: 主动关联回忆
+- **自动学习触发**: 检测关键场景（@AI、关键词、告别、表达偏好）时自动提取记忆
 ### 修复 (Bug Fix)
 - **代码审计修复**: 修复 `on_plugin_unloaded` 回调签名错误，应接收 `metadata` 参数而非 `AstrMessageEvent`
 - **防御性编程**: 添加 `config` 为 `None` 时的默认空字典处理
@@ -89,7 +102,7 @@
 - **初始化优化**: 添加 `initialize()` 方法确保插件加载时 DAO 数据库正确初始化
 - **变量初始化**: 修复 `snap_len` 变量在某些分支下未初始化的问题
 
-## [3.2.0] - 2026-03-08
+## [3.2.6] - 2026-03-08
 ### 重大更新 (Major Update)
 - **CognitionCore 5.0 "人设去中心化"**: 彻底移除了代码中所有关于"黑塔"人设的硬编码字符串。现在支持通过配置面板自定义**机器人名称**、**身份头衔**以及**插嘴风格导语**，使插件能够适配任何虚拟人格。
 ### 优化 (Optimization)
