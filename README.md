@@ -1,4 +1,4 @@
-# [SYSTEM_CORE] 自我进化 (Self-Evolution) 插件 (v3.1.0: CognitionCore 3.5)
+# [SYSTEM_CORE] 自我进化 (Self-Evolution) 插件 (v3.1.5: CognitionCore 3.5.5)
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 
@@ -33,8 +33,10 @@
 
 ### 五、 情感拦截与主动插嘴 (CognitionCore 3.0)
 黑塔不再只是一个被动应答的工具，而是具有“好感度矩阵”和“环境观察”能力的实体：
-- **情感矩阵 (Emotional Firewall)**：当用户出言不逊，大语言模型会调用 `update_affinity` 静默扣除积分。当积分 $\le 0$ 时，底层逻辑将在 `on_llm_request` 阶段实施**零消耗代码级物理熔断**，拒绝为其提供算力。
-- **环境监听与主动插嘴 (Active Eavesdropping)**：黑塔会在内存池中默默“偷听”群聊内容（屏蔽已熔断用户）。当积满一定阈值，后台静默评估该话题是否具有价值。如果有，黑塔将不请自来，突然在群里发出无情嘲讽或提供硬核协助。
+- **情感矩阵 (Emotional Firewall)**：当用户出言不逊，大语言模型会调用 `update_affinity` 静默扣除积分。当积分 $\le 0$ 时，实施**零消耗代码级物理熔断**。
+- **身分隔离补丁 (v3.1.5)**：增强了群聊环境下的身份归因，防止模型将他人的恶意投射到无辜用户身上。
+- **大赦天下机制**：好感度降至 0 后并非永久封禁。系统每天凌晨会自动恢复少量积分，实现自动化解锁。
+- **环境监听与主动插嘴 (Active Eavesdropping)**：黑塔会在内存池中默默“偷听”并适时介入（禁止 RP 动作说明以保持高效气质）。
 
 ---
 
@@ -66,6 +68,7 @@
 - `/approve_evolution [请求ID]`：**批准**某项进化审核，人格设定（System Prompt）将立即获得更新。
 - `/reject_evolution [请求ID]`：**拒绝**该进化提议，并将其从审核队列中永久移除。
 - `/clear_evolutions`：**一键清空**所有待审核的进化请求，用于快速清理不再需要的历史提案。
+- `/set_affinity [用户ID] [分数]`：**管理员特权**。手动修正指定用户的好感度评分，用于误伤打捞或特殊激励。
 - `/affinity`：**查看好感度**。查询个人在当前系统内积累的实时好感度评分与系统判定阵营。
 
 ### 提示：关于元编程代码提议
