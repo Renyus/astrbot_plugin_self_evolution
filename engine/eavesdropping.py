@@ -73,7 +73,8 @@ class EavesdroppingEngine:
                 "   - 话题触及你的核心关键词（如：模拟宇宙、技术原理、空间站管理、或特定的研究话题）。\n"
                 "   - 对方在发表明显的逻辑谬误或常识性错误，让你感到不屑并想纠正。\n"
                 "   - 对话中出现了让你觉得真正“有趣”或具备“研究价值”的信息流。\n"
-                f"3. **表达风格**：回复必须极度简略（通常不超过 20 字），语气要冷淡且专业，像真正的 {self.plugin.persona_name} 一样。"
+                f"3. **表达风格**：回复必须极度简略（通常不超过 20 字），语气要冷淡且专业，像真正的 {self.plugin.persona_name} 一样。\n"
+                "【禁止事项】：**绝对禁止**发表类似“对话缺乏信息密度”、“建议继续检测”、“监控显示...”等关于后台评估过程本身的任何评论。你的回复是发给群聊中用户的，而不是给系统的报告。如果你认为话题无聊，必须直接回复 [IGNORE]。"
             )
             
             llm_provider = self.plugin.context.get_using_provider(event.unified_msg_origin)
@@ -91,11 +92,16 @@ class EavesdroppingEngine:
             
             reply_text = res.completion_text.strip()
             
-            if reply_text and "[IGNORE]" not in reply_text:
+            # 增加元评论硬过滤防线：防止 LLM 以“监测报告”形式回复
+            meta_indicators = ["监测", "监控", "信息密度", "忽略协议", "评估结果", "当前对话"]
+            is_meta = any(indicator in reply_text for indicator in meta_indicators) and len(reply_text) > 15
+            
+            if reply_text and "[IGNORE]" not in reply_text and not is_meta:
                 logger.info(f"[CognitionCore] 插嘴评估通过！响应: {reply_text}")
                 yield event.plain_result(reply_text)
             else:
-                logger.info(f"[CognitionCore] 插嘴评估未通过：判定为噪音或无价值交互。")
+                reason = "判定为噪音/无价值" if "[IGNORE]" in reply_text else "触发元评论拦截" if is_meta else "内容为空"
+                logger.info(f"[CognitionCore] 插嘴评估未通过：{reason}。")
                 
             # 非强制模式下才清空缓冲切片
             if not force_immediate:
