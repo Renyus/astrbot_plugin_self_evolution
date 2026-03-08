@@ -13,9 +13,11 @@ class EavesdroppingEngine:
         msg_text = event.message_str
         is_at = event.is_at_or_wake_command
         
-        logger.debug(f"[CognitionCore] 收到消息: '{msg_text}' | At/Wake: {is_at}")
+        logger.info(f"[CognitionCore] 收到消息: '{msg_text}' | At/Wake: {is_at}")
         
-        if is_at: return
+        if is_at:
+            logger.info("[CognitionCore] 检测到唤醒词/At，由标准流程处理。")
+            return
         session_id = event.session_id
         user_id = event.get_sender_id()
         score = await self.plugin.dao.get_affinity(user_id)
@@ -26,7 +28,7 @@ class EavesdroppingEngine:
         # 从配置中动态编译关键词正则
         critical_pattern = re.compile(f"({self.plugin.critical_keywords})", re.IGNORECASE)
         if critical_pattern.search(msg_text):
-            logger.debug(f"[CognitionCore] 预扫描命中：消息包含本体属性关键词，立即触发评估。")
+            logger.info(f"[CognitionCore] 预扫描命中词库: '{self.plugin.critical_keywords}'，强制立即触发评估。")
             async for result in self._evaluate_interjection(event, session_id, force_immediate=True):
                 yield result
             return # 命中后直接处理，不再重复进入普通缓冲逻辑

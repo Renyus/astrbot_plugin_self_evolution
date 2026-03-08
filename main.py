@@ -85,6 +85,7 @@ class SelfEvolutionPlugin(Star):
         CognitionCore 2.0: 情感拦截与身份感知注入。
         级别: Level 3+
         """
+        logger.info(f"[CognitionCore] 进入 LLM 请求拦截层。用户: {event.get_sender_id()} | 消息: '{event.message_str}'")
         user_id = event.get_sender_id()
         
         # 1. 情感矩阵拦截：节省 Token
