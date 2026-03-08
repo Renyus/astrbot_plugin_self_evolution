@@ -1,6 +1,10 @@
 # [SYSTEM_CORE] 自我进化 (Self-Evolution) 插件 (v3.0.0: CognitionCore 3.0)
 
+[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
+
 这是一个面向 AstrBot 深度定制的高阶 AI 心智模型插件。经过长达 24 轮深度的底层架构重构与安全对抗测试，它赋予了大语言模型在对话中**自我迭代反思**、**跨会话长期记忆**、**动态技能管理**，乃至最高级的 **代码级自我元编程** 能力。
+
+> ⚠️ **非商业性使用声明 (Non-Commercial Use Only)**: 本项目采用 [CC BY-NC 4.0 (知识共享署名-非商业性使用 4.0 国际许可协议)](LICENSE) 进行授权。任何人均可自由学习、修改和分发本源代码，但**严禁将本插件或其衍生版本用于任何商业盈利目的**（包括但不限于：付费售后、闭源售卖、企业级部署收费等）。
 
 ## /// 核心理念与功能特性 (ARCHITECTURE)
 
