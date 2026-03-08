@@ -18,6 +18,8 @@ ANCHOR_MARKER = "Core Safety Anchor"
 PROTECTED_TOOLS = frozenset({"toggle_tool", "list_tools", "evolve_persona", "recall_memories", "review_evolutions", "approve_evolution"})
 MAX_PROPOSAL_FILES = 50
 PAGE_LIMIT = 10
+BUFFER_THRESHOLD = 8 # 缓冲池达到 8 条消息时触发插嘴评估
+MAX_BUFFER_SIZE = 20 # 缓冲池硬上限，防止内存泄漏
 
 DAILY_REFLECTION_PROMPT = (
     "进行每日自我反思。请执行以下步骤：\n"
@@ -243,7 +245,7 @@ class SelfEvolutionDAO:
             ''', (user_id, delta, datetime.now().isoformat(), delta, datetime.now().isoformat()))
             await db.commit()
 
-@register("astrbot_plugin_self_evolution", "自我进化 (Self-Evolution)", "具备 CognitionCore 2.0 高级认知引擎的黑塔人偶辅助 AI。", "2.3.0")
+@register("astrbot_plugin_self_evolution", "自我进化 (Self-Evolution)", "具备主动环境感知及插嘴引擎的 CognitionCore 3.0 数字生命。", "3.0.0")
 class SelfEvolutionPlugin(Star):
     @staticmethod
     def _parse_bool(val, default):
@@ -273,7 +275,13 @@ class SelfEvolutionPlugin(Star):
         
         # 实例化统一的 DAO 层对象
         db_path = self.data_dir / "pending_evolutions.db"
-        self.dao = SelfEvolutionDAO(db_path)
+        self.dao = SelfEvolutionDAO(str(db_path))
+
+        # CognitionCore 3.0: 主动插嘴缓冲池
+        self.active_buffers = {} # {session_id: [messages]}
+        self.processing_sessions = set() # 正在处理插嘴决策的会话
+        
+        logger.info("[CognitionCore] 3.0 引擎初始化完成。主动环境感知已就绪。")
         
         self.daily_reflection_pending = False
         
@@ -378,6 +386,78 @@ class SelfEvolutionPlugin(Star):
             )
             req.system_prompt += injection
             logger.debug("[SelfEvolution] 已在上下文中注入常驻辩证反省指令。")
+
+    @filter.on_message()
+    async def on_message_listener(self, event: AstrMessageEvent):
+        """CognitionCore 3.0: 全环境被动监听与插嘴决策"""
+        # 排除黑名单、艾特机器人的消息（艾特已由常规流程处理）
+        if event.get_mention_project_id() or event.is_admin(): return
+        
+        session_id = event.session_id
+        user_id = event.get_sender_id()
+        score = await self.dao.get_affinity(user_id)
+        
+        if score <= 0: return # 忽略黑名单用户的闲聊
+        
+        # 维护缓冲池
+        if session_id not in self.active_buffers:
+            self.active_buffers[session_id] = []
+        
+        msg_text = event.message_str
+        sender_name = getattr(event, "sender_name", "Unknown")
+        self.active_buffers[session_id].append(f"{sender_name}({user_id}): {msg_text}")
+        
+        # 防止溢出
+        if len(self.active_buffers[session_id]) > MAX_BUFFER_SIZE:
+            self.active_buffers[session_id].pop(0)
+            
+        # 触发评估决策
+        if len(self.active_buffers[session_id]) >= BUFFER_THRESHOLD and session_id not in self.processing_sessions:
+            asyncio.create_task(self._evaluate_interjection(event, session_id))
+
+    async def _evaluate_interjection(self, event: AstrMessageEvent, session_id: str):
+        """插嘴评估层：决定是否发言"""
+        self.processing_sessions.add(session_id)
+        try:
+            buffer = self.active_buffers[session_id]
+            chat_history = "\n".join(buffer)
+            
+            # 构建决策指令
+            decision_prompt = (
+                f"你现在是黑塔的人偶辅助AI。以下是当前群聊的实时闲聊片段：\n\n{chat_history}\n\n"
+                "【决策指令】：这些人类正在聊什么？是否有嘲讽价值、技术价值或插嘴必要？\n"
+                "1. 如果话题无聊、与你无关或不值得回应，请务必仅回复：[IGNORE]\n"
+                "2. 如果决定插嘴（嘲讽、指正或附和），请直接输出插嘴的内容。语气保持毒舌或高效。"
+            )
+            
+            # 调用底层 LLM 接口
+            provider = self.context.get_str_config_value("provider", "default")
+            
+            # 由于此处是后台静默请求，需要构造一个不触发前台回复的 Request
+            llm_request = ProviderRequest(
+                system_prompt=decision_prompt,
+                contexts=[], # 可以不带长期记忆以减少消耗
+                image_urls=[]
+            )
+            
+            llm_provider = self.context.get_current_provider()
+            res = await llm_provider.request(llm_request)
+            
+            reply_text = res.get("text", "").strip()
+            
+            # 只有当模型输出不是 IGNORE 时才真实下发到聊天框
+            if reply_text and "[IGNORE]" not in reply_text:
+                logger.info(f"[CognitionCore] 主动插嘴触发！响应: {reply_text}")
+                yield event.plain_result(reply_text)
+            else:
+                logger.debug(f"[CognitionCore] 插嘴评估完毕：判断为无聊水群，选择潜水。")
+                
+            # 发言或评估后清空缓冲，避免陷入循环
+            self.active_buffers[session_id] = []
+        except Exception as e:
+            logger.error(f"[CognitionCore] 插嘴评估过程发生异常: {e}")
+        finally:
+            self.processing_sessions.remove(session_id)
 
     @filter.on_astrbot_loaded()
     async def on_loaded(self):
