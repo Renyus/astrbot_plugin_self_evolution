@@ -55,12 +55,12 @@ class EavesdroppingEngine:
                 snap_len = len(buffer)
                 chat_history = "\n".join(buffer[:snap_len])
             
-            # 保留 v3.1.6 的安全加固提示词
+            # 使用动态的人设配置构建决策指令
             decision_prompt = (
-                f"你现在是黑塔（人偶负责人）。以下是实时群聊监控片段：\n\n{chat_history}\n\n"
+                f"你现在是{self.plugin.persona_name}（{self.plugin.persona_title}）。以下是实时群聊监控片段：\n\n{chat_history}\n\n"
                 "【执行指令】：作为高维观察者，由于当前属于监听模式，请评估是否有必要介入？\n"
                 "1. 如果属于无意义的闲聊、重复信息或与你无关，请务必回复：[IGNORE]\n"
-                "2. 如果发现具备深度讨论潜力的技术话题、错误信息或值得互动的有趣节点，请直接输出你的简练评论。语气保持理性、犀利且专业。禁止使用括号说明动作描述。"
+                f"2. 如果发现具备深度讨论潜力的技术话题、错误信息或值得互动的有趣节点，请直接输出你的简练评论。语气保持{self.plugin.persona_style}。禁止使用括号说明动作描述。"
             )
             
             llm_provider = self.plugin.context.get_using_provider(event.unified_msg_origin)
@@ -69,7 +69,7 @@ class EavesdroppingEngine:
             res = await llm_provider.text_chat(
                 prompt=decision_prompt,
                 contexts=[], # 不带长期记忆以减少消耗
-                system_prompt="你现在在进行后台数据自省与决策评估。请严格遵守 [IGNORE] 输出协议。"
+                system_prompt=f"你现在在进行后台数据自省与决策评估。你的人设是{self.plugin.persona_name}。请严格遵守 [IGNORE] 输出协议。"
             )
             
             reply_text = res.completion_text.strip()

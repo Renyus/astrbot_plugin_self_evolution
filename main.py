@@ -58,6 +58,9 @@ class SelfEvolutionPlugin(Star):
         self.buffer_threshold = int(config.get("buffer_threshold", 8))
         self.max_buffer_size = int(config.get("max_buffer_size", 20))
         self.critical_keywords = config.get("critical_keywords", "黑塔|空间站|人偶|天才|模拟宇宙|研究|论文|技术|算力|数据")
+        self.persona_name = config.get("persona_name", "黑塔")
+        self.persona_title = config.get("persona_title", "人偶负责人")
+        self.persona_style = config.get("persona_style", "理性、犀利且专业")
         self.active_buffers = {} # {session_id: [msg_list]}
         self.processing_sessions = set()
         self._lock = None # 用于元编程写锁
@@ -209,14 +212,14 @@ class SelfEvolutionPlugin(Star):
 
     @filter.command("affinity")
     async def check_affinity(self, event: AstrMessageEvent):
-        """查询黑塔对你的当前好感度（仅限CognitionCore 2.0+）。"""
+        """查询机器人对你的当前好感度。"""
         user_id = event.get_sender_id()
         score = await self.dao.get_affinity(user_id)
         
         status = "信任" if score >= 80 else "友好" if score >= 60 else "中立" if score >= 40 else "敌对"
         if score <= 0: status = "【已熔断/彻底拉黑】"
         
-        yield event.plain_result(f"UID: {user_id}\n情感矩阵评分: {score}/100\n分类状态: {status}")
+        yield event.plain_result(f"UID: {user_id}\n{self.persona_name} 的情感矩阵评分: {score}/100\n分类状态: {status}")
 
     @filter.command("set_affinity")
     async def set_affinity(self, event: AstrMessageEvent, user_id: str, score: int):
@@ -225,7 +228,7 @@ class SelfEvolutionPlugin(Star):
         用法: /set_affinity [用户ID] [分数(0-100)]
         """
         if not event.is_admin():
-            yield event.plain_result("错误：权限不足。只有管理员能干涉黑塔的‘情感矩阵’。")
+            yield event.plain_result(f"错误：权限不足。只有管理员能干涉 {self.persona_name} 的‘情感矩阵’。")
             return
             
         await self.dao.reset_affinity(user_id, score)
