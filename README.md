@@ -1,4 +1,4 @@
-# [SYSTEM_CORE] 自我进化 (Self-Evolution) 插件 (v3.2.11: CognitionCore 5.6)
+# [SYSTEM_CORE] 自我进化 (Self-Evolution) 插件 (v3.2.12: CognitionCore 5.6)
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 
@@ -80,15 +80,12 @@
 
 本项目的所有重大更改都将记录在此文件中。
  
+## [3.2.12] - 2026-03-08
+### 重构 (Refactor)
+- **记忆存储重构**: 改用知识库按用户/群汇总存储（memory_user_xxx, memory_group_xxx），替代之前的单条存储
+- **删除冗余代码**: 移除 `_append_chat_history` 本地文件存储和 `read_chat_history` 工具
+
 ## [3.2.11] - 2026-03-08
-### 新增 (New Features)
-- **聊天历史记录**: 按群号/用户ID生成聊天记录文件（data/self_evolution/group_群号.txt 或 private_用户ID.txt）
-- **新增 LLM 工具**: `read_chat_history` - 让AI可以读取当前群聊或私聊的历史记录进行总结学习
-
-### 优化 (Optimization)
-- 移除了之前的冷却时间机制，改为更智能的聊天历史记录方式
-
-## [3.2.10] - 2026-03-08
 ### 新增 (New Features)
 - **自动记忆检索与注入**: 每次对话时自动检索相关记忆并注入到 LLM 上下文，无需 LLM 手动调用工具即可"想起"之前记住的内容
 
