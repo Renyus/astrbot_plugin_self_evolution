@@ -213,7 +213,7 @@ class SelfEvolutionDAO:
             return cursor.rowcount > 0
 
 
-@register("astrbot_plugin_self_evolution", "自我进化 (Self-Evolution)", "让大模型具备自我迭代、记忆沉淀和人格进化能力的插件。", "2.2.0")
+@register("astrbot_plugin_self_evolution", "自我进化 (Self-Evolution)", "让大模型具备自我迭代、记忆沉淀和人格进化能力的插件。", "2.2.1")
 class SelfEvolutionPlugin(Star):
     @staticmethod
     def _parse_bool(val, default):
@@ -269,19 +269,47 @@ class SelfEvolutionPlugin(Star):
         """
         # --- [Meta-Programming 注入] 身份与环境感知 ---
         sender_id = event.get_sender_id()
+        
+        # 增强身份识别逻辑：优先使用群名片，其次是用户昵称
         sender_name = "Unknown User"
+        sender_card = None
         if hasattr(event, "sender_name") and event.sender_name:
             sender_name = event.sender_name
         
+        # 获取群名片（QQ群特有）
+        if hasattr(event.message_obj, "card") and event.message_obj.card:
+            sender_card = event.message_obj.card
+            sender_name = sender_card
+            
+        # 获取群角色信息
+        role_info = ""
         is_group = False
-        group_id = "N/A"
         if hasattr(event.message_obj, "group_id") and event.message_obj.group_id:
             is_group = True
-            group_id = event.message_obj.group_id
+            if hasattr(event.message_obj, "role"):
+                role = event.message_obj.role
+                if role == "owner": role_info = "（群主）"
+                elif role == "admin": role_info = "（管理员）"
+        
+        # 提取引用消息信息（回复了谁）
+        quoted_info = ""
+        if hasattr(event.message_obj, "source") and event.message_obj.source:
+            source = event.message_obj.source
+            if hasattr(source, "name"):
+                quoted_info = f"，你正在回复 {source.name} 的消息"
+            elif hasattr(source, "user_id"):
+                quoted_info = f"，你正在回复用户 {source.user_id} 的消息"
+        
+        # 提取@信息
+        at_info = ""
+        if hasattr(event.message_obj, "at") and event.message_obj.at:
+            at_targets = event.message_obj.at
+            at_info = f"，消息中提到了: {at_targets}"
             
-        context_info = f"\n\n[当前交互上下文环境信息]：\n- 发送者ID: {sender_id}\n- 发送者昵称: {sender_name}\n"
+        # 构造上下文注入
+        context_info = f"\n\n[当前交互上下文环境信息]：\n- 发送者ID: {sender_id}\n- 发送者昵称: {sender_name}{role_info}\n"
         if is_group:
-            context_info += f"- 来源：群聊 (群组ID: {group_id})\n"
+            context_info += f"- 来源：群聊\n- 交互上下文: 你{quoted_info}{at_info}\n"
         else:
             context_info += "- 来源：私聊\n"
         
