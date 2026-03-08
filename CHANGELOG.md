@@ -12,7 +12,16 @@
 - **UI 配置暴露**:
   - 将 `buffer_threshold` (自省评估触发阈值，默认 8) 和 `max_buffer_size` (强制滚动清除上限，默认 20) 直接暴露融合到 AstrBot 的前端配置面板，支持系统级热重载调节。
 - **后台控制指令**:
-  - `/affinity`：允许群聊或私聊对象主动查询自己在黑塔“情感矩阵表”中的实时积分及分类状态（例如：敌对或信任）。
+  - **CC BY-NC 4.0 知识共享协议实装**: 为项目增加了全中文版开源许可证，明确禁止商业化使用，并为原作者提供法律层面的免责保护。
+- **主动评估队列机制 (Snapshot Queue)**: 解决了在 LLM 思考期间新入消息会被吞掉的并发 Bug。
+
+### 修复 (Fixed)
+- **AstrBot v4.19.2+ API 深度兼容**: 
+  - 修复了被弃用的 `filter.on_message`（现已改用 `event_message_type(ALL)`）。
+  - 修复了不存在的方法 `get_mention_project_id`（改为 `is_at_or_wake_command`）。
+  - 修复了错误的 `Context` 对象方法 `get_current_provider`（改为 `get_using_provider`）。
+  - 修正了 `AstrMessageEvent` 的消息链解析逻辑，不再依赖非法属性。
+- **拦截逻辑逻辑优化**: 移除了会对管理员消息进行拦截的错误逻辑，使“插嘴引擎”也能捕捉到管理员的闲聊片段。
 
 ## [2.3.0] - 2026-03-08
 ### 重大更新 (Major Update)
