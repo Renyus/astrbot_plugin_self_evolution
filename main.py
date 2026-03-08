@@ -387,7 +387,7 @@ class SelfEvolutionPlugin(Star):
             req.system_prompt += injection
             logger.debug("[SelfEvolution] 已在上下文中注入常驻辩证反省指令。")
 
-    @filter.on_message()
+    @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message_listener(self, event: AstrMessageEvent):
         """CognitionCore 3.0: 全环境被动监听与插嘴决策"""
         # 排除黑名单、艾特机器人的消息（艾特已由常规流程处理）
