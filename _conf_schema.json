@@ -19,7 +19,7 @@
     },
     "allow_meta_programming": {
         "title": "开启元编程 (危险)",
-        "description": "开启后，大模型将有权通过工具阅读和修改本插件的源码。请谨慎开启！",
+        "description": "开启后，大模型将有权通过工具阅读 and 修改本插件的源码。请谨慎开启！",
         "type": "bool",
         "default": false
     },
@@ -82,5 +82,11 @@
         "description": "决定机器人插嘴时的语气。例如：理性、犀利且专业",
         "type": "string",
         "default": "理性、犀利且专业"
+    },
+    "interjection_desire": {
+        "title": "插嘴意愿指数 (1-10)",
+        "description": "数值越高，机器人越倾向于主动介入对话。1 为极度冷淡，10 为高度活跃。默认 5。",
+        "type": "int",
+        "default": 5
     }
 }
