@@ -373,7 +373,7 @@ class SelfEvolutionPlugin(Star):
     async def on_message_listener(self, event: AstrMessageEvent):
         """CognitionCore 3.0: 全环境被动监听与插嘴决策"""
         # 排除黑名单、艾特机器人的消息（艾特已由常规流程处理）
-        if event.is_at_or_wake_command or event.is_admin(): return
+        if event.is_at_or_wake_command: return
         
         session_id = event.session_id
         user_id = event.get_sender_id()
@@ -395,7 +395,9 @@ class SelfEvolutionPlugin(Star):
             
         # 触发评估决策
         if len(self.active_buffers[session_id]) >= self.buffer_threshold and session_id not in self.processing_sessions:
-            asyncio.create_task(self._evaluate_interjection(event, session_id))
+            # 必须用 async for 迭代异步生成器，以便将其 Yield 传递给请求流水线
+            async for result in self._evaluate_interjection(event, session_id):
+                yield result
 
     async def _evaluate_interjection(self, event: AstrMessageEvent, session_id: str):
         """插嘴评估层：决定是否发言"""
