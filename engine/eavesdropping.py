@@ -48,7 +48,9 @@ class EavesdroppingEngine:
 
     async def _evaluate_interjection(self, event: AstrMessageEvent, session_id: str, force_immediate: bool = False):
         """插嘴评估层：增加强制立即评估逻辑，并保留安全风控加固"""
+        logger.critical(f"[CognitionCore] 启动插嘴决策评估. 模式: {'强制立即' if force_immediate else '缓冲队列'}")
         if session_id in self.plugin.processing_sessions:
+            logger.critical(f"[CognitionCore] 会话 {session_id} 正在处理中，跳过本次评估。")
             return
             
         self.plugin.processing_sessions.add(session_id)
@@ -71,8 +73,11 @@ class EavesdroppingEngine:
             )
             
             llm_provider = self.plugin.context.get_using_provider(event.unified_msg_origin)
-            if not llm_provider: return
+            if not llm_provider: 
+                logger.critical("[CognitionCore] 错误：无法获取当前的 LLM Provider！")
+                return
             
+            logger.critical(f"[CognitionCore] 正在请求 LLM 决策自省... Prompt长度: {len(decision_prompt)}")
             res = await llm_provider.text_chat(
                 prompt=decision_prompt,
                 contexts=[], # 不带长期记忆以减少消耗
@@ -80,12 +85,13 @@ class EavesdroppingEngine:
             )
             
             reply_text = res.completion_text.strip()
+            logger.critical(f"[CognitionCore] LLM 决策返回结果: '{reply_text}'")
             
             if reply_text and "[IGNORE]" not in reply_text:
-                logger.info(f"[CognitionCore] 主动插嘴触发！响应: {reply_text}")
+                logger.critical(f"[CognitionCore] 插嘴评估通过！准备下发响应。")
                 yield event.plain_result(reply_text)
             else:
-                logger.debug(f"[CognitionCore] 插嘴评估完毕：判断为无需介入。")
+                logger.critical(f"[CognitionCore] 插嘴评估未通过：LLM 判断为无需介入或触发了忽略协议。")
                 
             # 非强制模式下才清空缓冲切片
             if not force_immediate:
