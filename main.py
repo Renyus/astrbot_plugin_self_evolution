@@ -30,18 +30,37 @@ class SelfEvolutionPlugin(Star):
             return val.lower() in ('true', '1', 'yes', 'on')
         return default
 
-        # CognitionCore 3.0: 主动插嘴缓冲池
-        self.buffer_threshold = int(self.config.get("buffer_threshold", 8))
-        self.max_buffer_size = int(self.config.get("max_buffer_size", 20))
-        self.active_buffers = {} # {session_id: [messages]}
-        self.processing_sessions = set() # 正在处理插嘴决策的会话
+    def __init__(self, context: Context, config: dict):
+        super().__init__(context, config)
+        self.data_dir = self.context.get_data_dir()
+        db_path = os.path.join(self.data_dir, "self_evolution.db")
         
-        logger.info(f"[CognitionCore] 3.0 引擎初始化完成。主动环境感知就绪 (触发阈值: {self.buffer_threshold})。")
+        # 初始化模块化组件
+        self.dao = SelfEvolutionDAO(db_path)
+        self.eavesdropping = EavesdroppingEngine(self)
+        self.meta_infra = MetaInfra(self)
         
+        # 配置与状态加载
+        self.review_mode = self._parse_bool(config.get("review_mode"), True)
+        self.memory_kb_name = config.get("memory_kb_name", "self_evolution_memory")
+        self.reflection_schedule = config.get("reflection_schedule", "0 2 * * *")
+        self.allow_meta_programming = self._parse_bool(config.get("allow_meta_programming"), False)
+        self.core_principles = config.get("core_principles", "保持理性、诚实、守法。")
+        self.admin_users = config.get("admin_users", [])
+        
+        # 兼容性修复：从配置中提取 Token 超时设置
+        self.timeout_memory_commit = float(config.get("timeout_memory_commit", 10.0))
+        self.timeout_memory_recall = float(config.get("timeout_memory_recall", 12.0))
+        
+        # CognitionCore 3.0: 缓冲池配置
+        self.buffer_threshold = int(config.get("buffer_threshold", 8))
+        self.max_buffer_size = int(config.get("max_buffer_size", 20))
+        self.active_buffers = {} # {session_id: [msg_list]}
+        self.processing_sessions = set()
+        self._lock = None # 用于元编程写锁
         self.daily_reflection_pending = False
         
-        logger.info(f"[SelfEvolution] === 插件初始化 | review_mode={self.review_mode} | meta_programming={self.allow_meta_programming} ===")
-        logger.info(f"[SelfEvolution] 数据存储路径加载至: {self.data_dir}")
+        logger.info(f"[SelfEvolution] === 插件初始化完成 | 模式: {'审核' if self.review_mode else '自动'} | 元编程: {self.allow_meta_programming} ===")
 
     @filter.on_plugin_unloaded()
     async def on_plugin_unloaded(self, event: AstrMessageEvent):
