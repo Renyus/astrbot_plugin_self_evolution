@@ -1,4 +1,4 @@
-# [SYSTEM_CORE] 自我进化 (Self-Evolution) 插件 (v3.2.14: CognitionCore 5.6)
+# [SYSTEM_CORE] 自我进化 (Self-Evolution) 插件 (v3.3.0: CognitionCore 6.0)
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 
@@ -79,7 +79,14 @@
 如果开启了元编程且 AI 成功通过了所有的层级风控，新代码将会被安全停驻在您的 `AstrBot/data/self_evolution/code_proposals/` 目录中。
 
 本项目的所有重大更改都将记录在此文件中。
- 
+
+## [3.3.0] - 2026-03-09
+### 重构 (Refactor)
+- **代码解耦**: 将记忆管理和人格进化功能拆分为独立模块
+  - `engine/memory.py`: 记忆管理模块
+  - `engine/persona.py`: 人格进化管理模块
+- 优化代码结构，提升可维护性
+
 ## [3.2.14] - 2026-03-08
 ### 优化 (Optimization)
 - **记忆检索逻辑优化**: 
