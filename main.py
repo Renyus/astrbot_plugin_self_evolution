@@ -49,17 +49,11 @@ class SelfEvolutionPlugin(Star):
             logger.error(f"[SelfEvolution] 核心组件初始化失败: {e}")
             raise e
         
-        # 配置与状态加载
-        self.review_mode = self._parse_bool(config.get("review_mode"), True)
-        self.memory_kb_name = config.get("memory_kb_name", "self_evolution_memory")
-        self.reflection_schedule = config.get("reflection_schedule", "0 2 * * *")
-        self.allow_meta_programming = self._parse_bool(config.get("allow_meta_programming"), False)
-        self.core_principles = config.get("core_principles", "保持理性、诚实、守法。")
-        self.admin_users = config.get("admin_users", [])
-        
-        # 兼容性修复：从配置中提取 Token 超时设置
-        self.timeout_memory_commit = float(config.get("timeout_memory_commit", 10.0))
-        self.timeout_memory_recall = float(config.get("timeout_memory_recall", 12.0))
+        # CognitionCore 3.0: 状态容器
+        self.active_buffers = {} # {session_id: [msg_list]}
+        self.processing_sessions = set()
+        self._lock = None # 用于元编程写锁
+        self.daily_reflection_pending = False
         
         # CognitionCore 3.0: 状态容器
         self.active_buffers = {} # {session_id: [msg_list]}
@@ -81,6 +75,22 @@ class SelfEvolutionPlugin(Star):
     def buffer_threshold(self): return int(self.config.get("buffer_threshold", 8))
     @property
     def max_buffer_size(self): return int(self.config.get("max_buffer_size", 20))
+    @property
+    def review_mode(self): return self._parse_bool(self.config.get("review_mode"), True)
+    @property
+    def memory_kb_name(self): return self.config.get("memory_kb_name", "self_evolution_memory")
+    @property
+    def reflection_schedule(self): return self.config.get("reflection_schedule", "0 2 * * *")
+    @property
+    def allow_meta_programming(self): return self._parse_bool(self.config.get("allow_meta_programming"), False)
+    @property
+    def core_principles(self): return self.config.get("core_principles", "保持理性、诚实、守法。")
+    @property
+    def admin_users(self): return self.config.get("admin_users", [])
+    @property
+    def timeout_memory_commit(self): return float(self.config.get("timeout_memory_commit", 10.0))
+    @property
+    def timeout_memory_recall(self): return float(self.config.get("timeout_memory_recall", 12.0))
         
         logger.info(f"[SelfEvolution] === 插件初始化完成 | 模式: {'审核' if self.review_mode else '自动'} | 元编程: {self.allow_meta_programming} ===")
 
