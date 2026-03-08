@@ -1,4 +1,4 @@
-# [SYSTEM_CORE] 自我进化 (Self-Evolution) 插件 (v3.2.9: CognitionCore 5.6)
+# [SYSTEM_CORE] 自我进化 (Self-Evolution) 插件 (v3.2.10: CognitionCore 5.6)
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 
@@ -80,11 +80,12 @@
 
 本项目的所有重大更改都将记录在此文件中。
  
-## [3.2.9] - 2026-03-08
+## [3.2.10] - 2026-03-08
 ### 优化 (Optimization)
-- **记忆延迟检索**: 这次存储记忆后，下次对话时才会检索，避免"刚说就想起"的尴尬
+- **记忆存储冷却**: 添加冷却时间机制，防止短时间内频繁存储相同用户的记忆（默认10分钟）
+- **配置项**: 新增 `memory_cool_down` 配置项
 
-## [3.2.8] - 2026-03-08
+## [3.2.9] - 2026-03-08
 ### 新增 (New Features)
 - **自动记忆检索与注入**: 每次对话时自动检索相关记忆并注入到 LLM 上下文，无需 LLM 手动调用工具即可"想起"之前记住的内容
 

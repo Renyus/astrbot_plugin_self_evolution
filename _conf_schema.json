@@ -94,5 +94,11 @@
         "description": "知识库中最多存储的记忆条目数量。超过时自动删除最旧的记忆。默认 100。",
         "type": "int",
         "default": 100
+    },
+    "memory_cool_down": {
+        "title": "记忆存储冷却时间(秒)",
+        "description": "同一用户触发自动学习的冷却时间，防止短时间内频繁存储。默认 600 秒(10分钟)。",
+        "type": "int",
+        "default": 600
     }
 }

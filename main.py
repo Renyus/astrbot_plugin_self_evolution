@@ -37,7 +37,7 @@ PAGE_LIMIT = 10
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "具备主动环境感知及插嘴引擎的 CognitionCore 3.0 数字生命。",
-    "3.2.9",
+    "3.2.10",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
@@ -74,6 +74,7 @@ class SelfEvolutionPlugin(Star):
         self._lock = None  # 用于元编程写锁
         self.daily_reflection_pending = False
         self._just_stored_memory = False  # 这次存储，下次检索
+        self._memory_cool_down = {}  # {user_id: last_store_time} 防止频繁存储
 
     @property
     def persona_name(self):
@@ -141,6 +142,10 @@ class SelfEvolutionPlugin(Star):
     @property
     def max_memory_entries(self):
         return int(self.config.get("max_memory_entries", 100))
+
+    @property
+    def memory_cool_down(self):
+        return int(self.config.get("memory_cool_down", 600))
 
     def _post_init(self):
         logger.info(
@@ -339,18 +344,29 @@ class SelfEvolutionPlugin(Star):
         # 如果是关键场景，自动提取记忆
         if is_key_scene:
             try:
+                sender_id = event.get_sender_id()
+                current_time = time.time()
+                cool_down_seconds = self.memory_cool_down  # 从配置读取冷却时间
+
+                # 检查冷却时间
+                last_store_time = self._memory_cool_down.get(sender_id, 0)
+                if current_time - last_store_time < cool_down_seconds:
+                    logger.info(f"[SelfEvolution] 自动学习：冷却中，跳过存储。")
+                    return
+
                 key_info = f"用户说: {msg_text}"
                 sender_name = event.get_sender_name() or "未知用户"
                 formatted_fact = (
                     f"【记忆条目-自动学习】\n"
                     f"来源: {event.unified_msg_origin}\n"
-                    f"说话者: {sender_name} (ID: {event.get_sender_id()})\n"
+                    f"说话者: {sender_name} (ID: {sender_id})\n"
                     f"群/私聊: {event.get_group_id() or '私聊'}\n"
                     f"内容: {msg_text}\n"
                     f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                 )
                 await self._do_commit_memory(event, formatted_fact, is_auto=True)
                 self._just_stored_memory = True  # 设置标志，下次对话时再检索
+                self._memory_cool_down[sender_id] = current_time  # 更新冷却时间
                 logger.info(
                     f"[SelfEvolution] 自动学习：已提取关键内容: {msg_text[:30]}..."
                 )
