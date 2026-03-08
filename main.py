@@ -35,6 +35,7 @@ class SelfEvolutionPlugin(Star):
 
     def __init__(self, context: Context, config: dict):
         super().__init__(context, config)
+        self.config = config # 显式存储配置引用以支持动态属性
         self.data_dir = StarTools.get_data_dir() / "self_evolution"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         db_path = os.path.join(self.data_dir, "self_evolution.db")
@@ -48,12 +49,6 @@ class SelfEvolutionPlugin(Star):
         except Exception as e:
             logger.error(f"[SelfEvolution] 核心组件初始化失败: {e}")
             raise e
-        
-        # CognitionCore 3.0: 状态容器
-        self.active_buffers = {} # {session_id: [msg_list]}
-        self.processing_sessions = set()
-        self._lock = None # 用于元编程写锁
-        self.daily_reflection_pending = False
         
         # CognitionCore 3.0: 状态容器
         self.active_buffers = {} # {session_id: [msg_list]}
