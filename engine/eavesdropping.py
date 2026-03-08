@@ -5,9 +5,6 @@ from astrbot.api.all import AstrMessageEvent
 logger = logging.getLogger("astrbot")
 
 class EavesdroppingEngine:
-    # 预定义的本体属性关键词（轻量级正则）
-    CRITICAL_KEYWORDS = re.compile(r"(黑塔|空间站|人偶|天才|模拟宇宙|研究|论文|技术|算力|数据)", re.IGNORECASE)
-
     def __init__(self, plugin):
         self.plugin = plugin
 
@@ -23,7 +20,9 @@ class EavesdroppingEngine:
         if score <= 0: return 
 
         # --- 意图预扫描层 (Intent Pre-scan) ---
-        if self.CRITICAL_KEYWORDS.search(msg_text):
+        # 从配置中动态编译关键词正则
+        critical_pattern = re.compile(f"({self.plugin.critical_keywords})", re.IGNORECASE)
+        if critical_pattern.search(msg_text):
             logger.debug(f"[CognitionCore] 预扫描命中：消息包含本体属性关键词，立即触发评估。")
             async for result in self._evaluate_interjection(event, session_id, force_immediate=True):
                 yield result

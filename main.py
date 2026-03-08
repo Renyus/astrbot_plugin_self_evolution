@@ -57,6 +57,7 @@ class SelfEvolutionPlugin(Star):
         # CognitionCore 3.0: 缓冲池配置
         self.buffer_threshold = int(config.get("buffer_threshold", 8))
         self.max_buffer_size = int(config.get("max_buffer_size", 20))
+        self.critical_keywords = config.get("critical_keywords", "黑塔|空间站|人偶|天才|模拟宇宙|研究|论文|技术|算力|数据")
         self.active_buffers = {} # {session_id: [msg_list]}
         self.processing_sessions = set()
         self._lock = None # 用于元编程写锁
