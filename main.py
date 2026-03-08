@@ -37,7 +37,7 @@ PAGE_LIMIT = 10
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "具备主动环境感知及插嘴引擎的 CognitionCore 3.0 数字生命。",
-    "3.2.8",
+    "3.2.9",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
@@ -73,6 +73,7 @@ class SelfEvolutionPlugin(Star):
         self.processing_sessions = set()
         self._lock = None  # 用于元编程写锁
         self.daily_reflection_pending = False
+        self._just_stored_memory = False  # 这次存储，下次检索
 
     @property
     def persona_name(self):
@@ -248,6 +249,14 @@ class SelfEvolutionPlugin(Star):
 
     async def _auto_recall_inject(self, event: AstrMessageEvent, req: ProviderRequest):
         """自动检索记忆并注入到 LLM 上下文中"""
+        # 如果这次刚存储了记忆，跳过检索（延迟到下次对话）
+        if self._just_stored_memory:
+            logger.info(
+                "[SelfEvolution] 刚存储记忆，跳过本次检索，等待下次对话时回忆。"
+            )
+            self._just_stored_memory = False
+            return
+
         try:
             kb_manager = self.context.kb_manager
             query = event.message_str
@@ -341,6 +350,7 @@ class SelfEvolutionPlugin(Star):
                     f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                 )
                 await self._do_commit_memory(event, formatted_fact, is_auto=True)
+                self._just_stored_memory = True  # 设置标志，下次对话时再检索
                 logger.info(
                     f"[SelfEvolution] 自动学习：已提取关键内容: {msg_text[:30]}..."
                 )
