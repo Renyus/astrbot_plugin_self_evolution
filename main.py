@@ -213,7 +213,7 @@ class SelfEvolutionDAO:
             return cursor.rowcount > 0
 
 
-@register("astrbot_plugin_self_evolution", "自我进化 (Self-Evolution)", "让大模型具备自我迭代、记忆沉淀和人格进化能力的插件。", "2.1.0")
+@register("astrbot_plugin_self_evolution", "自我进化 (Self-Evolution)", "让大模型具备自我迭代、记忆沉淀和人格进化能力的插件。", "2.1.1")
 class SelfEvolutionPlugin(Star):
     @staticmethod
     def _parse_bool(val, default):
@@ -244,6 +244,8 @@ class SelfEvolutionPlugin(Star):
         # 实例化统一的 DAO 层对象
         db_path = self.data_dir / "pending_evolutions.db"
         self.dao = SelfEvolutionDAO(db_path)
+        
+        self.daily_reflection_pending = False
         
         logger.info(f"[SelfEvolution] === 插件初始化 | review_mode={self.review_mode} | meta_programming={self.allow_meta_programming} ===")
         logger.info(f"[SelfEvolution] 数据存储路径加载至: {self.data_dir}")
@@ -276,6 +278,16 @@ class SelfEvolutionPlugin(Star):
             )
             req.system_prompt += reflection_prompt
             logger.debug(f"[SelfEvolution] 已向 session_id:{session_id} 隐式发起了强制后台自省指令。")
+            
+        if getattr(self, "daily_reflection_pending", False):
+            self.daily_reflection_pending = False
+            reflection_prompt = (
+                "\n\n[管理员后台指令]：定时自省任务已触发。请在本次回复中，针对近期整体交互记录进行一次深度的客观自我反思。"
+                "不仅要评估你的各项表现，更要思考是否需要通过 `evolve_persona` 工具请求调整自己的人格原则，"
+                "或使用 `commit_to_memory` 留存重大信息。"
+            )
+            req.system_prompt += reflection_prompt
+            logger.info("[SelfEvolution] 通过定时任务触发全局自省，注入 Prompt。")
         
         # 系统核心锚点 (优化为更自然柔和的引导，响应设计优雅性反馈)
         if ANCHOR_MARKER not in req.system_prompt:
@@ -293,34 +305,31 @@ class SelfEvolutionPlugin(Star):
         """
         try:
             cron_mgr = self.context.cron_manager
-            # 检查是否已经存在该任务
-            jobs = await cron_mgr.list_jobs(job_type="active_agent")
+            jobs = await cron_mgr.list_jobs(job_type="basic")
             job_name = "SelfEvolution_DailyReflection"
             
             target_job = next((job for job in jobs if job.name == job_name), None)
             if target_job:
-                # 如果存在，可以更新它（比如用户改了 Cron 表达式）
-                # 这里简单处理：如果已存在且表达式变化，则删除重加
                 if target_job.cron_expression != self.reflection_schedule:
                     await cron_mgr.delete_job(target_job.job_id)
                 else:
                     return
 
-            # 添加新的主动自省任务
-            await cron_mgr.add_active_job(
+            await cron_mgr.add_basic_job(
                 name=job_name,
                 cron_expression=self.reflection_schedule,
-                payload={
-                    "note": DAILY_REFLECTION_PROMPT,
-                    # 在实际部署中，可能需要关联一个具体的管理员 session 或默认 session
-                    # 暂时保持默认，由主 Agent 根据上下文决定
-                },
-                description="自我进化插件：每日定时深度自省与人格进化申请。"
+                handler=self._scheduled_reflection,
+                description="自我进化插件：每日定时深度自省标记。"
             )
             logger.info(f"[SelfEvolution] 已注册定时自省任务: {self.reflection_schedule}")
             
         except Exception as e:
             logger.error(f"[SelfEvolution] 注册定时任务失败: {e}")
+
+    async def _scheduled_reflection(self):
+        """定时任务回调函数"""
+        self.daily_reflection_pending = True
+        logger.info("[SelfEvolution] 每日反思定时任务已触发，将在下一次对话时顺带执行深层内省。")
         
         # 异步初始化长期存储
         await self.dao.init_db()
