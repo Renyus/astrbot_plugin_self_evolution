@@ -37,7 +37,7 @@ PAGE_LIMIT = 10
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "具备主动环境感知及插嘴引擎的 CognitionCore 3.0 数字生命。",
-    "3.2.7",
+    "3.2.8",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
@@ -242,6 +242,41 @@ class SelfEvolutionPlugin(Star):
             )
             req.system_prompt += injection
             logger.debug("[SelfEvolution] 已在上下文中注入常驻辩证反省指令。")
+
+        # 4. 自动记忆检索与注入 (Auto-Recall)
+        await self._auto_recall_inject(event, req)
+
+    async def _auto_recall_inject(self, event: AstrMessageEvent, req: ProviderRequest):
+        """自动检索记忆并注入到 LLM 上下文中"""
+        try:
+            kb_manager = self.context.kb_manager
+            query = event.message_str
+
+            if not query or len(query.strip()) < 2:
+                return
+
+            results = await asyncio.wait_for(
+                kb_manager.retrieve(
+                    query=query, kb_names=[self.memory_kb_name], top_m_final=3
+                ),
+                timeout=self.timeout_memory_recall,
+            )
+
+            if results and results.get("results"):
+                context_text = results.get("context_text", "")
+                if context_text:
+                    memory_injection = (
+                        f"\n\n[长期记忆检索结果]：\n{context_text}\n"
+                        "请结合以上记忆信息回复用户。如果记忆内容与当前对话无关，请忽略。"
+                    )
+                    req.system_prompt += memory_injection
+                    logger.info(
+                        f"[SelfEvolution] 自动记忆注入成功：{len(results.get('results', []))} 条相关记忆"
+                    )
+        except asyncio.TimeoutError:
+            logger.warning("[SelfEvolution] 自动记忆检索超时，已跳过注入。")
+        except Exception as e:
+            logger.warning(f"[SelfEvolution] 自动记忆检索失败: {e}")
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message_listener(self, event: AstrMessageEvent):

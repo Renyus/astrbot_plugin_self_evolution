@@ -1,4 +1,4 @@
-# [SYSTEM_CORE] 自我进化 (Self-Evolution) 插件 (v3.2.7: CognitionCore 5.5)
+# [SYSTEM_CORE] 自我进化 (Self-Evolution) 插件 (v3.2.8: CognitionCore 5.6)
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 
@@ -80,6 +80,10 @@
 
 本项目的所有重大更改都将记录在此文件中。
  
+## [3.2.8] - 2026-03-08
+### 新增 (New Features)
+- **自动记忆检索与注入**: 每次对话时自动检索相关记忆并注入到 LLM 上下文，无需 LLM 手动调用工具即可"想起"之前记住的内容
+
 ## [3.2.7] - 2026-03-08
 ### 新增 (New Features)
 - **对话幻觉修复**: 修复群聊中多人说话时 AI 混淆说话者的问题，现在每条消息都会标注说话者身份 `[群成员N]`
