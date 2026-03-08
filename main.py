@@ -391,7 +391,7 @@ class SelfEvolutionPlugin(Star):
     async def on_message_listener(self, event: AstrMessageEvent):
         """CognitionCore 3.0: 全环境被动监听与插嘴决策"""
         # 排除黑名单、艾特机器人的消息（艾特已由常规流程处理）
-        if event.get_mention_project_id() or event.is_admin(): return
+        if event.is_at_or_wake_command or event.is_admin(): return
         
         session_id = event.session_id
         user_id = event.get_sender_id()
