@@ -22,6 +22,7 @@ class EavesdroppingEngine:
 
         # === 消息日志记录（异步，不阻塞）===
         chat_logger = getattr(self.plugin, "chat_logger", None)
+        msg_uuid = None
         if chat_logger and msg_text and len(msg_text.strip()) > 0:
             msg_uuid = await chat_logger.log_message(
                 session_id=session_id,
@@ -61,6 +62,7 @@ class EavesdroppingEngine:
                     "sender_id": user_id,
                     "content": msg_text,
                     "time": time.time(),
+                    "uuid": msg_uuid,
                 }
             )
 
@@ -87,13 +89,20 @@ class EavesdroppingEngine:
                     [f"{m['sender']}: {m['content']}" for m in cache["messages"]]
                 )
 
+                # 收集消息的 UUID
+                source_uuids = [
+                    m.get("uuid") for m in cache["messages"] if m.get("uuid")
+                ]
+
                 if trigger_user and self.plugin.enable_profile_update:
                     asyncio.create_task(
                         self.plugin.profile.update_profile_from_dialogue(
-                            trigger_user, dialogue
+                            trigger_user, dialogue, source_uuids
                         )
                     )
-                    logger.info(f"[Profile] 触发画像更新: {trigger_user}")
+                    logger.info(
+                        f"[Profile] 触发画像更新: {trigger_user}, UUIDs: {source_uuids}"
+                    )
 
                 async with self._cache_lock:
                     if session_id in self.temp_cache:

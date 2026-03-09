@@ -33,20 +33,24 @@ MERGE_PROMPT = """用户旧画像：
 新提取的标签：
 {new_tags}
 
+证据UUID列表（用于溯源）：
+{source_uuids}
+
 请智能合并，返回 JSON：
 1. 旧标签：weight *= 0.95（每次更新衰减5%）
-2. 新标签：weight = 0.5
+2. 新标签：weight = 0.5，并记录来源UUID
 3. 删除 weight < 0.1 或超过180天未提及的标签
 4. 冲突覆盖，兴趣追加
+5. 每个标签必须记录 source_uuids（允许为空数组）
 
 【输出格式 JSON，仅输出 JSON，不要其他内容】
 {{
     "user_id": "{user_id}",
     "tags": [
-        {{"name": "标签名", "weight": 0.85, "last_seen": "2026-03-09"}}
+        {{"name": "标签名", "weight": 0.85, "last_seen": "2026-03-09", "source_uuids": ["uuid1", "uuid2"]}}
     ],
     "traits": [
-        {{"name": "性格名", "weight": 0.7, "last_seen": "2026-03-09"}}
+        {{"name": "性格名", "weight": 0.7, "last_seen": "2026-03-09", "source_uuids": []}}
     ],
     "updated_at": "2026-03-09T10:30:00"
 }}"""
@@ -120,18 +124,21 @@ class ProfileManager:
             return {"tags": [], "traits": [], "suspicious": False, "reason": str(e)}
 
     async def merge_profile(
-        self, user_id: str, old_profile: dict, new_tags: dict
+        self, user_id: str, old_profile: dict, new_tags: dict, source_uuids: list = None
     ) -> dict:
-        """智能合并旧画像 + 新标签"""
+        """智能合并旧画像 + 新标签 + 溯源"""
+        source_uuids = source_uuids or []
+
         try:
             llm_provider = self.plugin.context.get_using_provider()
             if not llm_provider:
-                return self._local_merge(old_profile, new_tags)
+                return self._local_merge(old_profile, new_tags, source_uuids)
 
             prompt = MERGE_PROMPT.format(
                 old_profile=json.dumps(old_profile, ensure_ascii=False, indent=2),
                 new_tags=json.dumps(new_tags, ensure_ascii=False),
                 user_id=user_id,
+                source_uuids=json.dumps(source_uuids),
             )
 
             res = await llm_provider.text_chat(
@@ -152,10 +159,13 @@ class ProfileManager:
 
         except Exception as e:
             logger.error(f"[Profile] 合并画像失败，使用本地合并: {e}")
-            return self._local_merge(old_profile, new_tags)
+            return self._local_merge(old_profile, new_tags, source_uuids)
 
-    def _local_merge(self, old_profile: dict, new_tags: dict) -> dict:
+    def _local_merge(
+        self, old_profile: dict, new_tags: dict, source_uuids: list = None
+    ) -> dict:
         """本地合并（无 LLM 时的降级方案）"""
+        source_uuids = source_uuids or []
         today = datetime.now().strftime("%Y-%m-%d")
 
         old_tags = old_profile.get("tags", [])
@@ -174,7 +184,14 @@ class ProfileManager:
 
         for name in new_tag_names:
             if not any(t.get("name") == name for t in merged_tags):
-                merged_tags.append({"name": name, "weight": 0.5, "last_seen": today})
+                merged_tags.append(
+                    {
+                        "name": name,
+                        "weight": 0.5,
+                        "last_seen": today,
+                        "source_uuids": source_uuids,
+                    }
+                )
 
         merged_traits = []
         for trait in old_traits:
@@ -186,7 +203,14 @@ class ProfileManager:
 
         for name in new_trait_names:
             if not any(t.get("name") == name for t in merged_traits):
-                merged_traits.append({"name": name, "weight": 0.5, "last_seen": today})
+                merged_traits.append(
+                    {
+                        "name": name,
+                        "weight": 0.5,
+                        "last_seen": today,
+                        "source_uuids": source_uuids,
+                    }
+                )
 
         return {
             "user_id": old_profile.get("user_id"),
@@ -195,8 +219,16 @@ class ProfileManager:
             "updated_at": datetime.now().isoformat(),
         }
 
-    async def update_profile_from_dialogue(self, user_id: str, dialogue: str):
-        """主入口：从对话片段更新用户画像"""
+    async def update_profile_from_dialogue(
+        self, user_id: str, dialogue: str, source_uuids: list = None
+    ):
+        """主入口：从对话片段更新用户画像
+
+        Args:
+            user_id: 用户ID
+            dialogue: 对话内容
+            source_uuids: 触发画像更新的消息UUID列表
+        """
         if not self.plugin.enable_profile_update:
             return
 
@@ -209,11 +241,15 @@ class ProfileManager:
                     return
 
                 old_profile = await self.load_profile(user_id)
-                merged = await self.merge_profile(user_id, old_profile, new_tags)
+                merged = await self.merge_profile(
+                    user_id, old_profile, new_tags, source_uuids
+                )
                 merged["updated_at"] = datetime.now().isoformat()
 
                 await self.save_profile(user_id, merged)
-                logger.info(f"[Profile] 用户画像已更新: {user_id}")
+                logger.info(
+                    f"[Profile] 用户画像已更新: {user_id}, 来源UUID: {source_uuids}"
+                )
 
             except Exception as e:
                 logger.error(f"[Profile] 更新画像失败: {e}")
