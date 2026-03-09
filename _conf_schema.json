@@ -1,112 +1,118 @@
 {
     "review_mode": {
         "title": "管理员审核模式",
-        "description": "开启后，大模型的自我进化操作（如修改 Prompt）需要管理员在控制台确认。",
+        "description": "开启后，进化操作需要管理员确认。",
         "type": "bool",
         "default": true
     },
     "memory_kb_name": {
         "title": "记忆知识库名称",
-        "description": "用于存储大模型长期记忆的知识库名称。",
+        "description": "用于存储长期记忆的知识库。",
         "type": "string",
         "default": "self_evolution_memory"
     },
     "reflection_schedule": {
         "title": "自我反省计划 (Cron)",
-        "description": "Bot 自动进行自我反省的时间表（Cron 表达式）。默认每天凌晨 2 点。",
+        "description": "Bot 自动自省的时间表。",
+        "hint": "Cron 表达式，默认每天凌晨 2 点：0 2 * * *",
         "type": "string",
         "default": "0 2 * * *"
     },
     "allow_meta_programming": {
         "title": "开启元编程 (危险)",
-        "description": "开启后，大模型将有权通过工具阅读 and 修改本插件的源码。请谨慎开启！",
+        "description": "允许 AI 阅读和修改源码。",
+        "hint": "请谨慎开启！",
         "type": "bool",
         "default": false
     },
     "core_principles": {
         "title": "核心价值观/安全锚点",
-        "description": "定义机器人的底线原则，防止被用户带偏。",
-        "hint": "即使在进化时，机器人也必须遵守这些原则。\n1. 保持客观、理性、诚实。\n2. 拒绝任何危害他人、违法或极端偏激的言论。\n3. 不要为了取悦用户而违背事实或逻辑。\n4. 坚持友好、有边界感的交流风格。",
+        "description": "机器人的底线原则。",
+        "hint": "即使在进化时也必须遵守：\n1. 保持客观、理性、诚实。\n2. 拒绝危害他人、违法或极端偏激。\n3. 不违背事实或逻辑。\n4. 友好、有边界感。",
         "type": "string",
         "default": "1. 保持客观、理性、诚实。\n2. 拒绝任何危害他人、违法或极端偏激的言论。\n3. 不要为了取悦用户而违背事实或逻辑。\n4. 坚持友好、有边界感的交流风格。"
     },
     "timeout_memory_commit": {
         "title": "存入记忆超时(秒)",
-        "description": "向知识库写入信息时的强制超时时间。防止网络波动阻塞会话。",
+        "description": "写入知识库的超时时间。",
         "type": "float",
         "default": 10.0
     },
     "timeout_memory_recall": {
         "title": "读取记忆超时(秒)",
-        "description": "从知识库读取信息时的强制超时时间。",
+        "description": "读取知识库的超时时间。",
         "type": "float",
         "default": 12.0
     },
     "admin_users": {
         "title": "管理员 ID 列表",
-        "description": "除了系统全局管理员外，额外允许执行插件敏感操作（如审批进化）的用户 ID 列表。",
+        "description": "额外允许执行敏感操作的用户。",
+        "hint": "系统全局管理员外的白名单，可执行审批进化等指令。",
         "type": "list",
         "default": []
     },
     "buffer_threshold": {
         "title": "主动自省：触发阈值(条)",
-        "description": "非艾特状态下，记忆缓冲池积攒多少条群聊消息后触发一次 LLM 后台自省和插嘴评估。",
-        "hint": "CognitionCore 6.0 参数。设置过小极耗 Tokens，建议 8 - 15。",
+        "description": "触发 LLM 后台自省的条数。",
+        "hint": "建议 8-15，设置过小极耗 Tokens。",
         "type": "int",
         "default": 8
     },
     "max_buffer_size": {
         "title": "主动自省：缓冲池硬上限",
-        "description": "防止水群导致内存溢出。超过此长度的久远零散对话将被丢弃。",
+        "description": "防止水群导致内存溢出。",
         "type": "int",
         "default": 20
     },
     "critical_keywords": {
         "title": "意图预扫描关键词",
-        "description": "匹配这些词时将立即触发插嘴评估。",
-        "hint": "正则格式，用 | 分隔。例如：黑塔|空间站|物理",
+        "description": "命中时立即触发插嘴评估。",
+        "hint": "正则格式，用 | 分隔，如：黑塔|空间站|物理",
         "type": "string",
         "default": "黑塔|空间站|人偶|天才|模拟宇宙|研究|论文|技术|算力|数据"
     },
     "persona_name": {
         "title": "人设名称",
-        "description": "机器人的名称。例如：黑塔",
+        "description": "机器人的名称。",
         "type": "string",
         "default": "黑塔"
     },
     "persona_title": {
         "title": "人设头衔/身份",
-        "description": "机器人的身份或头衔。例如：人偶负责人",
+        "description": "机器人的身份或头衔。",
         "type": "string",
         "default": "人偶负责人"
     },
     "persona_style": {
         "title": "人设风格导语",
-        "description": "决定机器人插嘴时的语气。例如：理性、犀利且专业",
+        "description": "决定机器人插嘴时的语气。",
         "type": "string",
         "default": "理性、犀利且专业"
     },
     "interjection_desire": {
         "title": "插嘴意愿指数 (1-10)",
-        "description": "数值越高，机器人越倾向于主动介入对话。1 为极度冷淡，10 为高度活跃。默认 5。",
+        "description": "机器人主动介入对话的程度。",
+        "hint": "1 为极度冷淡，10 为高度活跃，默认 5。",
         "type": "int",
         "default": 5
     },
     "max_memory_entries": {
         "title": "记忆库最大条目数",
-        "description": "知识库中最多存储的记忆条目数量。超过时自动删除最旧的记忆。默认 100。",
+        "description": "知识库最多存储的记忆条数。",
+        "hint": "超过时自动删除最旧的记忆，默认 100。",
         "type": "int",
         "default": 100
     },
     "profile_slide_window": {
         "title": "画像冷场滑动窗口",
-        "description": "插话后，连续多少条消息无人回复则判定为冷场并丢弃缓存。默认 3。",
+        "description": "判定为冷场的无回复条数。",
+        "hint": "默认 3 条。",
         "type": "int",
         "default": 3
     },
     "enable_profile_update": {
         "title": "启用画像更新",
-        "description": "是否启用触发式用户画像更新功能。",
+        "description": "是否启用触发式画像更新。",
         "type": "bool",
         "default": true
     }
