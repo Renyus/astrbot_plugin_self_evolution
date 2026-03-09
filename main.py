@@ -296,11 +296,19 @@ class SelfEvolutionPlugin(Star):
         # 4. 自动记忆检索与注入 (Auto-Recall)
         await self.memory.auto_recall_inject(event, req)
 
-        # 5. 用户画像注入 (Profile) - 仅在有效互动场景
+        # 5. 用户画像注入 (Profile) - 合并到潜意识记忆区
         if self.enable_profile_update:
             profile_summary = await self.profile.get_profile_summary(user_id)
             if profile_summary:
-                req.system_prompt += f"\n\n[用户画像]: {profile_summary}\n"
+                req.system_prompt += f"\n\n[当前发言用户画像 (Sender_ID: {user_id})]\n- {profile_summary}\n"
+
+        # 6. 交流准则注入
+        req.system_prompt += (
+            "\n\n【交流准则】\n"
+            "把你当成群里的真实群友。直接说话，像正常活人一样交流。\n"
+            "绝对不要使用括号描写动作（如 *点头*、*微笑*），不需要任何AI腔调的过渡句，直奔主题。\n"
+            "如果对方问起已知信息，直接用人类的口吻自然地回答。"
+        )
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message_listener(self, event: AstrMessageEvent):
@@ -571,21 +579,28 @@ class SelfEvolutionPlugin(Star):
 
     @filter.llm_tool(name="save_group_knowledge")
     async def save_group_knowledge(
-        self, event: AstrMessageEvent, knowledge: str, knowledge_type: str = "约定"
+        self,
+        event: AstrMessageEvent,
+        knowledge: str,
+        knowledge_type: str = "约定活动",
+        source_uuids: list = None,
     ) -> str:
-        """当你在群聊中了解到重要的群规、约定、活动信息时，调用此工具保存。
+        """当群聊中出现具体的约定、重要群规或者集体共识时，立即调用此工具。严禁保存日常闲聊或毫无信息量的废话。
 
         触发场景：
         - 群主/管理员宣布群规
-        - 群友约定活动时间/内容
-        - 重要事件（如"今晚八点开会"）
+        - 群友约定活动时间/内容（如"今晚八点开会"）
+        - 重要事件
         - 值得记住的群文化
 
         Args:
-            knowledge(string): 需要记住的群规/约定/重要信息（必填）
-            knowledge_type(string): 知识类型：约定/群规/活动/其他（默认约定）
+            knowledge(string): 用最简练的冷白描手法记录事实。必须包含明确的时间状语（如：今晚八点开会）。（必填）
+            knowledge_type(string): 记忆的分类：群规/约定活动/群共识（默认约定活动）
+            source_uuids(list): 必须提供触发记录的原始消息 UUID 列表，用于后期溯源。（必填）
         """
-        return await self.memory.save_group_knowledge(event, knowledge, knowledge_type)
+        return await self.memory.save_group_knowledge(
+            event, knowledge, knowledge_type, source_uuids
+        )
 
     @filter.llm_tool(name="list_tools")
     async def list_tools(self, event: AstrMessageEvent) -> str:

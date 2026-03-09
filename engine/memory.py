@@ -83,7 +83,9 @@ class MemoryManager:
                     context_text = "\n---\n".join(context_parts)
 
                     memory_injection = (
-                        f"\n\n[长期记忆检索结果]：\n{context_text}\n"
+                        f"\n\n【潜意识记忆区】\n"
+                        "[群公共记忆]\n"
+                        f"{context_text}\n"
                         "请结合以上记忆信息回复用户。注意区分不同来源：\n"
                         "- 【group_memory_】是该群的公共知识（群规、约定等）\n"
                         "- 【memory_group_*_user_】是该用户的个人记忆"
@@ -195,27 +197,29 @@ class MemoryManager:
         return await self._do_commit_memory(formatted_fact)
 
     async def save_group_knowledge(
-        self, event, knowledge: str, knowledge_type: str = "约定"
+        self,
+        event,
+        knowledge: str,
+        knowledge_type: str = "约定",
+        source_uuids: list = None,
     ) -> str:
         """保存群公共知识
 
         Args:
-            knowledge: 需要记住的群规/约定/重要信息
-            knowledge_type: 知识类型：约定/群规/活动/其他
+            knowledge: 用最简练的冷白描手法记录事实，必须包含明确的时间状语
+            knowledge_type: 知识类型：群规/约定活动/群共识
+            source_uuids: 触发记录的原始消息 UUID 列表
         """
         group_id = event.get_group_id()
         if not group_id:
             return "只有群聊才能保存群公共知识，私聊场景不支持此操作。"
 
-        group_name = getattr(event, "group_name", None) or f"群{group_id}"
+        source_uuids = source_uuids or []
+        uuid_str = f"来源UUID:{source_uuids}" if source_uuids else ""
 
-        formatted_knowledge = (
-            f"【群公共知识】\n"
-            f"群号: {group_id}\n"
-            f"类型: {knowledge_type}\n"
-            f"内容: {knowledge}\n"
-            f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        )
+        formatted_knowledge = f"({knowledge_type}) {knowledge} {uuid_str}"
+
+        return await self._do_commit_memory(formatted_knowledge)
 
         return await self._do_commit_memory(formatted_knowledge)
 
