@@ -10,6 +10,21 @@ class EavesdroppingEngine:
     async def handle_message(self, event: AstrMessageEvent):
         """CognitionCore 4.5: 意图预扫描 (Intent Pre-scan) 拦截器"""
         msg_text = event.message_str
+
+        # 获取命令前缀配置，检查是否为命令消息
+        config = self.plugin.context.get_config()
+        bot_wake_prefixes = config.get("wake_prefix", ["/"])
+        prov_wake_prefix = config.get("provider_settings", {}).get("wake_prefix", "/")
+
+        # 合并所有命令前缀
+        all_prefixes = set(bot_wake_prefixes)
+        if prov_wake_prefix:
+            all_prefixes.add(prov_wake_prefix)
+
+        # 检查是否为命令消息，如果是则跳过处理
+        if any(msg_text.startswith(prefix) for prefix in all_prefixes):
+            return
+
         is_at = event.is_at_or_wake_command
 
         if is_at:

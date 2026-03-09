@@ -388,17 +388,34 @@ class SelfEvolutionPlugin(Star):
     @filter.command("review_evolutions")
     async def review_evolutions(self, event: AstrMessageEvent, page: int = 1):
         """【管理员接口】列出待审核的人格进化请求，支持分页查询。"""
-        return await self.persona.review_evolutions(event, page)
+        if not event.is_admin() and (
+            not self.admin_users or str(event.get_sender_id()) not in self.admin_users
+        ):
+            yield event.plain_result("权限拒绝：此操作仅限系统管理员执行。")
+            return
+        yield event.plain_result(await self.persona.review_evolutions(event, page))
 
     @filter.command("approve_evolution")
     async def approve_evolution(self, event: AstrMessageEvent, request_id: int):
         """【管理员接口】批准指定 ID 的人格进化请求。"""
-        return await self.persona.approve_evolution(event, request_id)
+        if not event.is_admin() and (
+            not self.admin_users or str(event.get_sender_id()) not in self.admin_users
+        ):
+            yield event.plain_result("权限拒绝：此操作仅限系统管理员执行。")
+            return
+        yield event.plain_result(
+            await self.persona.approve_evolution(event, request_id)
+        )
 
     @filter.command("reject_evolution")
     async def reject_evolution(self, event: AstrMessageEvent, request_id: int):
         """【管理员接口】拒绝指定 ID 的人格进化请求。"""
-        return await self.persona.reject_evolution(event, request_id)
+        if not event.is_admin() and (
+            not self.admin_users or str(event.get_sender_id()) not in self.admin_users
+        ):
+            yield event.plain_result("权限拒绝：此操作仅限系统管理员执行。")
+            return
+        yield event.plain_result(await self.persona.reject_evolution(event, request_id))
 
     @filter.command("clear_evolutions")
     async def clear_evolutions(self, event: AstrMessageEvent):
