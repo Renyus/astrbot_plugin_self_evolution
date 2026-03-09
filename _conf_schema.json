@@ -94,5 +94,17 @@
         "description": "知识库中最多存储的记忆条目数量。超过时自动删除最旧的记忆。默认 100。",
         "type": "int",
         "default": 100
+    },
+    "profile_slide_window": {
+        "title": "画像冷场滑动窗口",
+        "description": "插话后，连续多少条消息无人回复则判定为冷场并丢弃缓存。默认 3。",
+        "type": "int",
+        "default": 3
+    },
+    "enable_profile_update": {
+        "title": "启用画像更新",
+        "description": "是否启用触发式用户画像更新功能。",
+        "type": "bool",
+        "default": true
     }
 }

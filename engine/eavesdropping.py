@@ -1,15 +1,23 @@
 from astrbot.api import logger
 import re
+import time
+import asyncio
 from astrbot.api.all import AstrMessageEvent
 
 
 class EavesdroppingEngine:
     def __init__(self, plugin):
         self.plugin = plugin
+        self.temp_cache = {}  # 临时消息缓存队列 {session_id: {...}}
+        self._cache_lock = asyncio.Lock()
 
     async def handle_message(self, event: AstrMessageEvent):
         """CognitionCore 4.5: 意图预扫描 (Intent Pre-scan) 拦截器"""
         msg_text = event.message_str
+        session_id = event.session_id
+        user_id = event.get_sender_id()
+        sender_name = event.get_sender_name() or "Unknown"
+        is_at = event.is_at_or_wake_command
 
         # 获取命令前缀配置，检查是否为命令消息
         config = self.plugin.context.get_config()
@@ -25,19 +33,67 @@ class EavesdroppingEngine:
         if any(msg_text.startswith(prefix) for prefix in all_prefixes):
             return
 
-        is_at = event.is_at_or_wake_command
-
+        # === 触发条件 B：用户 @ 机器人 ===
         if is_at:
+            await self._start_temp_cache(session_id, user_id)
             return
 
-        session_id = event.session_id
-        user_id = event.get_sender_id()
+        # 检查是否有待处理的缓存
+        if session_id in self.temp_cache:
+            cache = self.temp_cache[session_id]
+
+            # 追加消息到缓存
+            cache["messages"].append(
+                {
+                    "sender": sender_name,
+                    "sender_id": user_id,
+                    "content": msg_text,
+                    "time": time.time(),
+                }
+            )
+
+            # 检测是否相关回复（@ 或相关话题）
+            if is_at or self._is_relevant_reply(msg_text, cache.get("messages", [])):
+                cache["silent_count"] = 0  # 重置滑动窗口计数
+            else:
+                cache["silent_count"] += 1  # 累计沉默计数
+
+            # 分支B：冷场判定（滑动窗口）
+            slide_window = getattr(self.plugin, "profile_slide_window", 3)
+            if cache["silent_count"] >= slide_window:
+                async with self._cache_lock:
+                    if session_id in self.temp_cache:
+                        del self.temp_cache[session_id]
+                        logger.info(f"[Profile] 冷场判定，清空缓存: {session_id}")
+                return
+
+            # 检测对话是否结束（所有人都不再 @ 机器人 且 超过一定条数）
+            if len(cache["messages"]) >= 10 and not is_at:
+                # 触发画像更新
+                trigger_user = cache.get("trigger_user")
+                dialogue = "\n".join(
+                    [f"{m['sender']}: {m['content']}" for m in cache["messages"]]
+                )
+
+                if trigger_user and self.plugin.enable_profile_update:
+                    asyncio.create_task(
+                        self.plugin.profile.update_profile_from_dialogue(
+                            trigger_user, dialogue
+                        )
+                    )
+                    logger.info(f"[Profile] 触发画像更新: {trigger_user}")
+
+                async with self._cache_lock:
+                    if session_id in self.temp_cache:
+                        del self.temp_cache[session_id]
+                return
+
         score = await self.plugin.dao.get_affinity(user_id)
 
         if score <= 0:
             return
 
-        # --- 意图预扫描层 (Intent Pre-scan) ---
+        # --- 触发条件 A：兴趣关键词命中 ---
         # 从配置中动态编译关键词正则
         critical_pattern = re.compile(
             f"({self.plugin.critical_keywords})", re.IGNORECASE
@@ -46,13 +102,15 @@ class EavesdroppingEngine:
             logger.info(
                 f"[CognitionCore] 预扫描命中词库: '{self.plugin.critical_keywords}'，强制立即触发评估。"
             )
+            # 开启临时缓存
+            await self._start_temp_cache(session_id, user_id)
             async for result in self._evaluate_interjection(
                 event, session_id, force_immediate=True
             ):
                 yield result
             return  # 命中后直接处理，不再重复进入普通缓冲逻辑
 
-        # --- 缓冲池逻辑 ---
+        # --- 原有缓冲池逻辑 ---
         if session_id not in self.plugin.active_buffers:
             self.plugin.active_buffers[session_id] = []
             self.plugin._session_speakers = getattr(
@@ -60,9 +118,6 @@ class EavesdroppingEngine:
             )
             if session_id not in self.plugin._session_speakers:
                 self.plugin._session_speakers[session_id] = {}
-
-        sender_name = event.get_sender_name() or "Unknown"
-        sender_id = event.get_sender_id()
 
         speaker_map = self.plugin._session_speakers[session_id]
         if sender_id not in speaker_map:
@@ -82,6 +137,38 @@ class EavesdroppingEngine:
         ):
             async for result in self._evaluate_interjection(event, session_id):
                 yield result
+
+    async def _start_temp_cache(self, session_id: str, user_id: str):
+        """开启临时消息缓存队列"""
+        async with self._cache_lock:
+            self.temp_cache[session_id] = {
+                "trigger_user": user_id,
+                "messages": [],
+                "silent_count": 0,
+                "started_at": time.time(),
+            }
+        logger.info(f"[Profile] 开启临时缓存: session={session_id}, user={user_id}")
+
+    def _is_relevant_reply(self, msg_text: str, messages: list) -> bool:
+        """判断消息是否与当前话题相关"""
+        # 简单关键词判断：是否包含问号、或者与之前消息有词汇重叠
+        if "？" in msg_text or "?" in msg_text:
+            return True
+
+        # 检查是否回复了机器人（通过关键词检测）
+        robot_name = getattr(self.plugin, "persona_name", "黑塔")
+        if robot_name in msg_text:
+            return True
+
+        # 检查是否与最近消息有词汇重叠
+        if messages:
+            recent_words = set(messages[-1].get("content", "").lower())
+            current_words = set(msg_text.lower())
+            overlap = recent_words & current_words
+            if len(overlap) > 3:
+                return True
+
+        return False
 
     async def _evaluate_interjection(
         self, event: AstrMessageEvent, session_id: str, force_immediate: bool = False

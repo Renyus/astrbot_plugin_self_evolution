@@ -18,6 +18,7 @@ from .engine.eavesdropping import EavesdroppingEngine
 from .engine.meta_infra import MetaInfra
 from .engine.memory import MemoryManager
 from .engine.persona import PersonaManager
+from .engine.profile import ProfileManager
 
 
 # 全局不可变常量提取 (迁移至主类管理)
@@ -65,8 +66,9 @@ class SelfEvolutionPlugin(Star):
             self.meta_infra = MetaInfra(self)
             self.memory = MemoryManager(self)
             self.persona = PersonaManager(self)
+            self.profile = ProfileManager(self)
             logger.info(
-                "[SelfEvolution] 核心组件 (DAO, Eavesdropping, MetaInfra, Memory, Persona) 初始化完成。"
+                "[SelfEvolution] 核心组件 (DAO, Eavesdropping, MetaInfra, Memory, Persona, Profile) 初始化完成。"
             )
         except Exception as e:
             logger.error(f"[SelfEvolution] 核心组件初始化失败: {e}")
@@ -144,6 +146,14 @@ class SelfEvolutionPlugin(Star):
     @property
     def max_memory_entries(self):
         return int(self.config.get("max_memory_entries", 100))
+
+    @property
+    def profile_slide_window(self):
+        return int(self.config.get("profile_slide_window", 3))
+
+    @property
+    def enable_profile_update(self):
+        return self._parse_bool(self.config.get("enable_profile_update"), True)
 
     def _post_init(self):
         logger.info(
@@ -250,6 +260,12 @@ class SelfEvolutionPlugin(Star):
         # 4. 自动记忆检索与注入 (Auto-Recall)
         await self.memory.auto_recall_inject(event, req)
 
+        # 5. 用户画像注入 (Profile) - 仅在有效互动场景
+        if self.enable_profile_update:
+            profile_summary = await self.profile.get_profile_summary(user_id)
+            if profile_summary:
+                req.system_prompt += f"\n\n[用户画像]: {profile_summary}\n"
+
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message_listener(self, event: AstrMessageEvent):
         """CognitionCore 3.0: 被动监听转发至 EavesdroppingEngine"""
@@ -286,6 +302,16 @@ class SelfEvolutionPlugin(Star):
                 f"[SelfEvolution] 已注册定时自省任务: {self.reflection_schedule}"
             )
 
+            # 注册画像清理任务（每天凌晨 4 点）
+            cleanup_job_name = "SelfEvolution_ProfileCleanup"
+            await cron_mgr.add_basic_job(
+                name=cleanup_job_name,
+                cron_expression="0 4 * * *",
+                handler=self._scheduled_profile_cleanup,
+                description="自我进化插件：清理过期用户画像。",
+            )
+            logger.info("[SelfEvolution] 已注册画像清理任务: 0 4 * * *")
+
         except Exception as e:
             logger.error(f"[SelfEvolution] 注册定时任务失败: {e}")
 
@@ -304,6 +330,12 @@ class SelfEvolutionPlugin(Star):
         logger.info(
             '[SelfEvolution] 已执行每日"大赦天下"：所有负面评分用户好感度已小幅回升。'
         )
+
+    async def _scheduled_profile_cleanup(self):
+        """画像清理定时任务"""
+        logger.info("[Profile] 开始清理过期画像...")
+        await self.profile.cleanup_expired_profiles()
+        logger.info("[Profile] 画像清理完成。")
 
     @filter.command("reflect")
     async def manual_reflect(self, event: AstrMessageEvent):
@@ -592,4 +624,46 @@ class SelfEvolutionPlugin(Star):
         """
         return await self.meta_infra.update_plugin_source(
             new_code, description, target_file
+        )
+
+    @filter.llm_tool(name="get_user_profile")
+    async def get_user_profile(self, event: AstrMessageEvent) -> str:
+        """获取当前用户的画像信息，了解用户的兴趣和性格特征。
+
+        Returns:
+            用户画像JSON字符串
+        """
+        user_id = event.get_sender_id()
+        profile = await self.profile.load_profile(user_id)
+        import json
+
+        return json.dumps(profile, ensure_ascii=False, indent=2)
+
+    @filter.command("view_profile")
+    async def view_profile_cmd(self, event: AstrMessageEvent, user_id: str = ""):
+        """查看指定用户的画像信息。"""
+        target = user_id if user_id else event.get_sender_id()
+        yield event.plain_result(await self.profile.view_profile(target))
+
+    @filter.command("delete_profile")
+    async def delete_profile_cmd(self, event: AstrMessageEvent, user_id: str):
+        """【管理员】删除指定用户的画像。"""
+        if not event.is_admin() and (
+            not self.admin_users or str(event.get_sender_id()) not in self.admin_users
+        ):
+            yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
+            return
+        yield event.plain_result(await self.profile.delete_profile(user_id))
+
+    @filter.command("profile_stats")
+    async def profile_stats_cmd(self, event: AstrMessageEvent):
+        """【管理员】查看画像统计信息。"""
+        if not event.is_admin() and (
+            not self.admin_users or str(event.get_sender_id()) not in self.admin_users
+        ):
+            yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
+            return
+        stats = await self.profile.list_profiles()
+        yield event.plain_result(
+            f"画像统计：\n- 用户数: {stats['total_users']}\n- 兴趣标签: {stats['total_tags']}\n- 性格特征: {stats['total_traits']}"
         )
