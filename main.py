@@ -155,6 +155,10 @@ class SelfEvolutionPlugin(Star):
     def enable_profile_update(self):
         return self._parse_bool(self.config.get("enable_profile_update"), True)
 
+    @property
+    def enable_context_recall(self):
+        return self._parse_bool(self.config.get("enable_context_recall"), True)
+
     def _post_init(self):
         logger.info(
             f"[SelfEvolution] === 插件初始化完成 | 模式: {'审核' if self.review_mode else '自动'} | 元编程: {self.allow_meta_programming} ==="
@@ -219,7 +223,9 @@ class SelfEvolutionPlugin(Star):
                 reply_sender_id = getattr(comp, "sender_id", "")
 
                 # 检测是否引用了 AI 的消息
-                if reply_sender == self.persona_name or str(reply_sender_id) == "AI":
+                if self.enable_context_recall and (
+                    reply_sender == self.persona_name or str(reply_sender_id) == "AI"
+                ):
                     quoted_info = f"，你在之前说：{reply_content[:30]}..."
                     ai_context_info = "\n【重要】用户正在引用你之前的发言进行追问，请针对你之前的发言回答。"
                 else:

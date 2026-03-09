@@ -112,7 +112,13 @@
     },
     "enable_profile_update": {
         "title": "启用画像更新",
-        "description": "是否启用触发式画像更新。",
+        "description": "是否启用用户画像更新功能。",
+        "type": "bool",
+        "default": true
+    },
+    "enable_context_recall": {
+        "title": "启用上下文追踪",
+        "description": "当用户引用 AI 之前的话时，是否自动注入上下文。",
         "type": "bool",
         "default": true
     }
