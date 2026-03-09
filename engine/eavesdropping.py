@@ -160,12 +160,24 @@ class EavesdroppingEngine:
         if robot_name in msg_text:
             return True
 
-        # 检查是否与最近消息有词汇重叠
+        # 检查是否与最近消息有词汇重叠（用词集而非字符集）
         if messages:
-            recent_words = set(messages[-1].get("content", "").lower())
-            current_words = set(msg_text.lower())
+            import re
+
+            # 分词：提取连续的中文词或英文单词
+            def extract_words(text):
+                chinese = re.findall(r"[\u4e00-\u9fff]+", text)
+                english = re.findall(r"[a-zA-Z]+", text)
+                chinese_words = [w for w in chinese if len(w) >= 2]  # 至少2个汉字
+                english_words = [
+                    w.lower() for w in english if len(w) >= 3
+                ]  # 至少3个字母
+                return set(chinese_words + english_words)
+
+            recent_words = extract_words(messages[-1].get("content", ""))
+            current_words = extract_words(msg_text)
             overlap = recent_words & current_words
-            if len(overlap) > 3:
+            if len(overlap) >= 2:  # 至少2个词重叠才算相关
                 return True
 
         return False
