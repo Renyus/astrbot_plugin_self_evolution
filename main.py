@@ -569,6 +569,24 @@ class SelfEvolutionPlugin(Star):
         """
         return await self.memory.auto_recall(event, topic)
 
+    @filter.llm_tool(name="save_group_knowledge")
+    async def save_group_knowledge(
+        self, event: AstrMessageEvent, knowledge: str, knowledge_type: str = "约定"
+    ) -> str:
+        """当你在群聊中了解到重要的群规、约定、活动信息时，调用此工具保存。
+
+        触发场景：
+        - 群主/管理员宣布群规
+        - 群友约定活动时间/内容
+        - 重要事件（如"今晚八点开会"）
+        - 值得记住的群文化
+
+        Args:
+            knowledge(string): 需要记住的群规/约定/重要信息（必填）
+            knowledge_type(string): 知识类型：约定/群规/活动/其他（默认约定）
+        """
+        return await self.memory.save_group_knowledge(event, knowledge, knowledge_type)
+
     @filter.llm_tool(name="list_tools")
     async def list_tools(self, event: AstrMessageEvent) -> str:
         """

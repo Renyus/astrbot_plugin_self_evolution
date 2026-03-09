@@ -51,8 +51,11 @@ class MemoryManager:
                 return
 
             if group_id:
-                # 群聊时只检索当前用户的记忆（按用户隔离）
-                target_docs = [f"memory_group_{group_id}_user_{user_id}"]
+                # 群聊时：检索当前用户的记忆 + 群公共记忆
+                target_docs = [
+                    f"memory_group_{group_id}_user_{user_id}",  # 用户个人记忆
+                    f"group_memory_{group_id}",  # 群公共记忆
+                ]
             else:
                 target_docs = [f"memory_user_{user_id}"]
 
@@ -81,8 +84,9 @@ class MemoryManager:
 
                     memory_injection = (
                         f"\n\n[长期记忆检索结果]：\n{context_text}\n"
-                        "请结合以上记忆信息回复用户。注意区分不同来源："
-                        "【群共亓记忆】是当前群的历史对话，【个人画像】是该用户的个人偏好。"
+                        "请结合以上记忆信息回复用户。注意区分不同来源：\n"
+                        "- 【group_memory_】是该群的公共知识（群规、约定等）\n"
+                        "- 【memory_group_*_user_】是该用户的个人记忆"
                     )
                     req.system_prompt += memory_injection
                     logger.info(
@@ -187,6 +191,33 @@ class MemoryManager:
             f"内容: {fact}\n"
             f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         )
+
+        return await self._do_commit_memory(formatted_fact)
+
+    async def save_group_knowledge(
+        self, event, knowledge: str, knowledge_type: str = "约定"
+    ) -> str:
+        """保存群公共知识
+
+        Args:
+            knowledge: 需要记住的群规/约定/重要信息
+            knowledge_type: 知识类型：约定/群规/活动/其他
+        """
+        group_id = event.get_group_id()
+        if not group_id:
+            return "只有群聊才能保存群公共知识，私聊场景不支持此操作。"
+
+        group_name = getattr(event, "group_name", None) or f"群{group_id}"
+
+        formatted_knowledge = (
+            f"【群公共知识】\n"
+            f"群号: {group_id}\n"
+            f"类型: {knowledge_type}\n"
+            f"内容: {knowledge}\n"
+            f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+
+        return await self._do_commit_memory(formatted_knowledge)
 
         return await self._do_commit_memory(formatted_fact)
 
