@@ -1,4 +1,4 @@
-# [SYSTEM_CORE] 自我进化 (Self-Evolution) 插件 (v3.4.0: CognitionCore 6.0)
+# [SYSTEM_CORE] 自我进化 (Self-Evolution) 插件 (v3.5.0: CognitionCore 6.0)
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 
@@ -50,6 +50,14 @@
 - **权重衰减机制**：标签权重每次更新衰减 5%，超过 180 天无更新则过期清理
 - **本地 JSON 存储**：每个用户一个 JSON 文件，存储在 `data/profiles/` 目录
 - **自动注入**：在有效互动场景下，自动将用户画像注入 LLM 上下文
+
+### 七、 群聊日志与上下文追踪 (v3.5.0)
+解决 AI"断片"问题，让 AI 能理解自己之前说过的话：
+- **UUID 标识**：每条消息分配唯一短 UUID，便于追溯
+- **异步日志**：所有消息异步写入 JSONL，不阻塞主事件循环
+- **日志轮转**：自动清理超过 7 天的日志文件
+- **上下文注入**：当用户引用 AI 之前的话时，自动从日志检索并注入上下文
+- **存储位置**：`data/chat_logs/chat_YYYY-MM-DD.jsonl`
 
 ---
 
