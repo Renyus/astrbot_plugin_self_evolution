@@ -120,7 +120,7 @@ class PersonaManager:
             result = [f"待审核的进化请求列表 (第 {page} 页):"]
             for row in rows:
                 result.append(
-                    f"ID: {row['id']} | Persona: {row['persona_id']}\n理由: {row['reason'][:50]}"
+                    f"ID: {row['id']} | Persona: {row['persona_id']}\n理由: {row['reason'][:200]}"
                 )
 
             result.append(
