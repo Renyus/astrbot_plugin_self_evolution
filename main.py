@@ -438,9 +438,6 @@ class SelfEvolutionPlugin(Star):
         # 定期清理过期缓冲数据，防止内存泄漏
         await self._cleanup_stale_buffers()
 
-        # 自动学习触发：检测关键场景
-        await self.memory.auto_learn_trigger(event)
-
         # 关系图谱：记录用户互动
         user_id = event.get_sender_id()
         group_id = event.get_group_id()
@@ -454,6 +451,11 @@ class SelfEvolutionPlugin(Star):
     async def on_decorating_result(self, event: AstrMessageEvent):
         """中间消息过滤器：拦截工具调用期间的过渡性消息"""
         result = event.get_result()
+
+        # 回复发送成功后，延迟存入记忆（确保先查后存）
+        if result and result.chain:
+            asyncio.create_task(self._delayed_learn(event))
+
         if not result or not result.chain:
             return
 
@@ -485,6 +487,16 @@ class SelfEvolutionPlugin(Star):
             # 所有消息都被拦截，使用clear_result清空
             event.clear_result()
             logger.info(f"[IntermediateFilter] 拦截所有消息，暂停发送")
+
+    async def _delayed_learn(self, event: AstrMessageEvent):
+        """延迟存入记忆：确保先查后存"""
+        import asyncio
+
+        await asyncio.sleep(2)  # 延迟2秒，确保回复已发送
+        try:
+            await self.memory.auto_learn_trigger(event)
+        except Exception as e:
+            logger.warning(f"[SelfEvolution] 延迟存入记忆失败: {e}")
 
     async def _cleanup_stale_buffers(self):
         """清理超过1小时未活动的会话缓冲"""
