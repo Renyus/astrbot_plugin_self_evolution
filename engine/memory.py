@@ -10,12 +10,11 @@ logger = logging.getLogger("astrbot")
 class MemoryManager:
     """
     CognitionCore 记忆管理模块
-    负责记忆的存储、检索、自动学习触发等功能
+    负责记忆的存储、检索等功能
     """
 
     def __init__(self, plugin):
         self.plugin = plugin
-        self._just_stored_memory = False
 
     @property
     def memory_kb_name(self):
@@ -32,73 +31,6 @@ class MemoryManager:
     @property
     def max_memory_entries(self):
         return int(self.plugin.config.get("max_memory_entries", 100))
-
-    async def auto_recall_inject(self, event, req):
-        """自动检索记忆并注入到 LLM 上下文中"""
-        if self._just_stored_memory:
-            logger.info(
-                "[SelfEvolution] 刚存储记忆，跳过本次检索，等待下次对话时回忆。"
-            )
-            self._just_stored_memory = False
-            return
-
-        try:
-            kb_manager = self.plugin.context.kb_manager
-            query = event.message_str
-            group_id = event.get_group_id()
-            user_id = event.get_sender_id()
-
-            if not query or len(query.strip()) < 2:
-                return
-
-            if group_id:
-                # 群聊时：检索当前用户的记忆 + 群公共记忆
-                target_docs = [
-                    f"memory_group_{group_id}_user_{user_id}",  # 用户个人记忆
-                    f"group_memory_{group_id}",  # 群公共记忆
-                ]
-            else:
-                target_docs = [f"memory_user_{user_id}"]
-
-            results = await asyncio.wait_for(
-                kb_manager.retrieve(
-                    query=query, kb_names=[self.memory_kb_name], top_m_final=5
-                ),
-                timeout=self.timeout_memory_recall,
-            )
-
-            if results and results.get("results"):
-                filtered_results = [
-                    r
-                    for r in results["results"]
-                    if any(r.get("doc_name", "").startswith(doc) for doc in target_docs)
-                ]
-
-                if filtered_results:
-                    context_parts = []
-                    for r in filtered_results:
-                        doc_name = r.get("doc_name", "")
-                        content = r.get("content", "")
-                        context_parts.append(f"[来源:{doc_name}]\n{content}")
-
-                    context_text = "\n---\n".join(context_parts)
-
-                    memory_injection = (
-                        f"\n\n【潜意识记忆区】\n"
-                        "[群公共记忆]\n"
-                        f"{context_text}\n"
-                        "请结合以上记忆信息回复用户。注意区分不同来源：\n"
-                        "- 【group_memory_】是该群的公共知识（群规、约定等）\n"
-                        "- 【memory_group_*_user_】是该用户的个人记忆"
-                    )
-                    req.system_prompt += memory_injection
-                    logger.info(
-                        f"[SelfEvolution] 自动记忆注入成功：{len(filtered_results)} 条相关记忆"
-                    )
-        except asyncio.TimeoutError:
-            logger.warning("[SelfEvolution] 自动记忆检索超时，已跳过注入。")
-        except Exception as e:
-            logger.warning(f"[SelfEvolution] 自动记忆检索失败: {e}")
 
     async def auto_learn_trigger(self, event):
         """自动学习触发器：检测关键场景并自动提取记忆"""
@@ -171,7 +103,6 @@ class MemoryManager:
                 pre_chunked_text=[new_entry],
             )
 
-            self._just_stored_memory = True
             logger.info(f"[SelfEvolution] 自动学习：已追加记忆到 {doc_name}")
 
         except Exception as e:

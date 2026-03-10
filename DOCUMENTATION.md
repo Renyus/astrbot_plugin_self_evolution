@@ -262,7 +262,25 @@ LLM 决策 (是否插嘴)
 | auto_recall | 主动注入记忆 |
 | save_group_knowledge | 保存群公共知识 |
 | get_user_profile | 获取用户画像 |
-| update_user_profile | 更新用户画像 |
+| update_user_profile | 更新用户画像 (参数已简化为 content) |
+
+---
+
+## 8. 工具参数变更 (3.8.0)
+
+### update_user_profile
+
+| 参数 | 旧版 | 新版 (3.8.0) |
+|------|------|---------------|
+| tags | string (逗号分隔) | 已移除 |
+| traits | string (逗号分隔) | 已移除 |
+| reason | string | 已移除 |
+| content | - | string (印象描述文本) |
+
+**新调用示例**:
+```python
+update_user_profile(target_user_id="123456", content="这个用户喜欢讨论技术问题，说话比较直接")
+```
 | update_affinity | 调整好感度 |
 | evolve_persona | 进化人格 |
 | list_tools | 列出工具 |

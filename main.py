@@ -397,39 +397,44 @@ class SelfEvolutionPlugin(Star):
             profile_dir = self.profile.profile_dir
             profile_files = list(profile_dir.glob("user_*.md"))
 
+            semaphore = asyncio.Semaphore(3)
             processed = 0
-            for profile_path in profile_files:
-                user_id = profile_path.stem.replace("user_", "")
 
-                try:
-                    history = await history_mgr.get(
-                        platform_id=platform_id, user_id=user_id, page=1, page_size=100
-                    )
+            async def process_user(profile_path):
+                nonlocal processed
+                async with semaphore:
+                    user_id = profile_path.stem.replace("user_", "")
+                    try:
+                        history = await history_mgr.get(
+                            platform_id=platform_id,
+                            user_id=user_id,
+                            page=1,
+                            page_size=100,
+                        )
+                        if not history:
+                            return
 
-                    if not history:
-                        continue
+                        messages = []
+                        for msg in history:
+                            sender = getattr(msg, "sender_name", "Unknown")
+                            content = getattr(msg, "message_str", "")[:200]
+                            if content:
+                                messages.append(f"{sender}: {content}")
 
-                    messages = []
-                    for msg in history:
-                        sender = getattr(msg, "sender_name", "Unknown")
-                        content = getattr(msg, "message_str", "")[:200]
-                        if content:
-                            messages.append(f"{sender}: {content}")
+                        if not messages:
+                            return
 
-                    if not messages:
-                        continue
+                        existing_note = (
+                            profile_path.read_text(encoding="utf-8")
+                            if profile_path.exists()
+                            else ""
+                        )
 
-                    existing_note = (
-                        profile_path.read_text(encoding="utf-8")
-                        if profile_path.exists()
-                        else ""
-                    )
+                        llm_provider = self.context.get_using_provider(platform_id)
+                        if not llm_provider:
+                            return
 
-                    llm_provider = self.context.get_using_provider(platform_id)
-                    if not llm_provider:
-                        continue
-
-                    prompt = f"""你是一个旁观者，请根据今天的对话更新你对这个人的印象。
+                        prompt = f"""你是一个旁观者，请根据今天的对话更新你对这个人的印象。
 
 旧笔记:
 {existing_note[:500] if existing_note else "(暂无)"}
@@ -439,22 +444,114 @@ class SelfEvolutionPlugin(Star):
 
 请输出一段精简的纯文本（不超过200字），描述你对这个人最新的印象。只输出文本，不要其他内容。"""
 
-                    res = await llm_provider.text_chat(
-                        prompt=prompt,
-                        contexts=[],
-                        system_prompt="你是一个记忆助手，只输出精简的文本描述。",
-                    )
+                        res = await llm_provider.text_chat(
+                            prompt=prompt,
+                            contexts=[],
+                            system_prompt="你是一个记忆助手，只输出精简的文本描述。",
+                        )
 
-                    new_note = res.completion_text.strip()
-                    if new_note:
-                        profile_path.write_text(new_note, encoding="utf-8")
-                        processed += 1
+                        new_note = res.completion_text.strip()
+                        if new_note:
+                            profile_path.write_text(new_note, encoding="utf-8")
+                            processed += 1
+                            logger.info(f"[Dream] 已更新用户 {user_id} 的画像")
 
-                except Exception as e:
-                    logger.warning(f"[Dream] 处理用户 {user_id} 失败: {e}")
-                    continue
+                    except Exception as e:
+                        logger.warning(f"[Dream] 处理用户 {user_id} 失败: {e}")
+
+            tasks = [process_user(p) for p in profile_files]
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+            await self._dream_group_summary(history_mgr, platform_id)
 
             logger.info(f"[Dream] 批量处理完成，共更新 {processed} 个用户画像")
+
+        except Exception as e:
+            logger.error(f"[Dream] 做梦机制执行失败: {e}")
+
+    async def _dream_group_summary(self, history_mgr, platform_id):
+        """群记忆总结"""
+        try:
+            group_ids = set()
+            profile_dir = self.profile.profile_dir
+
+            for path in profile_dir.glob("user_*.md"):
+                try:
+                    history = history_mgr.get(
+                        platform_id=platform_id,
+                        user_id=path.stem.replace("user_", ""),
+                        page=1,
+                        page_size=50,
+                    )
+                    if history:
+                        for msg in history:
+                            gid = getattr(msg, "group_id", None)
+                            if gid:
+                                group_ids.add(gid)
+                except:
+                    continue
+
+            semaphore = asyncio.Semaphore(2)
+
+            async def process_group(group_id):
+                async with semaphore:
+                    try:
+                        kb_manager = self.context.kb_manager
+                        kb_helper = await kb_manager.get_kb_by_name(self.memory_kb_name)
+                        if not kb_helper:
+                            return
+
+                        docs = await kb_helper.list_documents()
+                        group_docs = [
+                            d
+                            for d in docs
+                            if hasattr(d, "doc_name")
+                            and d.doc_name.startswith(f"group_memory_{group_id}")
+                        ]
+
+                        if not group_docs:
+                            return
+
+                        existing_summary = ""
+                        for d in group_docs[:5]:
+                            existing_summary += getattr(d, "content", "")[:200] + "\n"
+
+                        llm_provider = self.context.get_using_provider(platform_id)
+                        if not llm_provider:
+                            return
+
+                        prompt = f"""你是一个群记忆助手，请总结这个群的规则和文化。
+
+旧总结:
+{existing_summary[:300] if existing_summary else "(暂无)"}
+
+请输出一段精简的纯文本（不超过150字），描述这个群的规则和文化。只输出文本，不要其他内容。"""
+
+                        res = await llm_provider.text_chat(
+                            prompt=prompt,
+                            contexts=[],
+                            system_prompt="你是一个群记忆助手，只输出精简的文本描述。",
+                        )
+
+                        new_summary = res.completion_text.strip()
+                        if new_summary:
+                            await kb_helper.upload_document(
+                                file_name=f"group_summary_{group_id}.txt",
+                                file_content=b"",
+                                file_type="txt",
+                                pre_chunked_text=[f"【群规则总结】{new_summary}"],
+                            )
+                            logger.info(f"[Dream] 已更新群 {group_id} 的记忆总结")
+
+                    except Exception as e:
+                        logger.warning(f"[Dream] 处理群 {group_id} 失败: {e}")
+
+            if group_ids:
+                tasks = [process_group(gid) for gid in group_ids]
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+        except Exception as e:
+            logger.error(f"[Dream] 群记忆总结失败: {e}")
 
         except Exception as e:
             logger.error(f"[Dream] 做梦机制执行失败: {e}")
