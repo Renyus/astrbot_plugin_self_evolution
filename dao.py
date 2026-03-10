@@ -6,11 +6,13 @@ from functools import wraps
 
 logger = logging.getLogger("astrbot")
 
+
 def with_db_retry(retries=3, delay=0.5):
     """
     异步指数退避重试装饰器，用于封装 DAO 的数据库读写。
     消除重复样板代码，提升可维护性和 DRY 性。
     """
+
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -22,7 +24,9 @@ def with_db_retry(retries=3, delay=0.5):
                         await asyncio.sleep(delay)
                     else:
                         raise e
+
         return wrapper
+
     return decorator
 
 
@@ -37,13 +41,15 @@ class SelfEvolutionDAO:
         """兼容旧接口，内部实际上已融入 get_conn 的连接池锁机制，从而规避初始化并发造成的 WAL 锁定冲突"""
         try:
             await self.get_conn()
-            logger.info("[SelfEvolution] DAO: 成功在长连接池状态机的保护下建立/验证数据库。")
+            logger.info(
+                "[SelfEvolution] DAO: 成功在长连接池状态机的保护下建立/验证数据库。"
+            )
         except aiosqlite.Error as e:
             logger.error(f"[SelfEvolution] DAO: 初始化 aiosqlite 数据库失败: {e}")
 
     async def _init_schema(self, db):
         """内部集中化执行数据库 DDL 初始构建"""
-        await db.execute('''
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS pending_evolutions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT NOT NULL,
@@ -52,21 +58,21 @@ class SelfEvolutionDAO:
                 reason TEXT NOT NULL,
                 status TEXT NOT NULL
             )
-        ''')
-        await db.execute('''
+        """)
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS pending_reflections (
                 session_id TEXT PRIMARY KEY,
                 is_pending INTEGER NOT NULL DEFAULT 1
             )
-        ''')
+        """)
         # CognitionCore 2.0: 情感关系矩阵表
-        await db.execute('''
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS user_relationships (
                 user_id TEXT PRIMARY KEY,
                 affinity_score INTEGER NOT NULL DEFAULT 50,
                 last_interaction TEXT NOT NULL
             )
-        ''')
+        """)
         await db.commit()
 
     async def get_conn(self):
@@ -75,28 +81,33 @@ class SelfEvolutionDAO:
             self._db_lock = asyncio.Lock()
         if self._write_lock is None:
             self._write_lock = asyncio.Lock()
-            
+
         async with self._db_lock:
             if self.db_conn is None:
                 self.db_conn = await aiosqlite.connect(self.db_path)
                 await self.db_conn.execute("PRAGMA journal_mode=WAL;")
                 self.db_conn.row_factory = aiosqlite.Row
                 await self._init_schema(self.db_conn)
-                
+
         try:
             # 存活检测移出 _db_lock 死区，防止高频探针遭遇 SQLite 锁引发并发雪崩，并增加防挂起硬超时
             async def probe():
                 async with self.db_conn.execute("SELECT 1") as cursor:
                     await cursor.fetchone()
+
             await asyncio.wait_for(probe(), timeout=2.0)
         except Exception:
-            logger.warning("[SelfEvolution] DAO: 侦测到 SQLite 长连接句柄丢失或断裂，尝试热重连机制...")
+            logger.warning(
+                "[SelfEvolution] DAO: 侦测到 SQLite 长连接句柄丢失或断裂，尝试热重连机制..."
+            )
             async with self._db_lock:
                 # Double-check 预防并发协程在等待锁时已经被前面的人重设连接，同样增加时限防护
                 try:
+
                     async def p_probe():
                         async with self.db_conn.execute("SELECT 1") as cursor:
                             await cursor.fetchone()
+
                     await asyncio.wait_for(p_probe(), timeout=2.0)
                 except Exception:
                     if self.db_conn:
@@ -111,7 +122,9 @@ class SelfEvolutionDAO:
                         self.db_conn.row_factory = aiosqlite.Row
                         await self._init_schema(self.db_conn)
                     except Exception as e:
-                        logger.error(f"[SelfEvolution] DAO重连与建表崩溃, 数据库文件极可能已被移出损毁: {e}")
+                        logger.error(
+                            f"[SelfEvolution] DAO重连与建表崩溃, 数据库文件极可能已被移出损毁: {e}"
+                        )
                         self.db_conn = None
                         raise
         return self.db_conn
@@ -132,7 +145,9 @@ class SelfEvolutionDAO:
                 finally:
                     self._db_lock.release()
             except asyncio.TimeoutError:
-                logger.error("[SelfEvolution] 紧急关闭：_db_lock 被阻断超时！强制越权解除底层 aiosqlite 绑定以防宿主平台卸载雪崩。")
+                logger.error(
+                    "[SelfEvolution] 紧急关闭：_db_lock 被阻断超时！强制越权解除底层 aiosqlite 绑定以防宿主平台卸载雪崩。"
+                )
                 if self.db_conn:
                     try:
                         await self.db_conn.close()
@@ -141,33 +156,50 @@ class SelfEvolutionDAO:
                 self.db_conn = None
 
     @with_db_retry()
-    async def add_pending_evolution(self, persona_id: str, new_prompt: str, reason: str):
+    async def add_pending_evolution(
+        self, persona_id: str, new_prompt: str, reason: str
+    ):
         db = await self.get_conn()
         async with self._write_lock:
             await db.execute(
                 "INSERT INTO pending_evolutions (timestamp, persona_id, new_prompt, reason, status) "
                 "VALUES (?, ?, ?, ?, ?)",
-                (datetime.now().isoformat(), persona_id, new_prompt, reason, "pending_approval")
+                (
+                    datetime.now().isoformat(),
+                    persona_id,
+                    new_prompt,
+                    reason,
+                    "pending_approval",
+                ),
             )
             await db.commit()
 
     @with_db_retry()
     async def get_pending_evolutions(self, limit: int, offset: int):
         db = await self.get_conn()
-        async with db.execute("SELECT id, persona_id, reason, status FROM pending_evolutions WHERE status = 'pending_approval' ORDER BY id DESC LIMIT ? OFFSET ?", (limit, offset)) as cursor:
+        async with db.execute(
+            "SELECT id, persona_id, reason, status FROM pending_evolutions WHERE status = 'pending_approval' ORDER BY id DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ) as cursor:
             return await cursor.fetchall()
 
     @with_db_retry()
     async def get_evolution(self, request_id: int):
         db = await self.get_conn()
-        async with db.execute("SELECT persona_id, new_prompt FROM pending_evolutions WHERE id = ? AND status = 'pending_approval'", (request_id,)) as cursor:
+        async with db.execute(
+            "SELECT persona_id, new_prompt FROM pending_evolutions WHERE id = ? AND status = 'pending_approval'",
+            (request_id,),
+        ) as cursor:
             return await cursor.fetchone()
 
     @with_db_retry()
     async def update_evolution_status(self, request_id: int, status: str):
         db = await self.get_conn()
         async with self._write_lock:
-            await db.execute("UPDATE pending_evolutions SET status = ? WHERE id = ?", (status, request_id))
+            await db.execute(
+                "UPDATE pending_evolutions SET status = ? WHERE id = ?",
+                (status, request_id),
+            )
             await db.commit()
 
     @with_db_retry()
@@ -175,7 +207,9 @@ class SelfEvolutionDAO:
         """批量清理（标记为已清除）所有待审批的进化请求"""
         db = await self.get_conn()
         async with self._write_lock:
-            await db.execute("UPDATE pending_evolutions SET status = 'cleared' WHERE status = 'pending_approval'")
+            await db.execute(
+                "UPDATE pending_evolutions SET status = 'cleared' WHERE status = 'pending_approval'"
+            )
             await db.commit()
 
     @with_db_retry()
@@ -183,8 +217,8 @@ class SelfEvolutionDAO:
         db = await self.get_conn()
         async with self._write_lock:
             await db.execute(
-                "INSERT INTO pending_reflections (session_id, is_pending) VALUES (?, ?) ON CONFLICT(session_id) DO UPDATE SET is_pending=?", 
-                (session_id, int(is_pending), int(is_pending))
+                "INSERT INTO pending_reflections (session_id, is_pending) VALUES (?, ?) ON CONFLICT(session_id) DO UPDATE SET is_pending=?",
+                (session_id, int(is_pending), int(is_pending)),
             )
             await db.commit()
 
@@ -192,38 +226,46 @@ class SelfEvolutionDAO:
     async def pop_pending_reflection(self, session_id: str) -> bool:
         db = await self.get_conn()
         async with self._write_lock:
-            cursor = await db.execute("UPDATE pending_reflections SET is_pending = 0 WHERE session_id = ? AND is_pending = 1", (session_id,))
+            cursor = await db.execute(
+                "UPDATE pending_reflections SET is_pending = 0 WHERE session_id = ? AND is_pending = 1",
+                (session_id,),
+            )
             await db.commit()
             return cursor.rowcount > 0
 
     # --- CognitionCore 2.0: 情感矩阵 DAO ---
     @with_db_retry()
     async def get_affinity(self, user_id: str) -> int:
+        user_id = str(user_id)  # 确保类型一致
         db = await self.get_conn()
-        async with db.execute("SELECT affinity_score FROM user_relationships WHERE user_id = ?", (user_id,)) as cursor:
+        async with db.execute(
+            "SELECT affinity_score FROM user_relationships WHERE user_id = ?",
+            (user_id,),
+        ) as cursor:
             row = await cursor.fetchone()
-            return row['affinity_score'] if row else 50
+            return row["affinity_score"] if row else 50
 
     @with_db_retry()
     async def update_affinity(self, user_id: str, delta: int):
+        user_id = str(user_id)  # 确保类型一致
         db = await self.get_conn()
         async with self._write_lock:
             cursor = await db.execute(
                 "SELECT affinity_score FROM user_relationships WHERE user_id = ?",
-                (user_id,)
+                (user_id,),
             )
             row = await cursor.fetchone()
             if row:
-                new_score = max(0, min(100, row['affinity_score'] + delta))
+                new_score = max(0, min(100, row["affinity_score"] + delta))
                 await db.execute(
                     "UPDATE user_relationships SET affinity_score = ?, last_interaction = ? WHERE user_id = ?",
-                    (new_score, datetime.now().isoformat(), user_id)
+                    (new_score, datetime.now().isoformat(), user_id),
                 )
             else:
                 new_score = max(0, min(100, 50 + delta))
                 await db.execute(
                     "INSERT INTO user_relationships (user_id, affinity_score, last_interaction) VALUES (?, ?, ?)",
-                    (user_id, new_score, datetime.now().isoformat())
+                    (user_id, new_score, datetime.now().isoformat()),
                 )
             await db.commit()
 
@@ -236,11 +278,14 @@ class SelfEvolutionDAO:
         db = await self.get_conn()
         async with self._write_lock:
             # 仅给积分小于 50 的人慢慢恢复，上限 50
-            await db.execute('''
+            await db.execute(
+                """
                 UPDATE user_relationships 
                 SET affinity_score = MIN(50, affinity_score + ?)
                 WHERE affinity_score < 50
-            ''', (recovery_amount,))
+            """,
+                (recovery_amount,),
+            )
             await db.commit()
 
     @with_db_retry()
@@ -248,11 +293,20 @@ class SelfEvolutionDAO:
         """管理员强制重置好感度"""
         db = await self.get_conn()
         async with self._write_lock:
-            await db.execute('''
+            await db.execute(
+                """
                 INSERT INTO user_relationships (user_id, affinity_score, last_interaction)
                 VALUES (?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET 
                     affinity_score = ?,
                     last_interaction = ?
-            ''', (user_id, score, datetime.now().isoformat(), score, datetime.now().isoformat()))
+            """,
+                (
+                    user_id,
+                    score,
+                    datetime.now().isoformat(),
+                    score,
+                    datetime.now().isoformat(),
+                ),
+            )
             await db.commit()
