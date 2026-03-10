@@ -191,7 +191,7 @@ class SelfEvolutionPlugin(Star):
                 "[SelfEvolution] 插件卸载钩子触发：DAO 长连接及底层句柄已安全脱离释放。"
             )
         except Exception as e:
-            logger.error(f"[SelfEvolution] 释放 DAO 资源异常: {e}")
+            logger.warning(f"[SelfEvolution] 释放 DAO 资源异常: {e}")
 
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
@@ -375,7 +375,7 @@ class SelfEvolutionPlugin(Star):
             logger.info("[SelfEvolution] 已注册画像清理任务: 0 4 * * *")
 
         except Exception as e:
-            logger.error(f"[SelfEvolution] 注册定时任务失败: {e}")
+            logger.warning(f"[SelfEvolution] 注册定时任务失败: {e}")
 
     async def _scheduled_reflection(self):
         """定时任务回调函数 - 做梦机制"""
@@ -485,7 +485,7 @@ class SelfEvolutionPlugin(Star):
             )
 
         except Exception as e:
-            logger.error(f"[Dream] 做梦机制执行失败: {e}")
+            logger.warning(f"[Dream] 做梦机制执行失败: {e}")
 
     async def _dream_group_summary(self, history_mgr, platform_id):
         """群记忆总结"""
@@ -569,10 +569,7 @@ class SelfEvolutionPlugin(Star):
                 await asyncio.gather(*tasks, return_exceptions=True)
 
         except Exception as e:
-            logger.error(f"[Dream] 群记忆总结失败: {e}")
-
-        except Exception as e:
-            logger.error(f"[Dream] 做梦机制执行失败: {e}")
+            logger.warning(f"[Dream] 群记忆总结失败: {e}")
 
     async def _scheduled_profile_cleanup(self):
         """画像清理定时任务"""
@@ -706,7 +703,7 @@ class SelfEvolutionPlugin(Star):
             logger.info("[SelfEvolution] 管理员清空了所有待审核的进化请求。")
             yield event.plain_result("所有待审核的进化请求已成功清空（标记为已忽略）。")
         except Exception as e:
-            logger.error(f"[SelfEvolution] 清空进化请求失败: {e}")
+            logger.warning(f"[SelfEvolution] 清空进化请求失败: {e}")
             yield event.plain_result(f"清空审核列表时发生异常: {e}")
 
     @filter.llm_tool(name="commit_to_memory")
@@ -820,7 +817,7 @@ class SelfEvolutionPlugin(Star):
 
             return "\n".join(result)
         except Exception as e:
-            logger.error(f"[SelfEvolution] 获取工具列表失败: {e}")
+            logger.warning(f"[SelfEvolution] 获取工具列表失败: {e}")
             return "获取工具列表时出现内部异常处理错误。"
 
     @filter.llm_tool(name="toggle_tool")
@@ -845,7 +842,7 @@ class SelfEvolutionPlugin(Star):
                     success = self.context.deactivate_llm_tool(tool_name)
                     action = "停用"
             except AttributeError:
-                logger.error(
+                logger.warning(
                     "[SelfEvolution] 底层 API 异常: 工具激活机制的底层接口缺失。"
                 )
                 return "安全保护：框架底层管理结构发生异常，无法调整工具激活状态。"
@@ -861,7 +858,7 @@ class SelfEvolutionPlugin(Star):
         except Exception as e:
             if isinstance(e, (TypeError, ValueError)):
                 raise
-            logger.error(f"[SelfEvolution] 工具切换业务失败: {e}")
+            logger.warning(f"[SelfEvolution] 工具切换业务失败: {e}")
             return "工具切换时遭遇系统异常。"
 
     @filter.llm_tool(name="get_plugin_source")
@@ -1004,7 +1001,7 @@ class SelfEvolutionPlugin(Star):
             return "\n".join(result)
 
         except Exception as e:
-            logger.error(f"[SelfEvolution] 获取用户消息失败: {e}")
+            logger.warning(f"[SelfEvolution] 获取用户消息失败: {e}")
             return f"获取历史消息失败: {str(e)}"
 
     @filter.command("view_profile")
