@@ -103,13 +103,6 @@
         "type": "int",
         "default": 100
     },
-    "profile_slide_window": {
-        "title": "画像冷场滑动窗口",
-        "description": "判定为冷场的无回复条数。",
-        "hint": "默认 3 条。",
-        "type": "int",
-        "default": 3
-    },
     "enable_profile_update": {
         "title": "启用画像更新",
         "description": "是否启用用户画像更新功能。",

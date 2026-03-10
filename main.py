@@ -148,10 +148,6 @@ class SelfEvolutionPlugin(Star):
         return int(self.config.get("max_memory_entries", 100))
 
     @property
-    def profile_slide_window(self):
-        return int(self.config.get("profile_slide_window", 3))
-
-    @property
     def enable_profile_update(self):
         return self._parse_bool(self.config.get("enable_profile_update"), True)
 
