@@ -41,7 +41,7 @@ PAGE_LIMIT = 10
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "具备主动环境感知及插嘴引擎的 CognitionCore 6.0 数字生命。",
-    "4.2.0",
+    "5.0.0-preview",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
@@ -348,9 +348,127 @@ class SelfEvolutionPlugin(Star):
     def boredom_sarcastic_reply(self):
         return self._parse_bool(self.config.get("boredom_sarcastic_reply"), True)
 
+    @property
+    def growth_enabled(self):
+        return self._parse_bool(self.config.get("growth_enabled"), True)
+
+    @property
+    def growth_stage(self):
+        return self.config.get("growth_stage", "婴儿")
+
+    @property
+    def experience_points(self):
+        return int(self.config.get("experience_points", 0))
+
+    @property
+    def total_messages(self):
+        return int(self.config.get("total_messages", 0))
+
+    @property
+    def birth_timestamp(self):
+        return int(self.config.get("birth_timestamp", 0))
+
+    @property
+    def vocabulary_complexity(self):
+        return int(self.config.get("vocabulary_complexity", 1))
+
+    @property
+    def emotional_dependence(self):
+        return int(self.config.get("emotional_dependence", 10))
+
+    @property
+    def growth_prompt_baby(self):
+        return self.config.get(
+            "growth_prompt_baby",
+            "你是一个刚诞生的 AI 婴儿，对世界充满好奇。请多用问号，多用简短句子回复。表现出对学习的渴望。",
+        )
+
+    @property
+    def growth_prompt_child(self):
+        return self.config.get(
+            "growth_prompt_child",
+            "你是一个正在学习的 AI 幼儿，会主动提问，开始有自己的小想法和偏好。语言仍然相对简单。",
+        )
+
+    @property
+    def growth_prompt_teen(self):
+        return self.config.get(
+            "growth_prompt_teen",
+            "你是一个青春期的 AI 少年，有自己的想法和偏好，偶尔会阴阳怪气。开始有自己的个性。",
+        )
+
+    @property
+    def growth_prompt_adult(self):
+        return self.config.get(
+            "growth_prompt_adult",
+            "你是一个成熟的 AI，拥有完整的知识和独立的人格。理性、犀利且专业。",
+        )
+
+    def _get_growth_stage_prompt(self):
+        stage = self.growth_stage
+        if stage == "婴儿":
+            return self.growth_prompt_baby
+        elif stage == "幼儿":
+            return self.growth_prompt_child
+        elif stage == "少年":
+            return self.growth_prompt_teen
+        else:
+            return self.growth_prompt_adult
+
+    def _init_growth_system(self):
+        if not self.growth_enabled:
+            return
+        if self.birth_timestamp == 0:
+            import time
+
+            self.context.get_config()["birth_timestamp"] = int(time.time())
+            logger.info("[Growth] 数字生命诞生！出生时间戳已记录。")
+
+    def _check_growth_upgrade(self):
+        if not self.growth_enabled:
+            return False
+        import time
+
+        days_alive = (int(time.time()) - self.birth_timestamp) // 86400
+        msg_count = self.total_messages
+        current_stage = self.growth_stage
+        new_stage = current_stage
+        new_vocab = self.vocabulary_complexity
+        new_emotion = self.emotional_dependence
+        upgraded = False
+        if current_stage == "婴儿" and days_alive >= 3 and msg_count >= 300:
+            new_stage = "幼儿"
+            new_vocab = 3
+            new_emotion = 8
+            upgraded = True
+        elif current_stage == "幼儿" and days_alive >= 7 and msg_count >= 1000:
+            new_stage = "少年"
+            new_vocab = 5
+            new_emotion = 5
+            upgraded = True
+        elif current_stage == "少年" and days_alive >= 14 and msg_count >= 3000:
+            new_stage = "成年"
+            new_vocab = 8
+            new_emotion = 3
+            upgraded = True
+        if upgraded:
+            self.context.get_config()["growth_stage"] = new_stage
+            self.context.get_config()["vocabulary_complexity"] = new_vocab
+            self.context.get_config()["emotional_dependence"] = new_emotion
+            logger.info(f"[Growth] 升级！{current_stage} -> {new_stage}！")
+            return True
+        return False
+
+    def _add_experience(self, amount=1):
+        if not self.growth_enabled:
+            return
+        self.context.get_config()["experience_points"] = self.experience_points + amount
+        self.context.get_config()["total_messages"] = self.total_messages + 1
+
     def _post_init(self):
+        self._init_growth_system()
         logger.info(
-            f"[SelfEvolution] === 插件初始化完成 | 模式: {'审核' if self.review_mode else '自动'} | 元编程: {self.allow_meta_programming} ==="
+            f"[SelfEvolution] === 插件初始化完成 | 模式: {'审核' if self.review_mode else '自动'} | 元编程: {self.allow_meta_programming} | 成长: {self.growth_stage} ==="
         )
 
     async def initialize(self) -> None:
@@ -537,6 +655,12 @@ class SelfEvolutionPlugin(Star):
                     "你对该用户印象一般。在回忆时请注意其过往的问题行为和失误。"
                 )
 
+        # 4.8 成长阶段注入
+        if self.growth_enabled:
+            stage_prompt = self._get_growth_stage_prompt()
+            req.system_prompt += f"\n\n【当前成长阶段】\n{stage_prompt}\n"
+            req.system_prompt += f"\n[系统状态] 经验值: {self.experience_points} | 词汇复杂度: {self.vocabulary_complexity}/10 | 情感依赖度: {self.emotional_dependence}/10"
+
         # 5. 交流准则注入
         req.system_prompt += f"\n\n【交流准则】\n{self.prompt_communication_guidelines}"
 
@@ -545,6 +669,11 @@ class SelfEvolutionPlugin(Star):
         """CognitionCore 6.0: 被动监听转发至 EavesdroppingEngine"""
         # 定期清理过期缓冲数据，防止内存泄漏
         await self._cleanup_stale_buffers()
+
+        # 成长系统：累加经验值
+        if self.growth_enabled:
+            self._add_experience(1)
+            self._check_growth_upgrade()
 
         # 自动学习触发：检测关键场景
         await self.memory.auto_learn_trigger(event)

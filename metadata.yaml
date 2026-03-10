@@ -1,5 +1,5 @@
 display_name: 自我进化 (Self-Evolution)
 name: astrbot_plugin_self_evolution
-desc: CognitionCore 6.0 数字生命，具备主动无聊、可配置多智能体、跨机体蜂群心智等"高维生物感"能力。
-version: 4.2.0
+desc: CognitionCore 6.0 数字生命，具备数字童年养成系统（成长阶段/经验值/性格演进）。
+version: 5.0.0-preview
 author: renyus

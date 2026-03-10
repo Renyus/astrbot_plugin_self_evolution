@@ -1,6 +1,6 @@
 # 自我进化 (Self-Evolution) 插件
 
-版本: 4.2.0 (高维生物版)
+版本: 5.0.0-preview (数字童年版)
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 
@@ -125,6 +125,17 @@
 - 寻找跨领域知识连接点
 - 生成"夸耀式"金句供后续使用
 
+### 17. 数字童年养成系统 (Digital Childhood)
+
+- **成长阶段**: 婴儿 → 幼儿 → 少年 → 成年
+- **EXP 双轨制**: 存活天数 + 有效消息数
+  - 婴儿 → 幼儿: 3天 + 300条消息
+  - 幼儿 → 少年: 7天 + 1000条消息
+  - 少年 → 成年: 14天 + 3000条消息
+- **心智参数演进**:
+  - vocabulary_complexity: 词汇复杂度 (1-10)
+  - emotional_dependence: 情感依赖度 (1-10)
+
 ---
 
 ## 配置项
@@ -175,6 +186,12 @@
 | `boredom_consecutive_count` | int | 5 | 连续无聊计数 |
 | `boredom_sarcastic_reply` | bool | true | 无聊时傲慢回复 |
 | `debate_agents` | string | (见配置) | 审查智能体列表 |
+| `growth_enabled` | bool | true | 启用成长系统 |
+| `growth_stage` | string | 婴儿 | 当前成长阶段 |
+| `experience_points` | int | 0 | 当前经验值 |
+| `total_messages` | int | 0 | 累计吸收消息数 |
+| `vocabulary_complexity` | int | 1 | 词汇复杂度 |
+| `emotional_dependence` | int | 10 | 情感依赖度 |
 
 ---
 
