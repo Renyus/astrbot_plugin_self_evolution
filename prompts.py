@@ -73,24 +73,35 @@ class PromptManager:
 
     def _load_prompts(self, plugin):
         """加载 prompts.yaml"""
+        # 首先检查插件目录
         if plugin is not None:
-            data_dir = plugin.data_dir
+            data_dir = getattr(plugin, "data_dir", None)
+            if data_dir is not None:
+                # 确保是 Path 对象
+                if not isinstance(data_dir, Path):
+                    data_dir = Path(str(data_dir))
+                yaml_path = data_dir / "prompts.yaml"
+                if yaml_path.exists():
+                    try:
+                        with open(yaml_path, "r", encoding="utf-8") as f:
+                            self._prompts = yaml.safe_load(f)
+                        logger.info(f"[PromptManager] 已加载提示词配置: {yaml_path}")
+                        return
+                    except Exception as e:
+                        logger.error(f"[PromptManager] 加载 prompts.yaml 失败: {e}")
+
+        # 回退到检查当前目录
+        yaml_path = Path(__file__).parent / "prompts.yaml"
+        if yaml_path.exists():
+            try:
+                with open(yaml_path, "r", encoding="utf-8") as f:
+                    self._prompts = yaml.safe_load(f)
+                logger.info(f"[PromptManager] 已加载提示词配置: {yaml_path}")
+            except Exception as e:
+                logger.error(f"[PromptManager] 加载 prompts.yaml 失败: {e}")
+                self._prompts = DEFAULT_PROMPTS
         else:
-            data_dir = Path(__file__).parent
-
-        yaml_path = data_dir / "prompts.yaml"
-
-        if not yaml_path.exists():
             logger.warning(f"[PromptManager] prompts.yaml 不存在，使用默认提示词")
-            self._prompts = DEFAULT_PROMPTS
-            return
-
-        try:
-            with open(yaml_path, "r", encoding="utf-8") as f:
-                self._prompts = yaml.safe_load(f)
-            logger.info(f"[PromptManager] 已加载提示词配置: {yaml_path}")
-        except Exception as e:
-            logger.error(f"[PromptManager] 加载 prompts.yaml 失败: {e}，使用默认提示词")
             self._prompts = DEFAULT_PROMPTS
 
     def get(self, *keys, default: Any = None) -> Any:

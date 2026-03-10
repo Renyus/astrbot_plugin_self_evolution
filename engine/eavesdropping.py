@@ -118,16 +118,24 @@ class EavesdroppingEngine:
 
     def _check_funnel_level3(self, group_id: str, user_id: str) -> bool:
         """第三级：上下文时间窗（Session机制）"""
+        # 确保类型一致
+        group_id = str(group_id)
+        user_id = str(user_id)
+
         if group_id not in self.active_users:
             return False
-        if user_id not in self.active_users[group_id]:
+        if user_id not in self.active_users.get(group_id, {}):
             return False
 
-        window_end = self.active_users[group_id][user_id].get("window_end", 0)
+        window_end = self.active_users[group_id].get(user_id, {}).get("window_end", 0)
         return time.time() < window_end
 
     def _mark_user_active(self, group_id: str, user_id: str):
         """标记用户为活跃状态，开启30秒窗口"""
+        # 确保类型一致
+        group_id = str(group_id)
+        user_id = str(user_id)
+
         now = time.time()
         self.active_users[group_id][user_id] = {
             "last_active": now,
@@ -136,7 +144,7 @@ class EavesdroppingEngine:
 
     def is_user_active(self, group_id: str, user_id: str) -> bool:
         """检查用户是否处于活跃状态"""
-        return self._check_funnel_level3(group_id, user_id)
+        return self._check_funnel_level3(str(group_id), str(user_id))
 
     def cleanup_expired_active_users(self):
         """清理过期的活跃用户记录"""
