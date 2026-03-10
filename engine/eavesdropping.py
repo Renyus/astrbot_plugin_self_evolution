@@ -15,10 +15,17 @@ class EavesdroppingEngine:
     async def handle_message(self, event: AstrMessageEvent):
         """CognitionCore 4.5: 意图预扫描 + 滑动窗口氛围感知"""
         msg_text = event.message_str
-        session_id = str(event.session_id)  # 确保字符串类型
-        user_id = str(event.get_sender_id())  # 确保字符串类型
+        session_id = str(event.session_id)
+        user_id = str(event.get_sender_id())
         sender_name = event.get_sender_name() or "Unknown"
         is_at = event.is_at_or_wake_command
+
+        # 私聊不触发插嘴逻辑
+        group_id = event.get_group_id()
+        if not group_id:
+            return
+
+        group_id = str(group_id)
 
         config = self.plugin.context.get_config()
         bot_wake_prefixes = config.get("wake_prefix", ["/"])
@@ -34,10 +41,10 @@ class EavesdroppingEngine:
         if score <= 0:
             return
 
-        group_id = event.get_group_id()
         if group_id:
-            group_id = str(group_id)  # 确保字符串类型
             self.global_window[group_id].append(f"{sender_name}: {msg_text}")
+            if len(self.global_window[group_id]) > self.window_size:
+                self.global_window[group_id].pop(0)
             if len(self.global_window[group_id]) > self.window_size:
                 self.global_window[group_id].pop(0)
 
@@ -97,7 +104,7 @@ class EavesdroppingEngine:
 
             snap_len = 0
             sender_name = event.get_sender_name() or "Unknown"
-            sender_id = event.get_sender_id()
+            sender_id = str(event.get_sender_id())
             speaker_map = getattr(self.plugin, "_session_speakers", {}).get(
                 session_id, {}
             )
@@ -164,17 +171,24 @@ class EavesdroppingEngine:
                 and len(reply_text) > 10
             )
 
-            if reply_text and "[IGNORE]" not in reply_text and not is_meta:
+            # 严格检查：不回复 IGNORE 相关的任何内容
+            should_respond = False
+            if reply_text:
+                reply_stripped = reply_text.strip().upper()
+                if "[IGNORE]" in reply_text.upper() or reply_stripped == "IGNORE":
+                    reason = "判定为噪音/无价值"
+                elif is_meta:
+                    reason = "触发元评论拦截"
+                else:
+                    should_respond = True
+                    reason = "评估通过"
+            else:
+                reason = "内容为空"
+
+            if should_respond:
                 logger.info(f"[CognitionCore] 插嘴评估通过！响应: {reply_text}")
                 yield event.plain_result(reply_text)
             else:
-                reason = (
-                    "判定为噪音/无价值"
-                    if "[IGNORE]" in reply_text
-                    else "触发元评论拦截"
-                    if is_meta
-                    else "内容为空"
-                )
                 logger.info(f"[CognitionCore] 插嘴评估未通过：{reason}。")
 
             if not force_immediate:
