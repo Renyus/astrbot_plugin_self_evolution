@@ -1,6 +1,6 @@
 # Self-Evolution 插件技术文档
 
-版本: 4.0.1 (多智能体+关系图谱版)
+版本: 4.1.0 (人味增强版)
 
 ---
 
@@ -64,8 +64,9 @@ self_evolution/
     ├─► on_llm_request (拦截层)
     │    ├─► 情感矩阵检查 (affinity <= 0 熔断)
     │    ├─► 上下文注入 (身份、群组、引用)
-    │    ├─► 记忆检索注入 (auto_recall)
     │    ├─► 画像注入 (profile)
+    │    ├─► 情绪依存记忆 (State-Dependent Memory)
+    │    ├─► 记忆模糊化指令 (Epistemic Uncertainty)
     │    ├─► 突发偏好检测
     │    └─► 惊奇驱动检测 (Surprise Detection)
     │
@@ -74,6 +75,8 @@ self_evolution/
          ├─► 自动学习触发 (auto_learn_trigger)
          ├─► 关系图谱记录 (GraphRAG)
          └─► 插嘴评估 (eavesdropping)
+              ├─► 判定 IGNORE → 存储内心独白
+              └─► 判定 COMMENT → 注入内心独白
 ```
 
 ---
@@ -225,7 +228,66 @@ LLM 决策 (是否插嘴)
 - `surprise_enabled`: 是否启用
 - `surprise_boost_keywords`: 惊奇关键词列表
 
-### 3.8 关系图谱 (graph.py)
+### 3.7 情绪依存记忆 (State-Dependent Memory)
+
+**核心思想**: 人的情绪状态会影响回忆倾向。开心时想起美好回忆，生气时想起对方的过错。
+
+**实现位置**: `main.py` on_llm_request
+
+**触发条件**: 基于用户 affinity 分数
+
+| affinity 区间 | 注入的隐性指令 |
+|--------------|---------------|
+| > 60 | 关系良好，多关注共同兴趣和愉快经历 |
+| 30-60 | 无特殊指令 |
+| < 30 | 印象一般，注意其过往的问题行为 |
+| <= 0 | 已拉黑，回忆负面记录进行无情嘲讽 |
+
+**示例效果**:
+- 高好感用户: "我记得你上次说想学 Rust，最近看了吗？"
+- 低好感用户: "你上次也是这么说，结果还不是一样？"
+
+### 3.8 内部独白 (Inner Monologue)
+
+**核心思想**: 人类在群聊中潜水时，脑子里会对对话产生"腹诽"。即使不发言，也会有心理活动。
+
+**实现位置**: `engine/eavesdropping.py`
+
+**工作流程**:
+1. LLM 判定 IGNORE 时，强制要求输出 `<inner_monologue>`
+2. 存储到 `inner_monologue_cache` 临时变量
+3. 下次真正插话时，将内心独白注入回复
+
+**配置项**:
+- `inner_monologue_enabled`: 是否启用 (默认 true)
+
+**示例效果**:
+- 内心独白: "这帮人又在聊毫无营养的八卦"
+- 实际发言: "我盯了你们半天了，本来不想说话，但你们这个 Bug 确实太离谱了..."
+
+### 3.9 记忆模糊化 (Epistemic Uncertainty)
+
+**核心思想**: 真人不会记得所有细节，有时候会"记不清"。过于完美的记忆会产生恐怖谷效应。
+
+**实现位置**: 
+- `prompt_dream_user_summary`: 要求 LLM 输出置信度
+- `main.py` on_llm_request: 对低置信度记忆注入不确定性指令
+
+**置信度格式**:
+```
+用户擅长 Python (置信度 90%)
+用户似乎有只猫 (置信度 40%)
+```
+
+**不确定性表达**:
+- "我隐约记得..."
+- "你是不是之前说过..."
+- "好像听你提过..."
+
+**示例效果**:
+"我隐约记得你上个月是不是提过你要重构数据库？那个搞完了没？"
+
+### 3.10 关系图谱 (graph.py)
 
 **职责**: 维护用户关系网络，用于增强 RAG 检索
 
@@ -333,6 +395,7 @@ LLM 决策 (是否插嘴)
 | surprise_enabled | bool | true | 启用惊奇驱动学习 |
 | surprise_boost_keywords | string | (见配置) | 惊奇关键词 |
 | graph_enabled | bool | true | 启用关系图谱 RAG |
+| inner_monologue_enabled | bool | true | 启用内心独白 |
 
 ---
 

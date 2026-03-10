@@ -303,5 +303,11 @@
         "description": "启用用户关系图谱存储和检索增强。",
         "type": "bool",
         "default": true
+    },
+    "inner_monologue_enabled": {
+        "title": "启用内心独白",
+        "description": "启用潜意识缓存，让 AI 在沉默时产生内心独白，下次发言时注入。",
+        "type": "bool",
+        "default": true
     }
 }

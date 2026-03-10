@@ -12,6 +12,23 @@ class EavesdroppingEngine:
         self.global_window = defaultdict(list)
         self.window_size = 5
         self.leaky_bucket = defaultdict(float)
+        self.inner_monologue_cache = defaultdict(str)
+
+    def _extract_monologue(self, text: str) -> str:
+        match = re.search(r"<inner_monologue>(.*?)</inner_monologue>", text, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        return ""
+
+    def _store_monologue(self, session_id: str, monologue: str):
+        self.inner_monologue_cache[session_id] = monologue
+
+    def _get_stored_monologue(self, session_id: str) -> str:
+        return self.inner_monologue_cache.get(session_id, "")
+
+    def _clear_stored_monologue(self, session_id: str):
+        if session_id in self.inner_monologue_cache:
+            del self.inner_monologue_cache[session_id]
 
     def _get_leaky_params(self):
         return {
@@ -160,6 +177,19 @@ class EavesdroppingEngine:
                 snap_len = len(buffer)
                 chat_history = "\n".join(buffer[:snap_len])
 
+            inner_monologue_enabled = getattr(
+                self.plugin, "inner_monologue_enabled", True
+            )
+
+            monologue_instruction = ""
+            if inner_monologue_enabled:
+                monologue_instruction = (
+                    "\n\n【潜意识任务】（即使判定为 IGNORE 也必须执行）：\n"
+                    "请输出一个 20 字以内的简短内心独白，描述你对这个对话片段的真实腹诽或吐槽。\n"
+                    "格式：<inner_monologue>你的内心独白</inner_monologue>\n"
+                    "示例：<inner_monologue>这帮人又在聊毫无营养的八卦</inner_monologue>"
+                )
+
             decision_prompt = (
                 f"你现在是 {self.plugin.persona_name}（{self.plugin.persona_title}），特点是：{self.plugin.persona_style}。\n"
                 f'【当前社交阈值】：你的"发言意愿"设定为 {self.plugin.interjection_desire}/10。数值越低你越冷漠。\n'
@@ -174,6 +204,7 @@ class EavesdroppingEngine:
                 "   - 对方在发表明显的逻辑谬误或常识性错误。\n"
                 f"3. **表达风格**：回复必须极度简略（通常不超过 20 字），语气要冷淡且专业，像真正的 {self.plugin.persona_name} 一样。\n"
                 '【禁止事项】：绝对禁止发表类似"对话缺乏信息密度"、"建议继续检测"等关于后台评估过程本身的任何评论。'
+                + monologue_instruction
             )
 
             llm_provider = self.plugin.context.get_using_provider(
@@ -215,22 +246,37 @@ class EavesdroppingEngine:
             )
 
             should_respond = False
+            monologue_text = ""
             if reply_text:
                 reply_stripped = reply_text.strip().upper()
                 if "[IGNORE]" in reply_text.upper() or reply_stripped == "IGNORE":
                     reason = "判定为噪音/无价值"
+                    monologue_text = self._extract_monologue(reply_text)
                 elif is_meta:
                     reason = "触发元评论拦截"
                 else:
                     should_respond = True
                     reason = "评估通过"
+                    monologue_text = self._extract_monologue(reply_text)
             else:
                 reason = "内容为空"
 
             if should_respond:
-                logger.info(f"[CognitionCore] 插嘴评估通过！响应: {reply_text}")
-                yield event.plain_result(reply_text)
+                inner_monologue = self._get_stored_monologue(session_id)
+                if inner_monologue:
+                    full_response = f"{inner_monologue} {reply_text}"
+                    logger.info(
+                        f"[CognitionCore] 插嘴评估通过！注入内心独白: {inner_monologue}"
+                    )
+                    yield event.plain_result(full_response)
+                else:
+                    logger.info(f"[CognitionCore] 插嘴评估通过！响应: {reply_text}")
+                    yield event.plain_result(reply_text)
+                self._clear_stored_monologue(session_id)
             else:
+                if monologue_text:
+                    self._store_monologue(session_id, monologue_text)
+                    logger.info(f"[CognitionCore] 已存储内心独白: {monologue_text}")
                 logger.info(f"[CognitionCore] 插嘴评估未通过：{reason}。")
 
             if not force_immediate:

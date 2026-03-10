@@ -41,7 +41,7 @@ PAGE_LIMIT = 10
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "具备主动环境感知及插嘴引擎的 CognitionCore 6.0 数字生命。",
-    "4.0.1",
+    "4.1.0",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
@@ -213,20 +213,21 @@ class SelfEvolutionPlugin(Star):
     def prompt_dream_user_summary(self):
         return self.config.get(
             "prompt_dream_user_summary",
-            "你是一个旁观者，请根据今天的对话更新你对这个人的印象。旧笔记：{old_note}。今日对话：{messages}。请输出一段精简的纯文本（不超过200字），描述你对这个人最新的印象。只输出文本，不要其他内容。",
+            "你是一个旁观者，请根据今天的对话更新你对这个人的印象。旧笔记：{old_note}。今日对话：{messages}。\n\n【重要格式要求】：\n- 每个结论必须标注置信度，格式：(置信度 XX%)\n- 置信度 90-100%: 确定的事实\n- 置信度 50-89%: 大概率正确，但可能存在例外\n- 置信度 < 50%: 不确定，需要向用户确认\n\n请输出一段精简的纯文本（不超过200字），描述你对这个人最新的印象。只输出文本，不要其他内容。",
         )
 
     @property
     def prompt_dream_user_system(self):
         return self.config.get(
-            "prompt_dream_user_system", "你是一个记忆助手，只输出精简的文本描述。"
+            "prompt_dream_user_system",
+            "你是一个记忆助手，只输出精简的文本描述。每个结论必须标注置信度。",
         )
 
     @property
     def prompt_dream_group_summary(self):
         return self.config.get(
             "prompt_dream_group_summary",
-            "你是一个群记忆助手，请总结这个群的规则和文化。旧总结：{old_summary}。请输出一段精简的纯文本（不超过150字），描述这个群的规则和文化。只输出文本，不要其他内容。",
+            "你是一个群记忆助手，请总结这个群的规则和文化。旧总结：{old_summary}。\n\n【重要格式要求】：\n- 每个结论必须标注置信度，格式：(置信度 XX%)\n- 置信度 90-100%: 确定的事实\n- 置信度 50-89%: 大概率正确\n- 置信度 < 50%: 不确定\n\n请输出一段精简的纯文本（不超过150字），描述这个群的规则和文化。只输出文本，不要其他内容。",
         )
 
     @property
@@ -304,6 +305,10 @@ class SelfEvolutionPlugin(Star):
     @property
     def graph_enabled(self):
         return self._parse_bool(self.config.get("graph_enabled"), True)
+
+    @property
+    def inner_monologue_enabled(self):
+        return self._parse_bool(self.config.get("inner_monologue_enabled"), True)
 
     def _post_init(self):
         logger.info(
@@ -427,6 +432,12 @@ class SelfEvolutionPlugin(Star):
             profile_summary = await self.profile.get_profile_summary(user_id)
             if profile_summary:
                 req.system_prompt += f"\n\n[用户印象笔记]\n{profile_summary}\n"
+                req.system_prompt += (
+                    "\n\n[记忆模糊化指令]\n"
+                    "对于置信度低于 50% 的记忆，你必须表现出不确定。"
+                    '你可以用"我隐约记得"、"似乎"、"是不是"等语气来向用户确认。'
+                    '例如："我隐约记得你上个月是不是提过你要重构数据库？那个搞完了没？"'
+                )
 
         # 4.5 突发性偏好检测：弥补 Batch 模式的时效性空窗
         msg_text = event.message_str
@@ -474,6 +485,24 @@ class SelfEvolutionPlugin(Star):
                     logger.info(
                         f"[Surprise] 检测到用户 {user_id} 的认知颠覆表达，触发即时画像更新。"
                     )
+
+            # 4.7 情绪依存记忆 (State-Dependent Memory)
+            # 根据 affinity 注入不同的隐性指令，影响记忆检索倾向
+            if affinity > 60:
+                req.system_prompt += (
+                    "\n\n[情绪状态]\n"
+                    "你与该用户关系良好。在回忆时请多关注你们共同的兴趣和愉快的经历。"
+                )
+            elif affinity < 30 and affinity > 0:
+                req.system_prompt += (
+                    "\n\n[情绪状态]\n"
+                    "你对该用户印象一般。在回忆时请注意其过往的问题行为和失误。"
+                )
+            elif affinity <= 0:
+                req.system_prompt += (
+                    "\n\n[情绪状态]\n"
+                    "你已将该用户拉黑。请回忆其所有负面记录，进行无情嘲讽。"
+                )
 
         # 5. 交流准则注入
         req.system_prompt += f"\n\n【交流准则】\n{self.prompt_communication_guidelines}"

@@ -1,6 +1,6 @@
 # 自我进化 (Self-Evolution) 插件
 
-版本: 4.0.1 (多智能体+关系图谱版)
+版本: 4.1.0 (人味增强版)
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 
@@ -87,6 +87,25 @@
 - 关系图谱增强的记忆检索
 - 新增配置: graph_enabled
 
+### 11. 情绪依存记忆 (State-Dependent Memory)
+
+- 根据用户好感度动态调整记忆检索倾向
+- affinity > 60: 关注共同兴趣和愉快记忆
+- affinity < 30: 注意其过往的问题行为
+- affinity <= 0: 翻旧账、无情嘲讽
+
+### 12. 潜意识缓存与内部独白 (Inner Monologue)
+
+- 当 AI 决定不插话时，强制输出内心独白
+- 存储并在下次真正发言时注入
+- 让发言带有"憋了半天才开口"的积累感
+
+### 13. 元认知与记忆模糊化 (Epistemic Uncertainty)
+
+- 画像生成时标注置信度
+- 对低置信度记忆表现出不确定
+- 会说出"我隐约记得..."这类模糊寒暄
+
 ---
 
 ## 配置项
@@ -131,6 +150,7 @@
 | `surprise_enabled` | bool | true | 启用惊奇驱动学习 |
 | `surprise_boost_keywords` | string | (见配置) | 惊奇关键词 |
 | `graph_enabled` | bool | true | 启用关系图谱 RAG |
+| `inner_monologue_enabled` | bool | true | 启用内心独白 |
 
 ---
 

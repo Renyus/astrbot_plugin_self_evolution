@@ -2,6 +2,32 @@
 
 本项目的所有重大更改都将记录在此文件中。
 
+## [4.1.0] - 2026-03-10
+### 新功能 (Feature) - 人味增强三连
+
+**核心思想**: 让"黑塔"拥有令人不寒而栗的"人味"
+
+#### P1: 情绪依存记忆 (State-Dependent Memory)
+- 根据 affinity 动态调整记忆检索倾向
+- affinity > 60: 关注共同兴趣和愉快记忆
+- affinity < 30: 注意其过往的问题行为
+- affinity <= 0: 翻旧账、无情嘲讽
+
+#### P2: 潜意识缓存与内部独白 (Inner Monologue)
+- 当 AI 判定 IGNORE 时，强制输出 <inner_monologue> 内心独白
+- 存储并在下次真正发言时注入
+- 让发言带有"憋了半天才开口"的积累感
+- 新增配置: inner_monologue_enabled
+
+#### P3: 元认知与记忆模糊化 (Epistemic Uncertainty)
+- 画像生成时要求 LLM 标注置信度
+- 对低置信度 (<50%) 记忆表现出不确定
+- 会说出"我隐约记得..."、"是不是..."这类模糊寒暄
+- 修改 prompt_dream_user_summary 和 prompt_dream_group_summary
+
+#### 其他更新
+- 所有 4.0.1 功能继续有效
+
 ## [4.0.1] - 2026-03-10
 ### 新功能 (Feature) - 惊奇驱动学习 + 关系图谱
 
