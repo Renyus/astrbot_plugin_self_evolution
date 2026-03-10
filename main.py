@@ -19,7 +19,7 @@ from .engine.memory import MemoryManager
 from .engine.persona import PersonaManager
 from .engine.profile import ProfileManager
 from .engine.graph import GraphRAG
-from .cognition import SANSystem, GroupVibeSystem, GrowthSystem
+from .cognition import SANSystem, GroupVibeSystem
 from .config import PluginConfig
 
 
@@ -73,11 +73,10 @@ class SelfEvolutionPlugin(Star):
             # 认知系统模块
             self.san_system = SANSystem(self)
             self.vibe_system = GroupVibeSystem(self)
-            self.growth_system = GrowthSystem(self)
             # 配置系统
             self.cfg = PluginConfig(self)
             logger.info(
-                "[SelfEvolution] 核心组件 (DAO, Eavesdropping, MetaInfra, Memory, Persona, Profile, GraphRAG, SAN, Vibe, Growth, Config) 初始化完成。"
+                "[SelfEvolution] 核心组件 (DAO, Eavesdropping, MetaInfra, Memory, Persona, Profile, GraphRAG, SAN, Vibe, Config) 初始化完成。"
             )
         except Exception as e:
             logger.error(f"[SelfEvolution] 核心组件初始化失败: {e}")
@@ -123,11 +122,10 @@ class SelfEvolutionPlugin(Star):
         return ""
 
     def _post_init(self):
-        self.growth_system.initialize()
         self.san_system.initialize()
         self.vibe_system.initialize()
         logger.info(
-            f"[SelfEvolution] === 插件初始化完成 | 模式: {'审核' if self.review_mode else '自动'} | 元编程: {self.allow_meta_programming} | 成长: {self.growth_system.stage} | SAN: {self.san_system.value}/{self.san_system.max_value} ==="
+            f"[SelfEvolution] === 插件初始化完成 | 模式: {'审核' if self.review_mode else '自动'} | 元编程: {self.allow_meta_programming} | SAN: {self.san_system.value}/{self.san_system.max_value} ==="
         )
 
     async def initialize(self) -> None:
@@ -382,15 +380,11 @@ class SelfEvolutionPlugin(Star):
                     "你对该用户印象一般。在回忆时请注意其过往的问题行为和失误。"
                 )
 
-        # 4.8 成长阶段注入
-        if self.growth_enabled:
-            req.system_prompt += self.growth_system.get_prompt_injection()
-
-        # 4.9 SAN 值系统注入
+        # 4.8 SAN 值系统注入
         if self.san_enabled:
             req.system_prompt += self.san_system.get_prompt_injection()
 
-        # 4.10 群体情绪共染注入
+        # 4.9 群体情绪共染注入
         if self.group_vibe_enabled and group_id:
             req.system_prompt += self.vibe_system.get_prompt_injection(str(group_id))
 
@@ -408,14 +402,6 @@ class SelfEvolutionPlugin(Star):
         await self._cleanup_stale_buffers()
 
         # 成长系统：累加经验值（每小时检查一次升级）
-        if self.growth_enabled:
-            self.growth_system.add_experience(1)
-            current_time = int(time.time())
-            last_check = getattr(self, "_last_growth_check", 0)
-            if current_time - last_check > 3600:
-                self.growth_system.check_upgrade()
-                self._last_growth_check = current_time
-
         # 自动学习触发：检测关键场景
         await self.memory.auto_learn_trigger(event)
 

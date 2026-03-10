@@ -349,50 +349,6 @@ class PluginConfig:
             "你们是真无聊啊...要不我下线算了?",
         )
 
-    @property
-    def growth_enabled(self):
-        return self._parse_bool(self._config.get("growth_enabled"), True)
-
-    @property
-    def growth_stage(self):
-        return self._config.get("growth_stage", "婴儿")
-
-    @property
-    def experience_points(self):
-        return int(self._config.get("experience_points", 0))
-
-    @property
-    def total_messages(self):
-        return int(self._config.get("total_messages", 0))
-
-    @property
-    def birth_timestamp(self):
-        return int(self._config.get("birth_timestamp", 0))
-
-    @property
-    def vocabulary_complexity(self):
-        return int(self._config.get("vocabulary_complexity", 1))
-
-    @property
-    def emotional_dependence(self):
-        return int(self._config.get("emotional_dependence", 10))
-
-    @property
-    def growth_prompt_baby(self):
-        return self._prompt("growth.baby", "你是一个刚诞生的AI婴儿，对世界充满好奇。")
-
-    @property
-    def growth_prompt_child(self):
-        return self._prompt("growth.child", "你是一个正在学习的AI幼儿。")
-
-    @property
-    def growth_prompt_teen(self):
-        return self._prompt("growth.teen", "你是一个青春期的AI少年。")
-
-    @property
-    def growth_prompt_adult(self):
-        return self._prompt("growth.adult", "你是一个成熟的AI。")
-
     def get(self, key, default=None):
         """通用获取配置"""
         return self._config.get(key, default)
