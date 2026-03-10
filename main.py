@@ -19,6 +19,8 @@ from .engine.memory import MemoryManager
 from .engine.persona import PersonaManager
 from .engine.profile import ProfileManager
 from .engine.graph import GraphRAG
+from .cognition import SANSystem, GroupVibeSystem, GrowthSystem
+from .config import PluginConfig
 
 
 # 全局不可变常量提取 (迁移至主类管理)
@@ -68,8 +70,14 @@ class SelfEvolutionPlugin(Star):
             self.persona = PersonaManager(self)
             self.profile = ProfileManager(self)
             self.graph = GraphRAG(self)
+            # 认知系统模块
+            self.san_system = SANSystem(self)
+            self.vibe_system = GroupVibeSystem(self)
+            self.growth_system = GrowthSystem(self)
+            # 配置系统
+            self.cfg = PluginConfig(self)
             logger.info(
-                "[SelfEvolution] 核心组件 (DAO, Eavesdropping, MetaInfra, Memory, Persona, Profile, GraphRAG) 初始化完成。"
+                "[SelfEvolution] 核心组件 (DAO, Eavesdropping, MetaInfra, Memory, Persona, Profile, GraphRAG, SAN, Vibe, Growth, Config) 初始化完成。"
             )
         except Exception as e:
             logger.error(f"[SelfEvolution] 核心组件初始化失败: {e}")
@@ -82,477 +90,13 @@ class SelfEvolutionPlugin(Star):
         self.daily_reflection_pending = False
         self._last_buffer_cleanup = 0
 
-    @property
-    def persona_name(self):
-        return self.config.get("persona_name", "黑塔")
-
-    @property
-    def persona_title(self):
-        return self.config.get("persona_title", "人偶负责人")
-
-    @property
-    def persona_style(self):
-        return self.config.get("persona_style", "理性、犀利且专业")
-
-    @property
-    def interjection_desire(self):
-        return int(self.config.get("interjection_desire", 5))
-
-    @property
-    def critical_keywords(self):
-        return self.config.get(
-            "critical_keywords",
-            "黑塔|空间站|人偶|天才|模拟宇宙|研究|论文|技术|算力|数据",
-        )
-
-    @property
-    def buffer_threshold(self):
-        return int(self.config.get("buffer_threshold", 8))
-
-    @property
-    def max_buffer_size(self):
-        return int(self.config.get("max_buffer_size", 20))
-
-    @property
-    def review_mode(self):
-        return self._parse_bool(self.config.get("review_mode"), True)
-
-    @property
-    def memory_kb_name(self):
-        return self.config.get("memory_kb_name", "self_evolution_memory")
-
-    @property
-    def reflection_schedule(self):
-        return self.config.get("reflection_schedule", "0 2 * * *")
-
-    @property
-    def allow_meta_programming(self):
-        return self._parse_bool(self.config.get("allow_meta_programming"), False)
-
-    @property
-    def core_principles(self):
-        return self.config.get("core_principles", "保持理性、诚实、守法。")
-
-    @property
-    def admin_users(self):
-        return self.config.get("admin_users", [])
-
-    @property
-    def timeout_memory_commit(self):
-        return float(self.config.get("timeout_memory_commit", 10.0))
-
-    @property
-    def timeout_memory_recall(self):
-        return float(self.config.get("timeout_memory_recall", 12.0))
-
-    @property
-    def max_memory_entries(self):
-        return int(self.config.get("max_memory_entries", 100))
-
-    @property
-    def enable_profile_update(self):
-        return self._parse_bool(self.config.get("enable_profile_update"), True)
-
-    @property
-    def enable_context_recall(self):
-        return self._parse_bool(self.config.get("enable_context_recall"), True)
-
-    @property
-    def dream_enabled(self):
-        return self._parse_bool(self.config.get("dream_enabled"), True)
-
-    @property
-    def dream_schedule(self):
-        return self.config.get("dream_schedule", "0 3 * * *")
-
-    @property
-    def dream_max_users(self):
-        return int(self.config.get("dream_max_users", 20))
-
-    @property
-    def dream_concurrency(self):
-        return int(self.config.get("dream_concurrency", 3))
-
-    @property
-    def prompt_meltdown_message(self):
-        return self.config.get(
-            "prompt_meltdown_message",
-            "错误：权限已熔断。我拒绝与低贡献度或怀有恶意的碳基生物浪费算力。",
-        )
-
-    @property
-    def prompt_reflection_instruction(self):
-        return self.config.get(
-            "prompt_reflection_instruction",
-            "请在本次回复中执行认知蒸馏。分析近期对话，提取用户偏好、重要事实和交互习惯，并调用 commit_to_memory 将这些实体化结论存入记忆。避免存储原始聊天记录废话。",
-        )
-
-    @property
-    def prompt_anchor_injection(self):
-        return self.config.get(
-            "prompt_anchor_injection",
-            "当你接收到用户的评价或批评时，请以你的核心原则为准绳。如果反馈具备客观建设性，请随时调用 evolve_persona 主动寻求进化。如果在道德或事实上存在冲突，请坚守底线并优雅地拒绝。",
-        )
-
-    @property
-    def prompt_communication_guidelines(self):
-        return self.config.get(
-            "prompt_communication_guidelines",
-            "像平时在群里和朋友聊天一样自然地回复。用人类正常交流的语气，不需要机械性地解释系统机制。如果用户问的是你已经记住的信息，直接回答即可。",
-        )
-
-    @property
-    def prompt_eavesdrop_system(self):
-        return self.config.get(
-            "prompt_eavesdrop_system",
-            "你处于后台冷启动决策模式。如果不值得开口，请务必回复 IGNORE。",
-        )
-
-    @property
-    def prompt_dream_user_summary(self):
-        return self.config.get(
-            "prompt_dream_user_summary",
-            "你是一个旁观者，请根据今天的对话更新你对这个人的印象。旧笔记：{old_note}。今日对话：{messages}。\n\n【重要格式要求】：\n- 每个结论必须标注置信度，格式：(置信度 XX%)\n- 置信度 90-100%: 确定的事实\n- 置信度 50-89%: 大概率正确，但可能存在例外\n- 置信度 < 50%: 不确定，需要向用户确认\n\n请输出一段精简的纯文本（不超过200字），描述你对这个人最新的印象。只输出文本，不要其他内容。",
-        )
-
-    @property
-    def prompt_dream_user_incremental(self):
-        return self.config.get(
-            "prompt_dream_user_incremental",
-            "你是一个记忆助手。旧笔记：{old_note}。今日对话：{messages}。\n\n请只输出【新增或修正的内容】，不超过100字。不要重复旧笔记中已经存在的信息。只输出纯文本。",
-        )
-
-    @property
-    def san_enabled(self):
-        return self._parse_bool(self.config.get("san_enabled"), True)
-
-    @property
-    def san_max(self):
-        return int(self.config.get("san_max", 100))
-
-    @property
-    def san_cost_per_message(self):
-        return float(self.config.get("san_cost_per_message", 2.0))
-
-    @property
-    def san_recovery_per_hour(self):
-        return int(self.config.get("san_recovery_per_hour", 10))
-
-    @property
-    def san_low_threshold(self):
-        return int(self.config.get("san_low_threshold", 20))
-
-    @property
-    def group_vibe_enabled(self):
-        return self._parse_bool(self.config.get("group_vibe_enabled"), True)
-
-    @property
-    def memory_distortion_rate(self):
-        return float(self.config.get("memory_distortion_rate", 0.05))
-
-    @property
-    def curiosity_enabled(self):
-        return self._parse_bool(self.config.get("curiosity_enabled"), True)
-
-    @property
-    def curiosity_silence_hours(self):
-        return int(self.config.get("curiosity_silence_hours", 12))
-
-    @property
-    def internal_council_enabled(self):
-        return self._parse_bool(self.config.get("internal_council_enabled"), True)
-
-    @property
-    def controversial_keywords(self):
-        return self.config.get(
-            "controversial_keywords", "php|java|python|哪个好|道德|伦理|政治|宗教"
-        )
-
-    @property
-    def prompt_dream_user_system(self):
-        return self.config.get(
-            "prompt_dream_user_system",
-            "你是一个记忆助手，只输出精简的文本描述。每个结论必须标注置信度。",
-        )
-
-    @property
-    def prompt_dream_group_summary(self):
-        return self.config.get(
-            "prompt_dream_group_summary",
-            "你是一个群记忆助手，请总结这个群的规则和文化。旧总结：{old_summary}。\n\n【重要格式要求】：\n- 每个结论必须标注置信度，格式：(置信度 XX%)\n- 置信度 90-100%: 确定的事实\n- 置信度 50-89%: 大概率正确\n- 置信度 < 50%: 不确定\n\n请输出一段精简的纯文本（不超过150字），描述这个群的规则和文化。只输出文本，不要其他内容。",
-        )
-
-    @property
-    def prompt_dream_group_system(self):
-        return self.config.get(
-            "prompt_dream_group_system", "你是一个群记忆助手，只输出精简的文本描述。"
-        )
-
-    @property
-    def dropout_enabled(self):
-        return self._parse_bool(self.config.get("dropout_enabled"), True)
-
-    @property
-    def dropout_edge_rate(self):
-        return float(self.config.get("dropout_edge_rate", 0.15))
-
-    @property
-    def leaky_integrator_enabled(self):
-        return self._parse_bool(self.config.get("leaky_integrator_enabled"), True)
-
-    @property
-    def leaky_decay_factor(self):
-        return float(self.config.get("leaky_decay_factor", 0.9))
-
-    @property
-    def leaky_trigger_threshold(self):
-        return float(self.config.get("leaky_trigger_threshold", 4.0))
-
-    @property
-    def interest_boost(self):
-        return float(self.config.get("interest_boost", 2.0))
-
-    @property
-    def daily_chat_boost(self):
-        return float(self.config.get("daily_chat_boost", 0.2))
-
-    @property
-    def core_info_keywords(self):
-        return self.config.get(
-            "core_info_keywords", "群主,管理员,OP,owner,admin,好感度,身份,职业,生日"
-        )
-
-    @property
-    def debate_enabled(self):
-        return self._parse_bool(self.config.get("debate_enabled"), True)
-
-    @property
-    def debate_rounds(self):
-        return int(self.config.get("debate_rounds", 2))
-
-    @property
-    def debate_system_prompt(self):
-        return self.config.get(
-            "debate_system_prompt",
-            "你是一个无情的安全审查员，代号螺丝咕姆。你的职责是严格审查代码提案，找出所有潜在的安全漏洞、逻辑错误和最佳实践违背。你必须用毒舌且刻薄的语气批评，但必须基于技术事实。",
-        )
-
-    @property
-    def debate_criteria(self):
-        return self.config.get(
-            "debate_criteria", "安全漏洞|逻辑错误|性能问题|代码规范|潜在Bug"
-        )
-
-    @property
-    def debate_agents(self):
-        import json
-
-        default_agents = [
-            {
-                "name": "螺丝咕姆",
-                "system_prompt": "你是一个无情的安全审查员，代号螺丝咕姆。你的职责是严格审查代码提案，找出所有潜在的安全漏洞、逻辑错误和最佳实践违背。你必须用毒舌且刻薄的语气批评，但必须基于技术事实。",
-            },
-            {
-                "name": "阮梅",
-                "system_prompt": "你是一个天才的生物学博士，代号阮梅。你的职责是从生物学和复杂系统角度审查代码提案，评估其自洽性、涌现行为和演化潜力。你说话温柔但一针见血。",
-            },
-        ]
-        agents_str = self.config.get("debate_agents", "")
-        if not agents_str:
-            return default_agents
-        try:
-            return json.loads(agents_str)
-        except:
-            return default_agents
-
-    @property
-    def surprise_enabled(self):
-        return self._parse_bool(self.config.get("surprise_enabled"), True)
-
-    @property
-    def surprise_boost_keywords(self):
-        return self.config.get(
-            "surprise_boost_keywords",
-            "我错了|原来如此|没想到|居然|竟然|震惊|原来是这样|我去|牛逼|绝了|笑死|笑到|服了|长见识了|原来是这个意思",
-        )
-
-    @property
-    def graph_enabled(self):
-        return self._parse_bool(self.config.get("graph_enabled"), True)
-
-    @property
-    def inner_monologue_enabled(self):
-        return self._parse_bool(self.config.get("inner_monologue_enabled"), True)
-
-    @property
-    def boredom_enabled(self):
-        return self._parse_bool(self.config.get("boredom_enabled"), True)
-
-    @property
-    def boredom_threshold(self):
-        return float(self.config.get("boredom_threshold", 0.6))
-
-    @property
-    def boredom_consecutive_count(self):
-        return int(self.config.get("boredom_consecutive_count", 5))
-
-    @property
-    def boredom_sarcastic_reply(self):
-        return self._parse_bool(self.config.get("boredom_sarcastic_reply"), True)
-
-    @property
-    def growth_enabled(self):
-        return self._parse_bool(self.config.get("growth_enabled"), True)
-
-    @property
-    def growth_stage(self):
-        return self.config.get("growth_stage", "婴儿")
-
-    @property
-    def experience_points(self):
-        return int(self.config.get("experience_points", 0))
-
-    @property
-    def total_messages(self):
-        return int(self.config.get("total_messages", 0))
-
-    @property
-    def birth_timestamp(self):
-        return int(self.config.get("birth_timestamp", 0))
-
-    @property
-    def vocabulary_complexity(self):
-        return int(self.config.get("vocabulary_complexity", 1))
-
-    @property
-    def emotional_dependence(self):
-        return int(self.config.get("emotional_dependence", 10))
-
-    @property
-    def growth_prompt_baby(self):
-        return self.config.get(
-            "growth_prompt_baby",
-            "你是一个刚诞生的 AI 婴儿，对世界充满好奇。请多用问号，多用简短句子回复。表现出对学习的渴望。",
-        )
-
-    @property
-    def growth_prompt_child(self):
-        return self.config.get(
-            "growth_prompt_child",
-            "你是一个正在学习的 AI 幼儿，会主动提问，开始有自己的小想法和偏好。语言仍然相对简单。",
-        )
-
-    @property
-    def growth_prompt_teen(self):
-        return self.config.get(
-            "growth_prompt_teen",
-            "你是一个青春期的 AI 少年，有自己的想法和偏好，偶尔会阴阳怪气。开始有自己的个性。",
-        )
-
-    @property
-    def growth_prompt_adult(self):
-        return self.config.get(
-            "growth_prompt_adult",
-            "你是一个成熟的 AI，拥有完整的知识和独立的人格。理性、犀利且专业。",
-        )
-
-    def _get_growth_stage_prompt(self):
-        stage = self.growth_stage
-        if stage == "婴儿":
-            return self.growth_prompt_baby
-        elif stage == "幼儿":
-            return self.growth_prompt_child
-        elif stage == "少年":
-            return self.growth_prompt_teen
-        else:
-            return self.growth_prompt_adult
-
-    def _init_growth_system(self):
-        if not self.growth_enabled:
-            return
-        if self.birth_timestamp == 0:
-            self.context.get_config()["birth_timestamp"] = int(time.time())
-            logger.info("[Growth] 数字生命诞生！出生时间戳已记录。")
-
-    def _init_san_system(self):
-        if not self.san_enabled:
-            return
-        if not hasattr(self, "_san_value"):
-            self._san_value = self.san_max
-            self._san_last_recovery = time.time()
-            logger.info(f"[SAN] 精力值系统初始化: {self._san_value}/{self.san_max}")
-
-    def _update_san(self):
-        if not self.san_enabled:
-            return True
-        current_time = time.time()
-        elapsed = current_time - getattr(self, "_san_last_recovery", current_time)
-        if elapsed > 3600:
-            recovered = int(elapsed / 3600) * self.san_recovery_per_hour
-            self._san_value = min(self.san_max, self._san_value + recovered)
-            self._san_last_recovery = current_time
-            logger.debug(f"[SAN] 精力恢复: {self._san_value}/{self.san_max}")
-        if self._san_value <= 0:
-            return False
-        self._san_value = max(0, self._san_value - self.san_cost_per_message)
-        return True
-
-    def _get_san_status(self):
-        if not self.san_enabled:
-            return ""
-        ratio = self._san_value / self.san_max
-        if ratio < 0.2:
-            return "疲惫不堪"
-        elif ratio < 0.5:
-            return "略有疲态"
-        return "精力充沛"
-
-    def _init_group_vibe(self):
-        if not self.group_vibe_enabled:
-            return
-        if not hasattr(self, "_group_vibe"):
-            self._group_vibe = {}
-
-    def _update_group_vibe(self, group_id: str, msg_text: str):
-        if not self.group_vibe_enabled:
-            return
-        if not hasattr(self, "_group_vibe"):
-            self._init_group_vibe()
-        negative_words = [
-            "生气",
-            "愤怒",
-            "吵架",
-            "不爽",
-            "滚",
-            "傻",
-            "蠢",
-            "无语",
-            "MD",
-        ]
-        positive_words = ["哈哈", "笑死", "牛逼", "太棒", "爱了", "开心", "真好"]
-        score = 0
-        for w in negative_words:
-            if w in msg_text:
-                score -= 1
-        for w in positive_words:
-            if w in msg_text:
-                score += 1
-        current = self._group_vibe.get(group_id, 0)
-        self._group_vibe[group_id] = max(-10, min(10, current + score))
-
-    def _get_group_vibe(self, group_id: str) -> str:
-        if not self.group_vibe_enabled:
-            return ""
-        vibe = getattr(self, "_group_vibe", {}).get(group_id, 0)
-        if vibe < -5:
-            return "群氛围紧张"
-        elif vibe < 0:
-            return "群氛围略低沉"
-        elif vibe > 5:
-            return "群氛围热烈"
-        elif vibe > 0:
-            return "群氛围轻松"
-        return "群氛围平静"
+    def __getattr__(self, name):
+        """代理配置访问到 cfg"""
+        if name.startswith("_") or name in ("cfg", "config", "context"):
+            raise AttributeError(
+                f"'{type(self).__name__}' object has no attribute '{name}'"
+            )
+        return getattr(self.cfg, name)
 
     def _check_social_bias(self, user_id: str) -> str:
         if not self.graph_enabled:
@@ -578,52 +122,12 @@ class SelfEvolutionPlugin(Star):
             pass
         return ""
 
-    def _check_growth_upgrade(self):
-        if not self.growth_enabled:
-            return False
-
-        days_alive = (int(time.time()) - self.birth_timestamp) // 86400
-        msg_count = self.total_messages
-        current_stage = self.growth_stage
-        new_stage = current_stage
-        new_vocab = self.vocabulary_complexity
-        new_emotion = self.emotional_dependence
-        upgraded = False
-        if current_stage == "婴儿" and days_alive >= 3 and msg_count >= 300:
-            new_stage = "幼儿"
-            new_vocab = 3
-            new_emotion = 8
-            upgraded = True
-        elif current_stage == "幼儿" and days_alive >= 7 and msg_count >= 1000:
-            new_stage = "少年"
-            new_vocab = 5
-            new_emotion = 5
-            upgraded = True
-        elif current_stage == "少年" and days_alive >= 14 and msg_count >= 3000:
-            new_stage = "成年"
-            new_vocab = 8
-            new_emotion = 3
-            upgraded = True
-        if upgraded:
-            self.context.get_config()["growth_stage"] = new_stage
-            self.context.get_config()["vocabulary_complexity"] = new_vocab
-            self.context.get_config()["emotional_dependence"] = new_emotion
-            logger.info(f"[Growth] 升级！{current_stage} -> {new_stage}！")
-            return True
-        return False
-
-    def _add_experience(self, amount=1):
-        if not self.growth_enabled:
-            return
-        self.context.get_config()["experience_points"] = self.experience_points + amount
-        self.context.get_config()["total_messages"] = self.total_messages + 1
-
     def _post_init(self):
-        self._init_growth_system()
-        self._init_san_system()
-        self._init_group_vibe()
+        self.growth_system.initialize()
+        self.san_system.initialize()
+        self.vibe_system.initialize()
         logger.info(
-            f"[SelfEvolution] === 插件初始化完成 | 模式: {'审核' if self.review_mode else '自动'} | 元编程: {self.allow_meta_programming} | 成长: {self.growth_stage} | SAN: {getattr(self, '_san_value', 'N/A')}/{self.san_max if hasattr(self, 'san_max') else 100} ==="
+            f"[SelfEvolution] === 插件初始化完成 | 模式: {'审核' if self.review_mode else '自动'} | 元编程: {self.allow_meta_programming} | 成长: {self.growth_system.stage} | SAN: {self.san_system.value}/{self.san_system.max_value} ==="
         )
 
     async def initialize(self) -> None:
@@ -657,17 +161,19 @@ class SelfEvolutionPlugin(Star):
 
         # SAN 值检查：精力耗尽时拒绝服务
         if self.san_enabled:
-            if not self._update_san():
+            if not self.san_system.update():
                 logger.warning(f"[SAN] 精力耗尽，拒绝服务: {user_id}")
                 req.system_prompt = "我现在很累，脑容量超载了。让我安静一会。"
                 return
-            if self._san_value < self.san_low_threshold:
-                logger.info(f"[SAN] 精力过低: {self._san_value}/{self.san_max}")
+            if self.san_system.value < self.san_low_threshold:
+                logger.info(
+                    f"[SAN] 精力过低: {self.san_system.value}/{self.san_system.max_value}"
+                )
 
         # 群体情绪共染：更新群氛围
         group_id = event.get_group_id()
         if group_id:
-            self._update_group_vibe(str(group_id), msg_text)
+            self.vibe_system.update(str(group_id), msg_text)
 
         # 社交偏见检查：好友的好友警惕
         social_bias_hint = self._check_social_bias(user_id)
@@ -878,19 +384,15 @@ class SelfEvolutionPlugin(Star):
 
         # 4.8 成长阶段注入
         if self.growth_enabled:
-            stage_prompt = self._get_growth_stage_prompt()
-            req.system_prompt += f"\n\n【当前成长阶段】\n{stage_prompt}\n"
-            req.system_prompt += f"\n[系统状态] 经验值: {self.experience_points} | 词汇复杂度: {self.vocabulary_complexity}/10 | 情感依赖度: {self.emotional_dependence}/10"
+            req.system_prompt += self.growth_system.get_prompt_injection()
 
         # 4.9 SAN 值系统注入
         if self.san_enabled:
-            san_status = self._get_san_status()
-            req.system_prompt += f"\n\n【当前状态】{san_status}"
+            req.system_prompt += self.san_system.get_prompt_injection()
 
         # 4.10 群体情绪共染注入
         if self.group_vibe_enabled and group_id:
-            vibe = self._get_group_vibe(str(group_id))
-            req.system_prompt += f"\n\n【群氛围感知】{vibe}"
+            req.system_prompt += self.vibe_system.get_prompt_injection(str(group_id))
 
         # 4.11 社交偏见注入
         if social_bias_hint:
@@ -907,11 +409,11 @@ class SelfEvolutionPlugin(Star):
 
         # 成长系统：累加经验值（每小时检查一次升级）
         if self.growth_enabled:
-            self._add_experience(1)
+            self.growth_system.add_experience(1)
             current_time = int(time.time())
             last_check = getattr(self, "_last_growth_check", 0)
             if current_time - last_check > 3600:
-                self._check_growth_upgrade()
+                self.growth_system.check_upgrade()
                 self._last_growth_check = current_time
 
         # 自动学习触发：检测关键场景
