@@ -19,6 +19,7 @@ from .engine.meta_infra import MetaInfra
 from .engine.memory import MemoryManager
 from .engine.persona import PersonaManager
 from .engine.profile import ProfileManager
+from .engine.graph import GraphRAG
 
 
 # 全局不可变常量提取 (迁移至主类管理)
@@ -40,7 +41,7 @@ PAGE_LIMIT = 10
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "具备主动环境感知及插嘴引擎的 CognitionCore 6.0 数字生命。",
-    "3.9.0",
+    "4.0.1",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
@@ -67,8 +68,9 @@ class SelfEvolutionPlugin(Star):
             self.memory = MemoryManager(self)
             self.persona = PersonaManager(self)
             self.profile = ProfileManager(self)
+            self.graph = GraphRAG(self)
             logger.info(
-                "[SelfEvolution] 核心组件 (DAO, Eavesdropping, MetaInfra, Memory, Persona, Profile) 初始化完成。"
+                "[SelfEvolution] 核心组件 (DAO, Eavesdropping, MetaInfra, Memory, Persona, Profile, GraphRAG) 初始化完成。"
             )
         except Exception as e:
             logger.error(f"[SelfEvolution] 核心组件初始化失败: {e}")
@@ -267,6 +269,42 @@ class SelfEvolutionPlugin(Star):
             "core_info_keywords", "群主,管理员,OP,owner,admin,好感度,身份,职业,生日"
         )
 
+    @property
+    def debate_enabled(self):
+        return self._parse_bool(self.config.get("debate_enabled"), True)
+
+    @property
+    def debate_rounds(self):
+        return int(self.config.get("debate_rounds", 2))
+
+    @property
+    def debate_system_prompt(self):
+        return self.config.get(
+            "debate_system_prompt",
+            "你是一个无情的安全审查员，代号螺丝咕姆。你的职责是严格审查代码提案，找出所有潜在的安全漏洞、逻辑错误和最佳实践违背。你必须用毒舌且刻薄的语气批评，但必须基于技术事实。",
+        )
+
+    @property
+    def debate_criteria(self):
+        return self.config.get(
+            "debate_criteria", "安全漏洞|逻辑错误|性能问题|代码规范|潜在Bug"
+        )
+
+    @property
+    def surprise_enabled(self):
+        return self._parse_bool(self.config.get("surprise_enabled"), True)
+
+    @property
+    def surprise_boost_keywords(self):
+        return self.config.get(
+            "surprise_boost_keywords",
+            "我错了|原来如此|没想到|居然|竟然|震惊|原来是这样|我去|牛逼|绝了|笑死|笑到|服了|长见识了|原来是这个意思",
+        )
+
+    @property
+    def graph_enabled(self):
+        return self._parse_bool(self.config.get("graph_enabled"), True)
+
     def _post_init(self):
         logger.info(
             f"[SelfEvolution] === 插件初始化完成 | 模式: {'审核' if self.review_mode else '自动'} | 元编程: {self.allow_meta_programming} ==="
@@ -419,6 +457,24 @@ class SelfEvolutionPlugin(Star):
                     "确保当天的记忆准确无误。"
                 )
 
+            # 4.6 Surprise Detection：检测用户认知颠覆/惊喜表达
+            if self.surprise_enabled and self.surprise_boost_keywords:
+                surprise_keywords = [
+                    k.strip()
+                    for k in self.surprise_boost_keywords.split(",")
+                    if k.strip()
+                ]
+                if any(kw in msg_text for kw in surprise_keywords):
+                    req.system_prompt += (
+                        "\n\n[认知颠覆检测]\n"
+                        "用户表达了惊讶、认知颠覆或恍然大悟的态度！这是一个重要的学习信号。"
+                        "请主动调用 update_user_profile 工具记录：用户对某事物的认知发生了重要变化，"
+                        "这可能意味着之前的认知是错误的，或者用户获得了新信息。"
+                    )
+                    logger.info(
+                        f"[Surprise] 检测到用户 {user_id} 的认知颠覆表达，触发即时画像更新。"
+                    )
+
         # 5. 交流准则注入
         req.system_prompt += f"\n\n【交流准则】\n{self.prompt_communication_guidelines}"
 
@@ -430,6 +486,12 @@ class SelfEvolutionPlugin(Star):
 
         # 自动学习触发：检测关键场景
         await self.memory.auto_learn_trigger(event)
+
+        # 关系图谱：记录用户互动
+        user_id = event.get_sender_id()
+        group_id = event.get_group_id()
+        if group_id:
+            await self.graph.record_interaction(user_id, group_id)
 
         async for result in self.eavesdropping.handle_message(event):
             yield result
@@ -1142,4 +1204,24 @@ class SelfEvolutionPlugin(Star):
         stats = await self.profile.list_profiles()
         yield event.plain_result(
             f"画像统计：\n- 用户数: {stats['total_users']}\n- 兴趣标签: {stats['total_tags']}\n- 性格特征: {stats['total_traits']}"
+        )
+
+    @filter.command("graph_info")
+    async def graph_info_cmd(self, event: AstrMessageEvent, user_id: str = ""):
+        """查看指定用户的关系图谱信息。"""
+        target = user_id if user_id else event.get_sender_id()
+        yield event.plain_result(await self.graph.get_user_info(target))
+
+    @filter.command("graph_stats")
+    async def graph_stats_cmd(self, event: AstrMessageEvent, group_id: str = ""):
+        """查看群聊的关系图谱统计信息。"""
+        target_group = group_id or event.get_group_id()
+        if not target_group:
+            yield event.plain_result("请提供群号，或在群聊中使用此命令。")
+            return
+        stats = await self.graph.get_group_stats(target_group)
+        yield event.plain_result(
+            f"群 {target_group} 关系图谱统计：\n"
+            f"- 已知成员数: {stats['member_count']}\n"
+            f"- 总互动次数: {stats['total_interactions']}"
         )

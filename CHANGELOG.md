@@ -2,6 +2,41 @@
 
 本项目的所有重大更改都将记录在此文件中。
 
+## [4.0.1] - 2026-03-10
+### 新功能 (Feature) - 惊奇驱动学习 + 关系图谱
+
+**核心思想**: 预测编码 (Predictive Coding) + 图关系增强 RAG
+
+#### P1: 惊奇驱动学习 (Surprise Detection)
+- 检测用户认知颠覆/惊喜表达（"我错了"、"原来如此"、"没想到"等关键词）
+- 触发即时画像更新，弥补 Batch 模式时效性空窗
+- **新增配置**: surprise_enabled, surprise_boost_keywords
+
+#### P2: 关系图谱 RAG (GraphRAG)
+- 记录用户在群聊中的互动关系
+- 追踪用户活跃群组和频繁互动用户
+- 提供关系图谱增强的记忆检索
+- 新增命令: /graph_info, /graph_stats
+- **新增配置**: graph_enabled
+
+#### 其他更新
+- 所有 4.0.0 功能继续有效
+- engine/graph.py 新增模块
+
+## [4.0.0] - 2026-03-10
+### 新功能 (Feature) - 多智能体对抗
+
+**核心思想**: 引入 GAN 风格的对抗审查机制。
+
+#### 多智能体对抗 (Multi-Agent Debate)
+- 主控 Agent (黑塔) 生成代码提案
+- 审查 Agent (螺丝咕姆) 进行对抗辩论
+- 多轮辩论达成共识后才进入人工审核
+- **新增配置**: debate_enabled, debate_rounds, debate_system_prompt, debate_criteria
+
+#### 其他更新
+- 所有 3.9.0 功能继续有效
+
 ## [3.9.0] - 2026-03-10
 ### 新功能 (Feature) - 类人神经网络架构
 

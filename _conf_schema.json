@@ -255,5 +255,53 @@
         "hint": "日常话题的权重，较低",
         "type": "float",
         "default": 0.2
+    },
+    "debate_enabled": {
+        "title": "启用多智能体对抗",
+        "description": "启用代码审查的双 Agent 对抗机制。",
+        "hint": "主控 Agent 提案后，审查 Agent 进行对抗辩论",
+        "type": "bool",
+        "default": true
+    },
+    "debate_rounds": {
+        "title": "对抗辩论轮次",
+        "description": "主控和审查 Agent 之间的辩论轮次。",
+        "hint": "建议 1-3 轮",
+        "type": "int",
+        "default": 2
+    },
+    "debate_system_prompt": {
+        "title": "审查 Agent 系统提示词",
+        "description": "审查 Agent（螺丝咕姆）的系统提示词。",
+        "hint": "设定为一个无情的安全审查员",
+        "type": "string",
+        "default": "你是一个无情的安全审查员，代号螺丝咕姆。你的职责是严格审查代码提案，找出所有潜在的安全漏洞、逻辑错误和最佳实践违背。你必须用毒舌且刻薄的语气批评，但必须基于技术事实。"
+    },
+    "debate_criteria": {
+        "title": "审查标准",
+        "description": "审查 Agent 需要检查的标准。",
+        "hint": "用 | 分隔多个检查项",
+        "type": "string",
+        "default": "安全漏洞|逻辑错误|性能问题|代码规范|潜在Bug"
+    },
+    "surprise_enabled": {
+        "title": "启用惊奇驱动学习",
+        "description": "启用预测编码，只记忆出乎意料的事情。",
+        "hint": "关闭则处理所有对话，开启则只处理高惊奇度对话",
+        "type": "bool",
+        "default": true
+    },
+    "surprise_boost_keywords": {
+        "title": "惊奇关键词",
+        "description": "触发高惊奇度的关键词列表。",
+        "hint": "用 | 分隔，如：我错了|原来如此|没想到",
+        "type": "string",
+        "default": "我错了|原来如此|没想到|居然|竟然|震惊|原来是这样|我去|牛逼|绝了|笑死|笑到|服了|长见识了|原来是这个意思"
+    },
+    "graph_enabled": {
+        "title": "启用关系图谱 RAG",
+        "description": "启用用户关系图谱存储和检索增强。",
+        "type": "bool",
+        "default": true
     }
 }

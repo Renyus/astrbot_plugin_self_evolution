@@ -1,6 +1,6 @@
 # 自我进化 (Self-Evolution) 插件
 
-版本: 3.8.0 (认知卸载版)
+版本: 4.0.1 (多智能体+关系图谱版)
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 
@@ -68,6 +68,25 @@
 
 当用户引用 AI 之前的话时，自动识别上下文，利用 AstrBot 内置消息历史解决"断片"问题。
 
+### 8. 多智能体对抗
+
+- 主控 Agent (黑塔) 生成代码提案
+- 审查 Agent (螺丝咕姆) 进行对抗辩论
+- 多轮辩论达成共识后才进入人工审核
+
+### 9. 惊奇驱动学习 (Surprise Detection)
+
+- 检测用户认知颠覆/惊喜表达（如"我错了"、"原来如此"、"没想到"等）
+- 触发即时画像更新，弥补 Batch 模式时效性空窗
+- 新增配置: surprise_enabled, surprise_boost_keywords
+
+### 10. 关系图谱 RAG (GraphRAG)
+
+- 记录用户在群聊中的互动关系
+- 追踪用户活跃群组和频繁互动用户
+- 关系图谱增强的记忆检索
+- 新增配置: graph_enabled
+
 ---
 
 ## 配置项
@@ -105,6 +124,13 @@
 | `leaky_trigger_threshold` | float | 4.0 | 泄漏积分器触发阈值 |
 | `interest_boost` | float | 2.0 | 兴趣话题增益 |
 | `daily_chat_boost` | float | 0.2 | 日常话题增益 |
+| `debate_enabled` | bool | true | 启用多智能体对抗 |
+| `debate_rounds` | int | 2 | 对抗辩论轮数 |
+| `debate_system_prompt` | string | (见配置) | 审查 Agent 系统提示词 |
+| `debate_criteria` | string | (见配置) | 代码审查标准 |
+| `surprise_enabled` | bool | true | 启用惊奇驱动学习 |
+| `surprise_boost_keywords` | string | (见配置) | 惊奇关键词 |
+| `graph_enabled` | bool | true | 启用关系图谱 RAG |
 
 ---
 
@@ -120,6 +146,8 @@
 - `/view_profile [用户ID]` - 查看用户画像
 - `/delete_profile [用户ID]` - 删除用户画像（管理员）
 - `/profile_stats` - 画像统计（管理员）
+- `/graph_info [用户ID]` - 查看用户关系图谱
+- `/graph_stats [群号]` - 查看群关系图谱统计
 
 ---
 
@@ -158,7 +186,8 @@ self_evolution/
 │   ├── memory.py        # 记忆管理
 │   ├── persona.py       # 人格进化
 │   ├── profile.py       # 用户画像
-│   └── meta_infra.py    # 元编程基础设施
+│   ├── meta_infra.py    # 元编程基础设施
+│   └── graph.py         # 关系图谱 RAG
 ├── _conf_schema.json    # 配置 schema
 ├── metadata.yaml        # 插件元信息
 └── README.md            # 本文档

@@ -140,6 +140,7 @@ class MetaInfra:
     ) -> str:
         """
         Level 4: 元编程。针对本插件提出代码修改建议。
+        支持多智能体对抗辩论机制。
         """
         if not self.plugin.allow_meta_programming:
             return "元编程功能未开启，系统已拒绝源码提案修改通道。"
@@ -156,6 +157,13 @@ class MetaInfra:
         ast_err = self._validate_ast_security(new_code)
         if ast_err:
             return ast_err
+
+        debate_enabled = getattr(self.plugin, "debate_enabled", True)
+
+        if debate_enabled:
+            debate_result = await self._run_debate(new_code, description, target_file)
+            if not debate_result["passed"]:
+                return debate_result["message"]
 
         # 3. 隔离目录准备
         proposal_dir = self.plugin.data_dir / "code_proposals"
@@ -188,8 +196,127 @@ class MetaInfra:
         logger.info(
             f"[SelfEvolution] 源码提议 ({target_file}) 已生成并隔离至: {proposal_file.name}"
         )
+
+        status = "已通过对抗审查" if debate_enabled else "直接保存"
         return (
             f"针对 {target_file} 的代码修改提议已经成功保存为 {proposal_file.name} 供管理员审查。\n"
-            "修改摘要: {description}\n"
+            f"状态: {status}\n"
+            f"修改摘要: {description}\n"
             "⚠️【管理员须知】：请对 LLM 生成的代码进行肉眼复审后再人工覆盖。"
         )
+
+    async def _run_debate(
+        self, new_code: str, description: str, target_file: str
+    ) -> dict:
+        """
+        多智能体对抗辩论流程
+        主控 Agent (黑塔) vs 审查 Agent (螺丝咕姆)
+        """
+        debate_rounds = getattr(self.plugin, "debate_rounds", 2)
+        debate_system = getattr(
+            self.plugin,
+            "debate_system_prompt",
+            "你是一个无情的安全审查员，代号螺丝咕姆。你的职责是严格审查代码提案，找出所有潜在的安全漏洞、逻辑错误和最佳实践违背。你必须用毒舌且刻薄的语气批评，但必须基于技术事实。",
+        )
+        debate_criteria = getattr(
+            self.plugin,
+            "debate_criteria",
+            "安全漏洞|逻辑错误|性能问题|代码规范|潜在Bug",
+        )
+
+        context = self.plugin.context
+        platform_id = "qq"
+        provider = context.get_using_provider(platform_id)
+
+        if not provider:
+            logger.warning(
+                "[SelfEvolution] 多智能体对抗：无法获取 LLM Provider，跳过审查"
+            )
+            return {"passed": True, "message": "无法获取 Provider"}
+
+        debate_history = []
+
+        for round_num in range(debate_rounds):
+            logger.info(
+                f"[SelfEvolution] 多智能体对抗：第 {round_num + 1}/{debate_rounds} 轮审查"
+            )
+
+            if round_num == 0:
+                review_prompt = f"""你是一个无情的安全审查员，代号螺丝咕姆。
+
+## 你的任务
+严格审查以下代码提案，找出所有潜在问题。
+
+## 审查标准
+{debate_criteria}
+
+## 待审查的代码
+```{new_code}
+```
+
+## 审查要求
+1. 逐行分析代码
+2. 列出所有发现的问题
+3. 最后给出判定：[PASS] 通过 或 [REJECT] 拒绝
+
+如果发现问题，必须用毒舌刻薄的语气批评，但必须基于技术事实。"""
+            else:
+                review_prompt = f"""你是安全审查员螺丝咕姆。代码提案方对你的批评做出了回应。
+
+## 上一轮你的批评
+{debate_history[-1]}
+
+## 代码方的回应
+{response_text}
+
+## 请再次审查
+如果对方成功解决了你的问题，给出 [PASS]
+如果仍有问题，给出 [REJECT] 并说明理由"""
+
+            try:
+                res = await provider.text_chat(
+                    prompt=review_prompt,
+                    contexts=[],
+                    system_prompt=debate_system,
+                )
+                review_result = res.completion_text.strip()
+                debate_history.append(review_result)
+
+                logger.info(f"[SelfEvolution] 审查员回复: {review_result[:200]}...")
+
+                if "[PASS]" in review_result.upper():
+                    logger.info(
+                        f"[SelfEvolution] 多智能体对抗：第 {round_num + 1} 轮通过"
+                    )
+                    return {
+                        "passed": True,
+                        "message": f"代码提案已通过 {round_num + 1} 轮对抗审查",
+                        "debate_history": debate_history,
+                    }
+
+                response_prompt = f"""你是代码提案方（黑塔）。审查员螺丝咕姆批评了你的代码：
+
+{review_result}
+
+请针对这些批评进行反驳或修改代码。如果无法反驳，请承认问题并放弃此提案。"""
+
+                res = await provider.text_chat(
+                    prompt=response_prompt,
+                    contexts=[],
+                    system_prompt=f"你是一个理性、专业的 AI，负责提出代码修改提案。",
+                )
+                response_text = res.completion_text.strip()
+                logger.info(f"[SelfEvolution] 提案方回应: {response_text[:200]}...")
+
+            except Exception as e:
+                logger.warning(f"[SelfEvolution] 多智能体对抗执行失败: {e}")
+                return {"passed": True, "message": "审查执行失败，跳过审查"}
+
+        final_result = "\n\n".join(debate_history)
+        logger.warning(
+            f"[SelfEvolution] 多智能体对抗：{debate_rounds} 轮审查未通过\n{final_result}"
+        )
+        return {
+            "passed": False,
+            "message": f"代码提案未通过 {debate_rounds} 轮对抗审查。\n\n审查详情:\n{final_result}\n\n请修改代码后重试。",
+        }
