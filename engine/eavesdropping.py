@@ -12,7 +12,7 @@ class EavesdroppingEngine:
         self.plugin = plugin
         self.global_window = defaultdict(list)
         self.window_size = 5
-        self.leaky_bucket = defaultdict(float)
+        self.leaky_bucket = defaultdict(dict)  # {"value": float, "last_time": float}
         self.inner_monologue_cache = defaultdict(str)
         self.boredom_cache = defaultdict(lambda: {"count": 0, "last_message_time": 0.0})
 
@@ -301,26 +301,23 @@ class EavesdroppingEngine:
         if params["enabled"]:
             boost = self._calculate_boost(msg_text)
 
-            # 指数衰减模型: S_t = S_{t-1} * e^(-λΔt) + w_i
             import time
-
-            current_time = time.time()
-            last_time = self.leaky_bucket.get(session_id, {}).get(
-                "last_time", current_time
-            )
-            delta_t = current_time - last_time
-
-            # 衰减系数 λ，转换为 e^(-λ*Δt)
-            decay_factor = params.get("decay_exp", 0.5)  # 默认衰减因子
             import math
 
-            exp_decay = math.exp(-decay_factor * delta_t / 60)  # Δt转换为分钟
+            current_time = time.time()
+            bucket_data = self.leaky_bucket.get(session_id)
+            if not isinstance(bucket_data, dict):
+                bucket_data = {"value": 0.0, "last_time": current_time}
 
-            # 获取之前的积分值
-            old_value = self.leaky_bucket.get(session_id, {}).get("value", 0)
+            last_time = bucket_data.get("last_time", current_time)
+            delta_t = current_time - last_time
+
+            decay_factor = params.get("decay_exp", 0.5)
+            exp_decay = math.exp(-decay_factor * delta_t / 60)
+
+            old_value = float(bucket_data.get("value", 0))
             new_value = old_value * exp_decay + boost
 
-            # 存储新的积分值和时间
             self.leaky_bucket[session_id] = {
                 "value": new_value,
                 "last_time": current_time,
@@ -334,7 +331,10 @@ class EavesdroppingEngine:
                 )
                 async for result in self._evaluate_interjection(event, session_id):
                     yield result
-                self.leaky_bucket[session_id] = {"value": 0, "last_time": current_time}
+                self.leaky_bucket[session_id] = {
+                    "value": 0.0,
+                    "last_time": current_time,
+                }
         else:
             if session_id not in self.plugin.active_buffers:
                 self.plugin.active_buffers[session_id] = []
