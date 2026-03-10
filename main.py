@@ -203,6 +203,13 @@ class SelfEvolutionPlugin(Star):
             needs_surprise = True
         if any(t in msg_lower for t in graph_triggers):
             needs_graph = True
+
+        # 漏斗机制：活跃用户自动加载画像
+        group_id = event.get_group_id()
+        if group_id and hasattr(self, "eavesdropping"):
+            if self.eavesdropping.is_user_active(str(group_id), str(user_id)):
+                needs_profile = True
+                logger.debug(f"[漏斗] 用户 {user_id} 活跃，触发画像加载")
         # 打招呼类只加载基础人格
         is_greeting = len(msg_text) < 10 and any(
             g in msg_lower for g in ["早", "晚安", "你好", "hi", "hello", "在吗"]
