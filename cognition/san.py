@@ -48,6 +48,10 @@ class SANSystem:
         if not self.enabled:
             return True
 
+        if self._san_value is None:
+            self._san_value = self.max_value
+            self._san_last_recovery = time.time()
+
         current_time = time.time()
         elapsed = current_time - (self._san_last_recovery or current_time)
 
@@ -66,6 +70,8 @@ class SANSystem:
     def get_status(self):
         if not self.enabled:
             return ""
+        if self._san_value is None:
+            return "精力充沛"
         ratio = self._san_value / self.max_value
         if ratio < 0.2:
             return "疲惫不堪"
