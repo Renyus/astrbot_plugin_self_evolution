@@ -287,48 +287,6 @@
         "type": "bool",
         "default": true
     },
-    "growth_enabled": {
-        "title": "启用成长系统",
-        "description": "启用数字生命养成系统，AI 会随时间成长。",
-        "type": "bool",
-        "default": true
-    },
-    "growth_stage": {
-        "title": "当前成长阶段",
-        "description": "AI 的当前成长阶段：婴儿 -> 幼儿 -> 少年 -> 成年",
-        "type": "string",
-        "default": "婴儿"
-    },
-    "experience_points": {
-        "title": "当前经验值",
-        "description": "AI 的当前经验值，用于升级判定。",
-        "type": "int",
-        "default": 0
-    },
-    "total_messages": {
-        "title": "累计吸收消息数",
-        "description": "AI 累计吸收的有效消息数量。",
-        "type": "int",
-        "default": 0
-    },
-    "birth_timestamp": {
-        "title": "出生时间戳",
-        "description": "AI 首次启动的时间戳。",
-        "type": "int",
-        "default": 0
-    },
-    "vocabulary_complexity": {
-        "title": "词汇复杂度",
-        "description": "AI 语言的复杂度等级 (1-10)，1=简单句子，10=专业长文。",
-        "type": "int",
-        "default": 1
-    },
-    "emotional_dependence": {
-        "title": "情感依赖度",
-        "description": "AI 对用户的情感依赖程度 (1-10)，10=非常粘人，1=高冷独立。",
-        "type": "int",
-        "default": 10
-    },
     "san_enabled": {
         "title": "启用SAN值系统",
         "description": "启用心智疲劳系统，AI 精力耗尽时会拒绝服务或敷衍回复。",
@@ -364,35 +322,5 @@
         "description": "群氛围会影响 AI 的情绪和行为。",
         "type": "bool",
         "default": true
-    },
-    "memory_distortion_rate": {
-        "title": "记忆篡改概率",
-        "description": "做梦时混淆高频用户特征的概率。",
-        "type": "float",
-        "default": 0.05
-    },
-    "curiosity_enabled": {
-        "title": "启用主动发问",
-        "description": "群沉默12小时后，AI 主动抛出话题。",
-        "type": "bool",
-        "default": true
-    },
-    "curiosity_silence_hours": {
-        "title": "触发主动发问的沉默时长",
-        "description": "群沉默多少小时后 AI 会主动发言。",
-        "type": "int",
-        "default": 12
-    },
-    "internal_council_enabled": {
-        "title": "启用内部议会",
-        "description": "争议话题触发多智能体辩论。",
-        "type": "bool",
-        "default": true
-    },
-    "controversial_keywords": {
-        "title": "争议关键词",
-        "description": "触发内部议会的争议关键词。",
-        "type": "string",
-        "default": "php|java|python|哪个好|道德|伦理|政治|宗教"
     }
 }

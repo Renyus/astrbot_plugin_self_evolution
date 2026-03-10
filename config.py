@@ -218,41 +218,6 @@ class PluginConfig:
         return self._parse_bool(self._config.get("group_vibe_enabled"), True)
 
     @property
-    def memory_distortion_rate(self):
-        return float(self._config.get("memory_distortion_rate", 0.05))
-
-    @property
-    def curiosity_enabled(self):
-        return self._parse_bool(self._config.get("curiosity_enabled"), True)
-
-    @property
-    def curiosity_silence_hours(self):
-        return int(self._config.get("curiosity_silence_hours", 12))
-
-    @property
-    def internal_council_enabled(self):
-        return self._parse_bool(self._config.get("internal_council_enabled"), True)
-
-    @property
-    def controversial_keywords(self):
-        return self._config.get(
-            "controversial_keywords",
-            "政治|宗教|战争|争议",
-        )
-
-    @property
-    def prompt_dream_user_system(self):
-        return self._prompt("memory.user_system", "你是一个记忆助手。")
-
-    @property
-    def prompt_dream_group_summary(self):
-        return self._prompt("memory.group_summary", "总结群组的特征。")
-
-    @property
-    def prompt_dream_group_system(self):
-        return self._prompt("memory.group_system", "你是一个群记忆助手。")
-
-    @property
     def dropout_enabled(self):
         return self._parse_bool(self._config.get("dropout_enabled"), True)
 
