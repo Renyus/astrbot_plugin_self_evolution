@@ -14,7 +14,7 @@ class EavesdroppingEngine:
         self.window_size = 5
         self.leaky_bucket = defaultdict(float)
         self.inner_monologue_cache = defaultdict(str)
-        self.boredom_cache = defaultdict(lambda: {"count": 0, "last_message_time": 0})
+        self.boredom_cache = defaultdict(lambda: {"count": 0, "last_message_time": 0.0})
         self._boredom_responses = [
             "这种毫无信息量的话题不要占用我的进程，我很忙。",
             "你们的对话让我感到困倦。有正事再说。",

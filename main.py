@@ -4,13 +4,12 @@ from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import StarTools
 from astrbot.api import logger
 import asyncio
-import uuid
 import os
 import time
 import re
+import json
 import aiosqlite
 from datetime import datetime
-import inspect
 
 # 导入模块化组件
 from .dao import SelfEvolutionDAO
@@ -419,15 +418,12 @@ class SelfEvolutionPlugin(Star):
         if not self.growth_enabled:
             return
         if self.birth_timestamp == 0:
-            import time
-
             self.context.get_config()["birth_timestamp"] = int(time.time())
             logger.info("[Growth] 数字生命诞生！出生时间戳已记录。")
 
     def _check_growth_upgrade(self):
         if not self.growth_enabled:
             return False
-        import time
 
         days_alive = (int(time.time()) - self.birth_timestamp) // 86400
         msg_count = self.total_messages
@@ -670,10 +666,14 @@ class SelfEvolutionPlugin(Star):
         # 定期清理过期缓冲数据，防止内存泄漏
         await self._cleanup_stale_buffers()
 
-        # 成长系统：累加经验值
+        # 成长系统：累加经验值（每小时检查一次升级）
         if self.growth_enabled:
             self._add_experience(1)
-            self._check_growth_upgrade()
+            current_time = int(time.time())
+            last_check = getattr(self, "_last_growth_check", 0)
+            if current_time - last_check > 3600:
+                self._check_growth_upgrade()
+                self._last_growth_check = current_time
 
         # 自动学习触发：检测关键场景
         await self.memory.auto_learn_trigger(event)
