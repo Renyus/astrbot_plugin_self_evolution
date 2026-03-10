@@ -299,6 +299,14 @@ class EavesdroppingEngine:
             logger.debug(f"[CognitionCore] 信息熵过高，跳过: {msg_text[:10]}")
             return
 
+        # L2强AI意图句式：触发插嘴（不只是标记活跃）
+        level2_triggered = self._check_funnel_level2(event)
+        if level2_triggered:
+            logger.info(f"[漏斗] L2强AI意图触发插嘴: {msg_text[:20]}")
+            async for result in self._evaluate_interjection(event, session_id):
+                yield result
+            return
+
         if is_at:
             async for result in self._evaluate_interjection(event, session_id):
                 yield result
