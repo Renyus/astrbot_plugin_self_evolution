@@ -393,11 +393,12 @@ class MemoryManager:
             return "检索记忆时发生异常。"
 
         if not results or not results.get("results"):
+            logger.info(f"[SelfEvolution] AUTO_RECALL: 未找到相关记忆，查询: {query}")
             return "当前对话未涉及任何历史记忆。"
 
         context_text = results.get("context_text", "")
         logger.info(
-            f"[SelfEvolution] AUTO_RECALL: 找到 {len(results.get('results', []))} 条相关记忆"
+            f"[SelfEvolution] AUTO_RECALL: 找到 {len(results.get('results', []))} 条相关记忆，查询: {query}"
         )
 
         return (
@@ -405,5 +406,5 @@ class MemoryManager:
             f"当前话题: {query}\n"
             f"--- 历史记忆 ---\n{context_text}\n"
             f"----------------\n"
-            f"以上是与你当前话题相关的记忆，请结合这些信息回复用户。"
+            f"注：以上记忆仅供参考，请根据当前对话的实际情况判断。不确定的信息不要妄下结论。"
         )
