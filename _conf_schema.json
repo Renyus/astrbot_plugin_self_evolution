@@ -336,5 +336,19 @@
         "hint": "建议 2000-4000，默认 4000",
         "type": "int",
         "default": 4000
+    },
+    "eavesdrop_interval_minutes": {
+        "title": "插话检查间隔（分钟）",
+        "description": "每隔多久检查一次是否需要插话。",
+        "hint": "每10分钟检查一次，建议 5-15",
+        "type": "int",
+        "default": 10
+    },
+    "eavesdrop_message_threshold": {
+        "title": "插话消息数阈值",
+        "description": "滑动窗口消息数超过此值时触发插话检查。",
+        "hint": "超过20条消息时检查，建议 15-30",
+        "type": "int",
+        "default": 20
     }
 }

@@ -662,6 +662,19 @@ class SelfEvolutionPlugin(Star):
             )
             logger.info("[SelfEvolution] 已注册画像清理任务: 0 4 * * *")
 
+            # 注册定时插话检查任务
+            eavesdrop_job_name = "SelfEvolution_EavesdropCheck"
+            interval_minutes = getattr(self, "eavesdrop_interval_minutes", 10)
+            cron_expr = f"*/{interval_minutes} * * * *"
+            await cron_mgr.add_basic_job(
+                name=eavesdrop_job_name,
+                cron_expression=cron_expr,
+                handler=self._scheduled_eavesdrop_check,
+                description="自我进化插件：定时检查是否需要插话。",
+                persistent=True,
+            )
+            logger.info(f"[SelfEvolution] 已注册定时插话检查任务: {cron_expr}")
+
         except Exception as e:
             logger.warning(f"[SelfEvolution] 注册定时任务失败: {e}")
 
@@ -1079,6 +1092,12 @@ class SelfEvolutionPlugin(Star):
         logger.info("[Profile] 开始清理过期画像...")
         await self.profile.cleanup_expired_profiles()
         logger.info("[Profile] 画像清理完成。")
+
+    async def _scheduled_eavesdrop_check(self):
+        """定时插话检查任务"""
+        logger.info("[Eavesdrop] 开始定时插话检查...")
+        await self.eavesdropping.periodic_eavesdrop_check()
+        logger.info("[Eavesdrop] 定时插话检查完成。")
 
     @filter.command("reflect")
     async def manual_reflect(self, event: AstrMessageEvent):

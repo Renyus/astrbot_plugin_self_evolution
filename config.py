@@ -322,6 +322,14 @@ class PluginConfig:
             "你们是真无聊啊...要不我下线算了?",
         )
 
+    @property
+    def eavesdrip_interval_minutes(self):
+        return int(self._config.get("eavesdrop_interval_minutes", 10))
+
+    @property
+    def eavesdrop_message_threshold(self):
+        return int(self._config.get("eavesdrop_message_threshold", 20))
+
     def get(self, key, default=None):
         """通用获取配置"""
         return self._config.get(key, default)

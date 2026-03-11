@@ -619,3 +619,65 @@ class EavesdroppingEngine:
                 self.plugin.processing_sessions.discard(str(session_id))
             except Exception as e:
                 logger.warning(f"[CognitionCore] 清理 processing_sessions 失败: {e}")
+
+    async def periodic_eavesdrop_check(self):
+        """定时检查是否需要插话 - 模拟人类偶尔瞥一眼群聊"""
+        try:
+            session_buffers = getattr(self.plugin, "session_buffers", {})
+            if not session_buffers:
+                return
+
+            threshold = getattr(self.plugin, "eavesdrop_message_threshold", 20)
+            whitelist = getattr(self.plugin, "session_whitelist", [])
+            processing = getattr(self.plugin, "processing_sessions", set())
+
+            candidates = []
+            for group_id, buffer in session_buffers.items():
+                if not isinstance(buffer, dict):
+                    continue
+                msg_count = len(buffer.get("messages", []))
+                if msg_count < threshold:
+                    continue
+                if whitelist and group_id not in whitelist:
+                    continue
+                if group_id in processing:
+                    continue
+                candidates.append(group_id)
+
+            if not candidates:
+                return
+
+            import random
+
+            target_groups = random.sample(candidates, min(2, len(candidates)))
+
+            for group_id in target_groups:
+                logger.info(
+                    f"[CognitionCore] 定时检查触发，群 {group_id} 消息数达到 {threshold}"
+                )
+                dummy_event = None
+
+                class DummyEvent:
+                    def __init__(self, gid):
+                        self.session_id = gid
+                        self._group_id = gid
+                        self.message_str = ""
+                        self.is_at_or_wake_command = False
+
+                    def get_group_id(self):
+                        return self._group_id
+
+                    def get_sender_id(self):
+                        return "periodic_check"
+
+                    def get_sender_name(self):
+                        return "System"
+
+                dummy_event = DummyEvent(group_id)
+                async for _ in self._evaluate_interjection(
+                    dummy_event, group_id, force_immediate=True
+                ):
+                    pass
+
+        except Exception as e:
+            logger.warning(f"[CognitionCore] 定时插话检查异常: {e}")
