@@ -623,7 +623,7 @@ class EavesdroppingEngine:
     async def periodic_eavesdrop_check(self):
         """定时检查是否需要插话 - 模拟人类偶尔瞥一眼群聊"""
         try:
-            session_buffers = getattr(self.plugin, "session_buffers", {})
+            session_buffers = self.plugin.session_manager.session_buffers
             if not session_buffers:
                 return
 
