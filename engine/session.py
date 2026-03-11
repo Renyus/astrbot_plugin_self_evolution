@@ -38,8 +38,11 @@ class SessionManager:
 
     def add_message(self, group_id: str, sender_name: str, user_id: str, msg_text: str):
         """添加消息到滑动窗口"""
-        if not msg_text or not group_id:
-            logger.warning(f"[Session] 消息或群ID为空，跳过记录")
+        if not msg_text:
+            logger.debug(f"[Session] 消息内容为空（非文字信息），跳过记录")
+            return
+        if not group_id:
+            logger.debug(f"[Session] 群ID为空，跳过记录")
             return
 
         logger.info(f"[Session] 记录消息，群 {group_id}: {msg_text[:30]}")
