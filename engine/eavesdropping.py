@@ -546,8 +546,7 @@ class EavesdroppingEngine:
                 logger.info(f"[CognitionCore] 判定为忽略，不插话。")
                 return
             else:
-                # 无法解析
-                logger.warning(f"[CognitionCore] 无法解析LLM回复: {reply_text[:50]}")
+                # 无法解析，直接忽略
                 return
         except Exception as e:
             if "安全检查" in str(e) or "Safety" in str(e):
