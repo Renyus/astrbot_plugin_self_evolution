@@ -85,7 +85,6 @@ class SelfEvolutionPlugin(Star):
             raise e
 
         # CognitionCore 6.0: 状态容器
-        self.active_buffers = {}  # {session_id: [msg_list]}
         self.processing_sessions = set()
         self._lock = None  # 用于元编程写锁
         self.daily_reflection_pending = False
@@ -363,7 +362,7 @@ class SelfEvolutionPlugin(Star):
         # 3. 后台反思与定时自省逻辑 (持久化隔离不同用户的状态)
         session_id = event.session_id
         is_pending = await self.dao.pop_pending_reflection(session_id)
-        if is_pending or getattr(self, "daily_reflection_pending", False):
+        if is_pending or self.daily_reflection_pending:
             self.daily_reflection_pending = False
             reflection_prompt = (
                 f"\n\n[管理员后台指令]：{self.prompt_reflection_instruction}"
@@ -575,16 +574,16 @@ class SelfEvolutionPlugin(Star):
             return
         self._last_buffer_cleanup = now
 
-        stale_sessions = []
-        for session_id in list(self.active_buffers.keys()):
-            if session_id not in self.processing_sessions:
-                stale_sessions.append(session_id)
+        stale_groups = []
+        for group_id in list(self.session_buffers.keys()):
+            if group_id not in self.processing_sessions:
+                stale_groups.append(group_id)
 
-        for session_id in stale_sessions:
-            del self.active_buffers[session_id]
+        for group_id in stale_groups:
+            del self.session_buffers[group_id]
 
-        if stale_sessions:
-            logger.debug(f"[SelfEvolution] 已清理 {len(stale_sessions)} 个过期会话缓冲")
+        if stale_groups:
+            logger.debug(f"[SelfEvolution] 已清理 {len(stale_groups)} 个过期会话缓冲")
 
         # 清理 EavesdroppingEngine 的缓存，防止内存泄漏
         if hasattr(self, "eavesdropping"):
@@ -664,7 +663,7 @@ class SelfEvolutionPlugin(Star):
 
             # 注册定时插话检查任务
             eavesdrop_job_name = "SelfEvolution_EavesdropCheck"
-            interval_minutes = getattr(self, "eavesdrop_interval_minutes", 10)
+            interval_minutes = self.eavesdrop_interval_minutes
             cron_expr = f"*/{interval_minutes} * * * *"
             await cron_mgr.add_basic_job(
                 name=eavesdrop_job_name,

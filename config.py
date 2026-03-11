@@ -323,7 +323,7 @@ class PluginConfig:
         )
 
     @property
-    def eavesdrip_interval_minutes(self):
+    def eavesdrop_interval_minutes(self):
         return int(self._config.get("eavesdrop_interval_minutes", 10))
 
     @property
