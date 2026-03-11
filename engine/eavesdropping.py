@@ -418,8 +418,15 @@ class EavesdroppingEngine:
                     "last_time": current_time,
                 }
         else:
-            if session_id not in self.plugin.active_buffers:
+            existing_buffer = self.plugin.active_buffers.get(session_id)
+            if not isinstance(existing_buffer, list):
                 self.plugin.active_buffers[session_id] = []
+                self.plugin._session_speakers = getattr(
+                    self.plugin, "_session_speakers", {}
+                )
+                if session_id not in self.plugin._session_speakers:
+                    self.plugin._session_speakers[session_id] = {}
+            else:
                 self.plugin._session_speakers = getattr(
                     self.plugin, "_session_speakers", {}
                 )
@@ -458,7 +465,10 @@ class EavesdroppingEngine:
 
         self.plugin.processing_sessions.add(session_id)
         try:
-            buffer = self.plugin.active_buffers.get(session_id, [])
+            buffer = self.plugin.active_buffers.get(session_id)
+            if not isinstance(buffer, list):
+                buffer = []
+                self.plugin.active_buffers[session_id] = buffer
 
             snap_len = 0
             sender_name = event.get_sender_name() or "Unknown"
@@ -594,9 +604,11 @@ class EavesdroppingEngine:
                 logger.info(f"[CognitionCore] 插嘴评估未通过：{reason}。")
 
             if not force_immediate:
-                self.plugin.active_buffers[session_id] = self.plugin.active_buffers[
-                    session_id
-                ][snap_len:]
+                buffer = self.plugin.active_buffers.get(session_id)
+                if isinstance(buffer, list):
+                    self.plugin.active_buffers[session_id] = buffer[snap_len:]
+                else:
+                    self.plugin.active_buffers[session_id] = []
         except Exception as e:
             if "安全检查" in str(e) or "Safety" in str(e):
                 logger.warning(f"[CognitionCore] 插嘴评估被服务商安全策略拦截。")
