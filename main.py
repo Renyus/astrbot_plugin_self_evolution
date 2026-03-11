@@ -459,10 +459,6 @@ class SelfEvolutionPlugin(Star):
         logger.debug(f"[SelfEvolution] 结果装饰: {event.session_id}")
         result = event.get_result()
 
-        # 回复发送成功后，延迟存入记忆（确保先查后存）
-        if result and result.chain:
-            asyncio.create_task(self._delayed_learn(event))
-
         if not result or not result.chain:
             return
 
@@ -494,16 +490,6 @@ class SelfEvolutionPlugin(Star):
             # 所有消息都被拦截，使用clear_result清空
             event.clear_result()
             logger.info(f"[IntermediateFilter] 拦截所有消息，暂停发送")
-
-    async def _delayed_learn(self, event: AstrMessageEvent):
-        """延迟存入记忆：确保先查后存"""
-        import asyncio
-
-        await asyncio.sleep(2)  # 延迟2秒，确保回复已发送
-        try:
-            await self.memory.auto_learn_trigger(event)
-        except Exception as e:
-            logger.warning(f"[SelfEvolution] 延迟存入记忆失败: {e}")
 
     @filter.on_astrbot_loaded()
     async def on_loaded(self):

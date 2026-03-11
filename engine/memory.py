@@ -1,6 +1,4 @@
 import logging
-import asyncio
-import re
 import time
 from datetime import datetime
 
@@ -31,85 +29,6 @@ class MemoryManager:
     @property
     def max_memory_entries(self):
         return int(self.plugin.config.get("max_memory_entries", 100))
-
-    async def auto_learn_trigger(self, event):
-        """自动学习触发器：检测关键场景并自动提取记忆"""
-        msg_text = event.message_str
-        is_at = event.is_at_or_wake_command
-
-        logger.debug(f"[Memory] 自动学习触发检查: {msg_text[:30]}")
-
-        is_key_scene = False
-
-        if is_at:
-            is_key_scene = True
-            logger.debug("[Memory] 触发原因: @消息")
-
-        if not is_key_scene:
-            try:
-                critical_keywords = self.plugin.config.get(
-                    "critical_keywords",
-                    "黑塔|空间站|人偶|天才|模拟宇宙|研究|论文|技术|算力|数据",
-                )
-                critical_pattern = re.compile(f"({critical_keywords})", re.IGNORECASE)
-                if critical_pattern.search(msg_text):
-                    is_key_scene = True
-            except Exception:
-                pass
-
-        goodbye_keywords = ["再见", "拜拜", "走了", "下线", "休息", "睡觉", "晚安"]
-        if not is_key_scene and any(kw in msg_text for kw in goodbye_keywords):
-            is_key_scene = True
-
-        preference_keywords = [
-            "我喜欢",
-            "我讨厌",
-            "我想要",
-            "我不喜欢",
-        ]
-        if not is_key_scene and any(kw in msg_text for kw in preference_keywords):
-            is_key_scene = True
-
-        if is_key_scene:
-            await self._learn_to_memory(event, msg_text)
-
-    async def _learn_to_memory(self, event, msg_text):
-        """按用户/群汇总存知识库（按用户隔离）"""
-        try:
-            group_id = event.get_group_id()
-            user_id = event.get_sender_id()
-            user_name = event.get_sender_name() or "未知用户"
-            msg_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            if group_id:
-                # 群聊时按用户隔离存储
-                doc_name = f"memory_group_{group_id}_user_{user_id}"
-            else:
-                doc_name = f"memory_user_{user_id}"
-
-            new_entry = f"[{msg_time}] {user_name}: {msg_text}"
-
-            kb_manager = self.plugin.context.kb_manager
-            kb_helper = await asyncio.wait_for(
-                kb_manager.get_kb_by_name(self.memory_kb_name),
-                timeout=self.timeout_memory_commit,
-            )
-
-            if not kb_helper:
-                logger.warning(f"[SelfEvolution] 知识库 {self.memory_kb_name} 不存在")
-                return
-
-            await kb_helper.upload_document(
-                file_name=f"{doc_name}.txt",
-                file_content=b"",
-                file_type="txt",
-                pre_chunked_text=[new_entry],
-            )
-
-            logger.info(f"[SelfEvolution] 自动学习：已追加记忆到 {doc_name}")
-
-        except Exception as e:
-            logger.warning(f"[SelfEvolution] 自动学习失败: {e}")
 
     async def commit_to_memory(self, event, fact: str) -> str:
         """手动存入记忆"""
