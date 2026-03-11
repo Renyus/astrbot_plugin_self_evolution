@@ -567,7 +567,7 @@ class SelfEvolutionPlugin(Star):
             if target_job:
                 if target_job.cron_expression != self.reflection_schedule:
                     await cron_mgr.delete_job(target_job.job_id)
-                else:
+                elif target_job.job_id in cron_mgr._basic_handlers:
                     return
 
             await cron_mgr.add_basic_job(
@@ -575,6 +575,7 @@ class SelfEvolutionPlugin(Star):
                 cron_expression=self.reflection_schedule,
                 handler=self._scheduled_reflection,
                 description="自我进化插件：每日定时深度自省标记。",
+                persistent=True,
             )
             logger.info(
                 f"[SelfEvolution] 已注册定时自省任务: {self.reflection_schedule}"
@@ -587,6 +588,7 @@ class SelfEvolutionPlugin(Star):
                 cron_expression="0 4 * * *",
                 handler=self._scheduled_profile_cleanup,
                 description="自我进化插件：清理过期用户画像。",
+                persistent=True,
             )
             logger.info("[SelfEvolution] 已注册画像清理任务: 0 4 * * *")
 
