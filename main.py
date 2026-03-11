@@ -549,16 +549,34 @@ class SelfEvolutionPlugin(Star):
 
             # 注册定时插话检查任务
             eavesdrop_job_name = "SelfEvolution_EavesdropCheck"
+            target_job = next(
+                (job for job in jobs if job.name == eavesdrop_job_name), None
+            )
             interval_minutes = self.eavesdrop_interval_minutes
             cron_expr = f"*/{interval_minutes} * * * *"
-            await cron_mgr.add_basic_job(
-                name=eavesdrop_job_name,
-                cron_expression=cron_expr,
-                handler=self._scheduled_eavesdrop_check,
-                description="自我进化插件：定时检查是否需要插话。",
-                persistent=True,
-            )
-            logger.info(f"[SelfEvolution] 已注册定时插话检查任务: {cron_expr}")
+            if target_job:
+                if target_job.cron_expression != cron_expr:
+                    await cron_mgr.delete_job(target_job.job_id)
+                elif target_job.job_id in cron_mgr._basic_handlers:
+                    pass  # 已有任务，跳过
+                else:
+                    await cron_mgr.add_basic_job(
+                        name=eavesdrop_job_name,
+                        cron_expression=cron_expr,
+                        handler=self._scheduled_eavesdrop_check,
+                        description="自我进化插件：定时检查是否需要插话。",
+                        persistent=True,
+                    )
+                    logger.info(f"[SelfEvolution] 已注册定时插话检查任务: {cron_expr}")
+            else:
+                await cron_mgr.add_basic_job(
+                    name=eavesdrop_job_name,
+                    cron_expression=cron_expr,
+                    handler=self._scheduled_eavesdrop_check,
+                    description="自我进化插件：定时检查是否需要插话。",
+                    persistent=True,
+                )
+                logger.info(f"[SelfEvolution] 已注册定时插话检查任务: {cron_expr}")
 
         except Exception as e:
             logger.warning(f"[SelfEvolution] 注册定时任务失败: {e}")
