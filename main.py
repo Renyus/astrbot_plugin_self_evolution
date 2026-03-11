@@ -431,14 +431,8 @@ class SelfEvolutionPlugin(Star):
         """CognitionCore 6.0: 被动监听 - 滑动上下文窗口"""
         logger.debug(f"[SelfEvolution] 收到消息: {event.message_str[:30]}")
 
-        msg_text = event.message_str
-        config = self.context.get_config()
-        bot_wake_prefixes = config.get("wake_prefix", ["/"])
-        prov_wake_prefix = config.get("provider_settings", {}).get("wake_prefix", "/")
-        all_prefixes = set(bot_wake_prefixes)
-        if prov_wake_prefix:
-            all_prefixes.add(prov_wake_prefix)
-        if any(msg_text.startswith(prefix) for prefix in all_prefixes if prefix):
+        # 命令消息不触发插话系统
+        if event.is_at_or_wake_command:
             return
 
         # 定期清理过期缓冲数据
