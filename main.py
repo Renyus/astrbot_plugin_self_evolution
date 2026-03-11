@@ -453,9 +453,9 @@ class SelfEvolutionPlugin(Star):
             # 使用 SessionManager 记录消息
             self.session_manager.add_message(group_id, sender_name, user_id, msg_text)
 
-        # TODO: 暂时注释掉插嘴功能，后续可移除
-        # async for result in self.eavesdropping.handle_message(event):
-        #     yield result
+        # 被动插嘴：关键词/@触发
+        async for result in self.eavesdropping.handle_message(event):
+            yield result
 
     @filter.on_decorating_result()
     async def on_decorating_result(self, event: AstrMessageEvent):
