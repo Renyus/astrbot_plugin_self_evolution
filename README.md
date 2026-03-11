@@ -270,7 +270,9 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 |------|------|--------|------|
 | `session_max_tokens` | int | 4000 | 每群最大 Token 数 |
 | `eavesdrop_interval_minutes` | int | 10 | 定时插话检查间隔 |
-| `eavesdrop_message_threshold` | int | 20 | 触发插话的消息数阈值 |
+| `eavesdrop_message_threshold` | int | 20 | 触发插话的消息数阈值（基础值） |
+| `eavesdrop_threshold_min` | int | 10 | 有趣判定时最低阈值 |
+| `eavesdrop_threshold_max` | int | 50 | 无聊判定时最高阈值 |
 | `session_cleanup_timeout` | int | 600 | 会话缓冲超时（秒） |
 | `session_auto_commit` | bool | true | 超时时自动存入知识库 |
 | `session_commit_threshold` | int | 5 | 存入知识库的最少消息数 |

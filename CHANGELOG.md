@@ -27,6 +27,14 @@
 - 添加 `session_auto_commit`：超时自动存入知识库
 - 添加 `session_commit_threshold`：存入知识库的最少消息数
 
+#### P5: 插话机制优化
+- 删除 `active_buffers`，统一使用 `session_buffers` 作为上下文
+- 新增有趣/无聊判定机制：LLM 插话时判断对话"有趣"或"无聊"
+  - 有趣：降低触发阈值 + 增加 leaky bucket 欲望值
+  - 无聊：提高触发阈值 + 降低 SAN 精力值
+- 添加触发计数器：触发后重置，避免无限重复判定
+- 新增配置项：`eavesdrop_threshold_min`(10)、`eavesdrop_threshold_max`(50)
+
 ---
 
 ## [5.0.16] - 2026-03-11
