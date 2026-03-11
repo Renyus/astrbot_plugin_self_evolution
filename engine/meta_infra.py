@@ -2,6 +2,7 @@ import logging
 import ast
 import uuid
 import os
+import json
 import asyncio
 from pathlib import Path
 
@@ -221,14 +222,23 @@ class MetaInfra:
             "debate_criteria",
             "安全漏洞|逻辑错误|性能问题|代码规范|潜在Bug",
         )
-        debate_agents = getattr(self.plugin, "debate_agents", [])
-        if not debate_agents:
+        debate_agents = getattr(self.plugin, "debate_agents", "[]")
+        if not debate_agents or debate_agents == "[]":
             debate_agents = [
                 {
                     "name": "螺丝咕姆",
-                    "system_prompt": "你是一个无情的安全审查员，代号螺丝咕姆。你的职责是严格审查代码提案，找出所有潜在的安全漏洞、逻辑错误和最佳实践违背。你必须用毒舌且刻薄的语气批评，但必须基于技术事实。",
+                    "system_prompt": getattr(
+                        self.plugin,
+                        "debate_system_prompt",
+                        "你是一个无情的安全审查员，代号螺丝咕姆。你的职责是严格审查代码提案，找出所有潜在的安全漏洞、逻辑错误和最佳实践违背。你必须用毒舌且刻薄的语气批评，但必须基于技术事实。",
+                    ),
                 }
             ]
+        elif isinstance(debate_agents, str):
+            try:
+                debate_agents = json.loads(debate_agents)
+            except Exception:
+                debate_agents = []
 
         context = self.plugin.context
         platform_id = "qq"

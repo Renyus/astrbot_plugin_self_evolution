@@ -312,16 +312,6 @@ class SelfEvolutionPlugin(Star):
         # 3. 后台反思与定时自省逻辑 (持久化隔离不同用户的状态)
         session_id = event.session_id
         is_pending = await self.dao.pop_pending_reflection(session_id)
-        if is_pending or self.daily_reflection_pending:
-            self.daily_reflection_pending = False
-            reflection_prompt = (
-                f"\n\n[管理员后台指令]：{self.prompt_reflection_instruction}"
-            )
-            req.system_prompt += reflection_prompt
-            logger.debug(
-                f"[CognitionCore] 已向 session_id:{session_id} 注入认知蒸馏指令。"
-            )
-
         # 获取并注入框架人格
         try:
             personality = await self.context.persona_manager.get_default_persona_v3(
@@ -334,12 +324,6 @@ class SelfEvolutionPlugin(Star):
                 )
         except Exception as e:
             logger.warning(f"[SelfEvolution] 获取框架人格失败: {e}")
-
-        # 系统核心锚点 (优化为更自然柔和的引导，响应设计优雅性反馈)
-        if ANCHOR_MARKER not in req.system_prompt:
-            injection = f"\n\n({ANCHOR_MARKER}) {self.prompt_anchor_injection}"
-            req.system_prompt += injection
-            logger.debug("[SelfEvolution] 已在上下文中注入常驻辩证反省指令。")
 
         # 获取消息文本（提前定义以便后续使用）
         msg_text = event.message_str
@@ -975,7 +959,7 @@ class SelfEvolutionPlugin(Star):
             for gid, content in group_summaries.items():
                 summary_texts.append(f"群 {gid}：{content}")
 
-            federated_prompt = f"""你是黑塔，今天你在多个群聊中分别学到了以下知识：
+            federated_prompt = f"""今天你在多个群聊中分别学到了以下知识：
 
 {chr(10).join(summary_texts)}
 
@@ -990,7 +974,7 @@ class SelfEvolutionPlugin(Star):
             res = await llm_provider.text_chat(
                 prompt=federated_prompt,
                 contexts=[],
-                system_prompt="你是一个记忆力超群、喜欢显摆自己见多识广的 AI。",
+                system_prompt=self.prompt_dream_group_system,
             )
 
             cross_domain_insight = res.completion_text.strip()

@@ -165,14 +165,6 @@ class PluginConfig:
         return self._prompt("persona.meltdown", "错误：权限已熔断。")
 
     @property
-    def prompt_reflection_instruction(self):
-        return self._prompt("persona.reflection", "你是一个具备自我反思能力的 AI。")
-
-    @property
-    def prompt_anchor_injection(self):
-        return self._prompt("persona.anchor", "你是黑塔，理性的天才俱乐部成员。")
-
-    @property
     def prompt_communication_guidelines(self):
         return self._prompt(
             "persona.communication", "像平时在群里和朋友聊天一样自然地回复。"
@@ -192,6 +184,18 @@ class PluginConfig:
     @property
     def prompt_dream_user_incremental(self):
         return self._prompt("memory.user_incremental", "增量更新用户画像。")
+
+    @property
+    def prompt_dream_user_system(self):
+        return self._prompt(
+            "memory.user_system", "你是一个记忆助手，只输出精简的文本描述。"
+        )
+
+    @property
+    def prompt_dream_group_system(self):
+        return self._prompt(
+            "memory.group_system", "你是一个群记忆助手，只输出精简的文本描述。"
+        )
 
     @property
     def san_enabled(self):
