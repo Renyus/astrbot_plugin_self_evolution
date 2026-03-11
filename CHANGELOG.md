@@ -2,6 +2,33 @@
 
 本项目的所有重大更改都将记录在此文件中。
 
+## [5.1.0] - 2026-03-11
+### 重构 (Refactoring) - 会话管理与记忆系统优化
+
+#### P1: 会话清理逻辑修复
+- 修复 session 超时清理的 5 分钟节流 bug（导致会话永不超时）
+- 将 `cleanup_stale` 改为 async 方法
+- 修复存储顺序：先存入知识库，成功后再删除缓冲
+- 修复时间戳获取方式：使用 `time.time()` 替代 `asyncio.get_event_loop().time()`
+
+#### P2: 记忆系统简化
+- 删除旧的单条记忆存入逻辑（`auto_learn_trigger`、`_learn_to_memory`）
+- 统一使用 session 超时批量存入（`session_*.txt` 格式）
+- 减少知识库碎片化
+
+#### P3: 代码质量提升
+- 修复审计报告中的 4 个严重问题（C2/C4/S2/S4）
+- 统一人格设定：框架人格放最后优先
+- 修复分隔符问题（`surprise_boost_keywords` 使用 `|` 而非 `,`）
+- 统一配置默认值（`config.py` 与 `_conf_schema.json`）
+- 修复工具描述：`get_user_messages` 移除不支持的 `group_id` 参数，`source_uuids` 改为可选
+
+#### P4: 配置优化
+- 添加 `session_auto_commit`：超时自动存入知识库
+- 添加 `session_commit_threshold`：存入知识库的最少消息数
+
+---
+
 ## [5.0.16] - 2026-03-11
 ### 重构 (Refactoring) - 模块化与架构优化
 
