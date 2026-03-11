@@ -455,6 +455,7 @@ class EavesdroppingEngine:
 
             # 获取框架人格信息
             persona_name = "AI"
+            persona_prompt = ""
             try:
                 personality = (
                     await self.plugin.context.persona_manager.get_default_persona_v3(
@@ -463,27 +464,30 @@ class EavesdroppingEngine:
                 )
                 if personality:
                     persona_name = personality.get("name", "AI")
+                    persona_prompt = personality.get("prompt", "")
+            except Exception:
+                pass
+
+            # 获取对话上下文
+            contexts = []
+            try:
+                history_mgr = self.plugin.context.message_history_manager
+                if history_mgr and hasattr(history_mgr, "get"):
+                    hist = await history_mgr.get(event.get_group_id(), limit=10)
+                    if hist:
+                        contexts = hist
             except Exception:
                 pass
 
             decision_prompt = (
-                f"你现在是 {persona_name}。\n"
-                f'【当前社交阈值】：你的"发言意愿"设定为 {self.plugin.interjection_desire}/10。数值越低你越冷漠。\n'
-                + boredom_hint
-                + "\n"
-                "【后台监控任务】：评估以下实时对话片段，判断是否值得以你的身份发言。\n\n"
-                f"--- 监控片段 ---\n{chat_history}\n----------------\n\n"
-                "【输出格式】（必须严格遵守）：\n"
-                "只需返回判断和调整，无需生成回复内容：\n\n"
-                "[INTERESTING] +5 - 对话有趣，增加5点欲望，阈值降低5\n"
-                "[BORING] -3 - 对话无聊，降低3点心情，阈值增加3\n"
-                "[IGNORE] - 无话可说，不调整\n\n"
-                "数值范围：\n"
-                "- 欲望/心情调整：±1~10（由AI自行判断给出）\n"
-                "- 阈值调整：±1~5\n"
-                "- 示例：[INTERESTING] +3\n"
-                "- 示例：[BORING] -5\n"
-                "- 示例：[IGNORE]\n"
+                f"评估这段对话是否让你感兴趣：\n\n"
+                f"--- 对话片段 ---\n{chat_history}\n----------------\n\n"
+                "判断标准：\n"
+                "- 对话有趣，想说话 → 有趣 +数值\n"
+                "- 对话无聊，不想说话 → 无聊 -数值\n"
+                "- 无话可说 → 忽略\n\n"
+                "数值范围：1-5，根据你的感受给出。\n"
+                "输出格式：有趣 +3 或 无聊 -2\n"
             )
 
             llm_provider = self.plugin.context.get_using_provider(
@@ -495,14 +499,12 @@ class EavesdroppingEngine:
             logger.info(
                 f"[CognitionCore] 正在请求 LLM 决策自省... Prompt长度: {len(decision_prompt)}"
             )
+            # 使用人格作为 system_prompt
+            system_prompt = persona_prompt or f"你是一个名叫 {persona_name} 的AI。"
             res = await llm_provider.text_chat(
                 prompt=decision_prompt,
-                contexts=[],
-                system_prompt=getattr(
-                    self.plugin,
-                    "prompt_eavesdrop_system",
-                    "你处于后台冷启动决策模式。如果不值得开口，请务必回复 IGNORE。",
-                ),
+                contexts=contexts,
+                system_prompt=system_prompt,
             )
 
             reply_text = res.completion_text.strip()
@@ -549,13 +551,19 @@ class EavesdroppingEngine:
             threshold_min = getattr(self.plugin, "eavesdrop_threshold_min", 10)
             threshold_max = getattr(self.plugin, "eavesdrop_threshold_max", 50)
 
+            # 简化解析：支持多种格式
             interesting_match = re.search(
-                r"\[INTERESTING\]\s*\+(\d+)", reply_text, re.IGNORECASE
+                r"(有趣|INTERESTING)\s*\+(\d+)", reply_text, re.IGNORECASE
             )
-            boring_match = re.search(r"\[BORING\]\s*-(\d+)", reply_text, re.IGNORECASE)
+            boring_match = re.search(
+                r"(无聊|BORING)\s*-(\d+)", reply_text, re.IGNORECASE
+            )
+            ignore_match = re.search(
+                r"(忽略|IGNORE|跳过|不感兴趣)", reply_text, re.IGNORECASE
+            )
 
             if interesting_match:
-                value = int(interesting_match.group(1))
+                value = int(interesting_match.group(2))
                 current_threshold = session_buffer.get("threshold", 20)
                 new_threshold = max(threshold_min, current_threshold - value)
                 session_buffer["threshold"] = new_threshold
@@ -575,7 +583,7 @@ class EavesdroppingEngine:
                     yield event.plain_result(formal_reply)
                 return
             elif boring_match:
-                value = int(boring_match.group(1))
+                value = int(boring_match.group(2))
                 current_threshold = session_buffer.get("threshold", 20)
                 new_threshold = min(threshold_max, current_threshold + value)
                 session_buffer["threshold"] = new_threshold
@@ -585,9 +593,12 @@ class EavesdroppingEngine:
                 )
                 logger.info(f"[CognitionCore] 无聊判定，不插话。")
                 return
+            elif ignore_match:
+                logger.info(f"[CognitionCore] 判定为忽略，不插话。")
+                return
             else:
-                # IGNORE 或其他情况，不插话
-                logger.info(f"[CognitionCore] 判定为不插话。")
+                # 无法解析
+                logger.warning(f"[CognitionCore] 无法解析LLM回复: {reply_text[:50]}")
                 return
         except Exception as e:
             if "安全检查" in str(e) or "Safety" in str(e):
@@ -684,14 +695,35 @@ class EavesdroppingEngine:
     ) -> str:
         """有趣时生成正式回复（带人设+上下文）"""
         try:
-            # 获取人设
-            system_prompt = getattr(self.plugin, "prompt_eavesdrop_system", "")
-            if not system_prompt:
-                system_prompt = "你是一个有趣的AI助手。"
+            # 获取完整人格
+            persona_prompt = ""
+            try:
+                personality = (
+                    await self.plugin.context.persona_manager.get_default_persona_v3(
+                        event.unified_msg_origin
+                    )
+                )
+                if personality:
+                    persona_name = personality.get("name", persona_name)
+                    persona_prompt = personality.get("prompt", "")
+            except Exception:
+                pass
+
+            # 获取对话上下文
+            contexts = []
+            try:
+                history_mgr = self.plugin.context.message_history_manager
+                if history_mgr and hasattr(history_mgr, "get"):
+                    hist = await history_mgr.get(event.get_group_id(), limit=10)
+                    if hist:
+                        contexts = hist
+            except Exception:
+                pass
+
+            system_prompt = persona_prompt or f"你是一个名叫 {persona_name} 的AI。"
 
             # 构建正式回复的prompt
             formal_prompt = (
-                f"你现在是 {persona_name}。\n\n"
                 f"【群聊最近对话】：\n{chat_history}\n\n"
                 "【任务】：根据以上对话，以符合你人设的方式回复。\n"
                 "【要求】：\n"
@@ -709,7 +741,7 @@ class EavesdroppingEngine:
             logger.info(f"[CognitionCore] 正在请求正式回复...")
             res = await llm_provider.text_chat(
                 prompt=formal_prompt,
-                contexts=[],
+                contexts=contexts,
                 system_prompt=system_prompt,
             )
 

@@ -163,13 +163,6 @@ class PluginConfig:
         )
 
     @property
-    def prompt_eavesdrop_system(self):
-        return self._prompt(
-            "eavesdrop.system",
-            "你处于后台冷启动决策模式。如果不值得开口，请务必回复 IGNORE。",
-        )
-
-    @property
     def prompt_dream_user_summary(self):
         return self._prompt("memory.user_summary", "总结用户的特征和偏好。")
 
