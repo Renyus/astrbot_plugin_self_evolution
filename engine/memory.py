@@ -37,10 +37,13 @@ class MemoryManager:
         msg_text = event.message_str
         is_at = event.is_at_or_wake_command
 
+        logger.debug(f"[Memory] 自动学习触发检查: {msg_text[:30]}")
+
         is_key_scene = False
 
         if is_at:
             is_key_scene = True
+            logger.debug("[Memory] 触发原因: @消息")
 
         if not is_key_scene:
             try:
@@ -110,6 +113,7 @@ class MemoryManager:
 
     async def commit_to_memory(self, event, fact: str) -> str:
         """手动存入记忆"""
+        logger.info(f"[Memory] 存入记忆: {fact[:50]}")
         sender_id = event.get_sender_id()
         sender_name = event.get_sender_name() or "未知用户"
         group_id = event.get_group_id() or "私聊"
@@ -236,6 +240,7 @@ class MemoryManager:
 
     async def recall_memories(self, event, query: str) -> str:
         """检索记忆"""
+        logger.info(f"[Memory] 检索记忆: {query[:50]}")
         kb_manager = self.plugin.context.kb_manager
         try:
             results = await asyncio.wait_for(
@@ -263,6 +268,9 @@ class MemoryManager:
 
     async def learn_from_context(self, event, key_info: str = "") -> str:
         """从当前对话中自动提取关键信息并存入长期记忆"""
+        logger.info(
+            f"[Memory] 从上下文学习: {key_info[:50] if key_info else '自动提取'}"
+        )
         sender_name = event.get_sender_name() or "未知用户"
         sender_id = event.get_sender_id()
         group_id = event.get_group_id() or "私聊"
@@ -284,6 +292,7 @@ class MemoryManager:
 
     async def clear_all_memory(self, event, confirm: bool = False) -> str:
         """清空所有记忆"""
+        logger.info(f"[Memory] 清空所有记忆请求，confirm={confirm}")
         if not confirm:
             return "请传入 confirm=true 确认要清空全部记忆，例如: clear_all_memory(confirm=true)"
 
@@ -323,6 +332,7 @@ class MemoryManager:
 
     async def list_memories(self, event, limit: int = 10) -> str:
         """列出记忆"""
+        logger.info(f"[Memory] 列出记忆，limit={limit}")
         kb_manager = self.plugin.context.kb_manager
         try:
             kb_helper = await asyncio.wait_for(
@@ -354,6 +364,7 @@ class MemoryManager:
 
     async def delete_memory(self, event, doc_id: str) -> str:
         """删除单条记忆"""
+        logger.info(f"[Memory] 删除记忆，doc_id={doc_id}")
         kb_manager = self.plugin.context.kb_manager
         try:
             kb_helper = await asyncio.wait_for(
@@ -376,6 +387,7 @@ class MemoryManager:
 
     async def auto_recall(self, event, topic: str = "") -> str:
         """主动将相关记忆注入上下文"""
+        logger.info(f"[Memory] 主动检索记忆，topic={topic[:30] if topic else '自动'}")
         query = topic if topic else event.message_str
 
         kb_manager = self.plugin.context.kb_manager

@@ -50,6 +50,8 @@ class GroupVibeSystem:
         if not self.enabled:
             return
 
+        logger.debug(f"[Vibe] 收到群消息，群 {group_id}: {msg_text[:20]}")
+
         # 定期清理过期数据
         self._cleanup_stale_vibes()
 
@@ -94,6 +96,7 @@ class GroupVibeSystem:
         if not self.enabled:
             return ""
         vibe = self._group_vibe.get(group_id, 0)
+        logger.debug(f"[Vibe] 获取群氛围，群 {group_id}: {vibe}")
         if vibe < -5:
             return "群氛围紧张"
         elif vibe < 0:
@@ -108,4 +111,5 @@ class GroupVibeSystem:
         if not self.enabled:
             return ""
         vibe = self.get_vibe(group_id)
+        logger.debug(f"[Vibe] 生成群氛围提示注入，群 {group_id}: {vibe}")
         return f"\n\n【群氛围感知】{vibe}"

@@ -299,6 +299,7 @@ class EavesdroppingEngine:
             return
 
         group_id = str(group_id)
+        logger.debug(f"[CognitionCore] 被动监听消息，群 {group_id}: {msg_text[:30]}")
 
         # 漏斗机制：检测用户是否活跃
         level1_triggered = self._check_funnel_level1(event)

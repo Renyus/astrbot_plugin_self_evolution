@@ -42,12 +42,15 @@ class SessionManager:
         if not msg_text or not group_id:
             return
 
+        logger.debug(f"[Session] 收到消息，群 {group_id}: {msg_text[:30]}")
+
         max_tokens = self.max_tokens
         msg = f"[{sender_name}]({user_id}): {msg_text}"
         tokens = self._estimate_tokens(msg)
 
         if group_id not in self.session_buffers:
             self.session_buffers[group_id] = {"messages": [], "token_count": 0}
+            logger.debug(f"[Session] 新建会话缓冲: {group_id}")
 
         buffer = self.session_buffers[group_id]
 
@@ -65,16 +68,25 @@ class SessionManager:
         if buffer["token_count"] < 0:
             buffer["token_count"] = 0
 
+        logger.debug(
+            f"[Session] 消息已记录，群 {group_id}，当前 {len(buffer['messages'])} 条，{buffer['token_count']} tokens"
+        )
+
     def get_context(self, group_id: str) -> str:
         """获取滑动窗口上下文"""
         if group_id not in self.session_buffers:
+            logger.debug(f"[Session] 获取上下文失败，群 {group_id} 无缓冲")
             return ""
 
         buffer = self.session_buffers[group_id]
         if not buffer.get("messages"):
             return ""
 
-        return "\n".join(buffer["messages"])
+        context = "\n".join(buffer["messages"])
+        logger.debug(
+            f"[Session] 获取上下文，群 {group_id}，{len(buffer['messages'])} 条消息"
+        )
+        return context
 
     def cleanup_stale(self):
         """清理过期缓冲"""

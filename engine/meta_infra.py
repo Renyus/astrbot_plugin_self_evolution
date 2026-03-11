@@ -142,6 +142,9 @@ class MetaInfra:
         Level 4: 元编程。针对本插件提出代码修改建议。
         支持多智能体对抗辩论机制。
         """
+        logger.info(
+            f"[MetaInfra] 收到代码修改请求，target={target_file}, desc={description[:30]}"
+        )
         if not self.plugin.allow_meta_programming:
             return "元编程功能未开启，系统已拒绝源码提案修改通道。"
 

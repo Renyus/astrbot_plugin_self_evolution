@@ -440,6 +440,7 @@ class SelfEvolutionPlugin(Star):
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message_listener(self, event: AstrMessageEvent):
         """CognitionCore 6.0: 被动监听 - 滑动上下文窗口"""
+        logger.debug(f"[SelfEvolution] 收到消息: {event.message_str[:30]}")
         # 定期清理过期缓冲数据
         self.session_manager.cleanup_stale()
 
@@ -463,6 +464,7 @@ class SelfEvolutionPlugin(Star):
     @filter.on_decorating_result()
     async def on_decorating_result(self, event: AstrMessageEvent):
         """中间消息过滤器：拦截工具调用期间的过渡性消息"""
+        logger.debug(f"[SelfEvolution] 结果装饰: {event.session_id}")
         result = event.get_result()
 
         # 回复发送成功后，延迟存入记忆（确保先查后存）

@@ -32,6 +32,7 @@ class PersonaManager:
 
     async def evolve_persona(self, event, new_system_prompt: str, reason: str) -> str:
         """提出进化建议"""
+        logger.info(f"[Persona] 收到进化请求，reason: {reason[:50]}")
         curr_persona_id = getattr(event, "persona_id", None)
         if not curr_persona_id:
             try:

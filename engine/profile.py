@@ -114,6 +114,7 @@ class ProfileManager:
 
     async def get_profile_summary(self, user_id: str) -> str:
         """获取画像摘要（用于注入 LLM）- 支持分层失活"""
+        logger.debug(f"[Profile] 获取画像摘要: {user_id}")
         content = await self.load_profile(user_id)
         if not content:
             return ""
@@ -178,6 +179,7 @@ class ProfileManager:
 
     async def view_profile(self, user_id: str) -> str:
         """查看用户画像"""
+        logger.info(f"[Profile] 查看用户画像: {user_id}")
         content = await self.load_profile(user_id)
         if not content:
             return f"用户 {user_id} 暂无画像记录。"
@@ -194,6 +196,7 @@ class ProfileManager:
 
     async def list_profiles(self) -> dict:
         """列出所有画像统计"""
+        logger.info("[Profile] 列出所有画像统计")
         files = list(self.profile_dir.glob("user_*.md"))
         return {
             "total_users": len(files),
