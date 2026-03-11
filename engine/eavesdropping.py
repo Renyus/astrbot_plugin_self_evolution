@@ -601,6 +601,12 @@ class EavesdroppingEngine:
 
             if should_respond:
                 inner_monologue = self._get_stored_monologue(session_id)
+                reply_text = re.sub(
+                    r"<inner_monologue>.*?</inner_monologue>",
+                    "",
+                    reply_text,
+                    flags=re.DOTALL,
+                ).strip()
                 if inner_monologue:
                     full_response = f"{inner_monologue} {reply_text}"
                     logger.info(
