@@ -1022,6 +1022,7 @@ class SelfEvolutionPlugin(Star):
     async def _scheduled_eavesdrop_check(self):
         """定时互动意愿检查任务"""
         logger.info("[Session] 开始定时互动意愿检查...")
+        await self.eavesdropping.periodic_eavesdrop_check()
         logger.info("[Session] 定时互动意愿检查完成。")
 
     @filter.command("reflect")

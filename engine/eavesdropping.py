@@ -454,7 +454,7 @@ class EavesdroppingEngine:
 
             if is_cooling_down:
                 new_value = old_value + (delta_t * 0.01)
-                logger.debug(
+                logger.info(
                     f"[CognitionCore] 冷却恢复中 Z={new_value:.2f}/{params['threshold']} ({label})"
                 )
             else:
@@ -462,7 +462,7 @@ class EavesdroppingEngine:
                 exp_decay = math.exp(-decay_factor * delta_t / 60)
                 new_value = old_value * exp_decay + boost
 
-                logger.debug(
+                logger.info(
                     f"[CognitionCore] 欲望累积 Z={new_value:.2f}/{params['threshold']} ({label})"
                 )
 
