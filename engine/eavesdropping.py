@@ -531,7 +531,9 @@ class EavesdroppingEngine:
                 prompt_parts.append(persona_prompt)
             prompt_parts.append(f"\n对话：\n{chat_history}\n")
             prompt_parts.append("有趣吗？有趣[+3] / 无聊[-1]\n")
-            prompt_parts.append("数值由你自己决定。")
+            prompt_parts.append(
+                "数值由你自己决定。只返回判定结果，不要生成任何回复内容。"
+            )
             decision_prompt = "".join(prompt_parts)
 
             llm_provider = self.plugin.context.get_using_provider(
