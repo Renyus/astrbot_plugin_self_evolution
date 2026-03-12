@@ -830,7 +830,6 @@ class EavesdroppingEngine:
             prompt_parts.append(
                 "你觉得这个对话很有趣，决定参与。现在该你参与互动了。"
                 "请严格遵照自己的人格回复。"
-                "【重要】如果涉及图片，不要描述图片的具体特征和内容，只描述你看到这个图片的感想即可。"
             )
             formal_prompt = "".join(prompt_parts)
 
