@@ -8,7 +8,7 @@
 
 ## 概述
 
-Self-Evolution 是一个面向 AstrBot 平台的认知增强插件。它赋予 AI 主动环境感知、长期记忆、用户画像、情感建模和自主插嘴等能力，让 AI 从被动的问答工具升级为具备持续"生命感"的智能体。
+Self-Evolution 是一个面向 AstrBot 平台的认知增强插件。它赋予 AI 主动环境感知、长期记忆、用户画像、情感建模和自主互动意愿等能力，让 AI 从被动的问答工具升级为具备持续"生命感"的智能体。
 
 插件的核心设计思想是"白天快速响应，夜间批量整理"：实时交互只做轻量级的关键词匹配和画像读取，LLM 密集型的画像构建和群记忆总结等工作推迟到凌晨的"做梦"任务中完成。
 
@@ -19,7 +19,7 @@ Self-Evolution 是一个面向 AstrBot 平台的认知增强插件。它赋予 A
 | 模块 | 说明 | 默认 |
 |------|------|------|
 | 滑动上下文窗口 | 按 Token 预算维护群聊消息，注入 LLM 上下文 | 启用 |
-| 主动插嘴引擎 | 基于泄漏积分器的自然插嘴节奏，支持有趣/无聊动态调节 | 启用 |
+| 主动互动意愿引擎 | 基于泄漏积分器的自然互动节奏，支持有趣/无聊动态调节 | 启用 |
 | 用户画像系统 | Markdown 文本存储，支持分层失活、记忆模糊化、情绪依存记忆 | 启用 |
 | 长期记忆 | 基于知识库的向量存储/检索，支持去重和自动清理 | 启用 |
 | 做梦机制 | 凌晨批量构建画像、总结群记忆、跨群知识关联 | 启用 |
@@ -66,7 +66,7 @@ astrbot_plugin_self_evolution/
 |   +-- vibe.py             群体情绪共染系统
 +-- engine/
     |-- session.py           滑动上下文窗口管理
-    |-- eavesdropping.py     主动插嘴引擎（漏斗机制 + 泄漏积分器）
+    |-- eavesdropping.py     主动互动意愿引擎（漏斗机制 + 泄漏积分器）
     |-- memory.py            长期记忆管理（存储 / 检索 / 去重 / 清理）
     |-- profile.py           用户画像管理（Markdown 格式，支持缓存）
     |-- persona.py           人格进化管理（审核队列）
@@ -84,7 +84,7 @@ astrbot_plugin_self_evolution/
 
 1. 写入滑动窗口 -- SessionManager 按 Token 预算维护消息队列
 2. 记录关系图谱 -- GraphRAG 记录用户在群中的互动
-3. 插嘴评估 -- EavesdroppingEngine 进行多级过滤和决策
+3. 互动意愿评估 -- EavesdroppingEngine 进行多级过滤和决策
 
 ### 主动拦截流程 (on_llm_request)
 
@@ -103,7 +103,7 @@ astrbot_plugin_self_evolution/
 
 ## 核心功能详解
 
-### 主动插嘴引擎
+### 主动互动意愿引擎
 
 核心机制是一个指数衰减积分器（Leaky Integrator），模拟人类"越来越想说话"的冲动：
 
@@ -111,24 +111,24 @@ astrbot_plugin_self_evolution/
 S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 ```
 
-其中 `lambda` 为衰减系数（默认 0.9），`w` 为当前消息权重（关键词命中为 2.0，日常闲聊为 1.0）。当积分值超过触发阈值（默认 4.0）时，引擎调用 LLM 进行"是否值得插嘴"的二次决策。
+其中 `lambda` 为衰减系数（默认 0.9），`w` 为当前消息权重（关键词命中为 2.0，日常闲聊为 1.0）。当积分值超过触发阈值（默认 4.0）时，引擎调用 LLM 进行"是否值得回应"的二次决策。
 
 **三级漏斗机制**用于判定用户活跃状态：
 
 | 级别 | 触发条件 | 效果 |
 |------|----------|------|
-| L1 | @机器人、命令前缀、引用回复 Bot 消息 | 标记为活跃，触发插嘴评估 |
-| L2 | 唤醒词命中、强 AI 意图句式（"帮我"、"翻译"等） | 标记为活跃，触发插嘴评估 |
+| L1 | @机器人、命令前缀、引用回复 Bot 消息 | 标记为活跃，触发互动意愿评估 |
+| L2 | 唤醒词命中、强 AI 意图句式（"帮我"、"翻译"等） | 标记为活跃，触发互动意愿评估 |
 | L3 | 用户在 30 秒内有过 L1/L2 触发 | 加载画像信息 |
 
-**有趣/无聊动态阈值**（5.1.0 新增）：LLM 在插嘴时会判断当前对话"有趣"还是"无聊"：
+**有趣/无聊动态阈值**（5.1.0 新增）：LLM 在评估互动意愿时会判断当前对话"有趣"还是"无聊":
 
 - 有趣判定：降低触发阈值至 `eavesdrop_threshold_min`，增加积分器欲望值
 - 无聊判定：提高触发阈值至 `eavesdrop_threshold_max`，降低 SAN 精力值
 
 **信息熵检测**：基于 zlib 压缩比检测消息的信息量。当群聊持续出现低信息量内容时，AI 进入"无聊状态"，拒绝回复或以傲慢语气应对。
 
-**内心独白**：LLM 在判定为 IGNORE（不值得插嘴）时仍会输出一段简短的内心独白并缓存。下次真正发言时将独白注入回复内容，营造"憋了半天才开口"的自然感。
+**内心独白**：LLM 在判定为 IGNORE（不值得回应）时仍会输出一段简短的内心独白并缓存。下次真正发言时将独白注入回复内容，营造"憋了半天才开口"的自然感。
 
 ### 滑动上下文窗口
 
@@ -292,17 +292,14 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 |------|------|--------|------|
 | `persona_name` | string | 黑塔 | 机器人名称 |
 | `persona_title` | string | 人偶负责人 | 机器人头衔/身份 |
-| `persona_style` | string | 理性、犀利且专业 | 插嘴时的语气风格描述 |
-| `review_mode` | bool | true | 进化操作是否需要管理员审核 |
-| `admin_users` | list | [] | 额外管理员 ID 白名单 |
-| `core_principles` | string | 保持理性、诚实... | 机器人底线原则（安全锚点） |
+| `persona_style` | string | 理性、犀利且专业 | 互动意愿时的语气风格描述 |
 
-### 插嘴引擎
+### 互动意愿引擎
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `interjection_desire` | int | 5 | 发言意愿（1 极冷淡，10 高度活跃） |
-| `critical_keywords` | string | 黑塔\|空间站\|... | 强制触发插嘴的正则关键词 |
+| `critical_keywords` | string | 黑塔\|空间站\|... | 强制触发互动意愿的正则关键词 |
 | `leaky_integrator_enabled` | bool | true | 启用泄漏积分器 |
 | `leaky_decay_factor` | float | 0.9 | 衰减系数（0-1，越小衰减越快） |
 | `leaky_trigger_threshold` | float | 4.0 | 积分器触发阈值 |
@@ -320,8 +317,8 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 |------|------|--------|------|
 | `session_max_tokens` | int | 4000 | 每群滑动窗口最大 Token 数 |
 | `session_whitelist` | string | "" | 白名单群号（逗号分隔，空表示所有群） |
-| `eavesdrop_interval_minutes` | int | 10 | 定时插话检查间隔（分钟） |
-| `eavesdrop_message_threshold` | int | 20 | 定时插话触发的消息数阈值（基础值） |
+| `eavesdrop_interval_minutes` | int | 10 | 定时互动意愿检查间隔（分钟） |
+| `eavesdrop_message_threshold` | int | 20 | 定时互动意愿触发的消息数阈值（基础值） |
 | `eavesdrop_threshold_min` | int | 10 | 有趣判定时的最低阈值 |
 | `eavesdrop_threshold_max` | int | 50 | 无聊判定时的最高阈值 |
 | `session_cleanup_timeout` | int | 600 | 会话缓冲超时时间（秒） |
@@ -388,8 +385,8 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 | `persona.anchor` | AI 核心人设锚点 |
 | `persona.communication` | 日常交流准则与工具调用指引 |
 | `persona.meltdown` | 好感度熔断时的固定回复 |
-| `eavesdrop.system` | 插嘴决策的系统提示 |
-| `eavesdrop.decision` | 插嘴决策详细逻辑模板 |
+| `eavesdrop.system` | 互动意愿决策的系统提示 |
+| `eavesdrop.decision` | 互动意愿决策详细逻辑模板 |
 | `eavesdrop.inner_monologue` | 内心独白生成指令 |
 | `memory.user_summary` | 做梦时用户画像全量总结模板 |
 | `memory.user_incremental` | 做梦时用户画像增量更新模板 |
@@ -430,7 +427,7 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 |--------|----------|------|
 | SelfEvolution_DailyReflection | 0 3 * * * (每天凌晨 3 点) | 做梦 + 好感度恢复 |
 | SelfEvolution_ProfileCleanup | 0 4 * * * (每天凌晨 4 点) | 清理 90 天未更新的画像 |
-| SelfEvolution_EavesdropCheck | 每 10 分钟 | 定时插话检查 |
+| SelfEvolution_EavesdropCheck | 每 10 分钟 | 定时互动意愿检查 |
 
 ---
 

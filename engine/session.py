@@ -1,5 +1,5 @@
 """
-会话上下文管理模块 - 滑动窗口 + 定时插话
+会话上下文管理模块 - 滑动窗口 + 定时互动意愿
 """
 
 from astrbot.api import logger
@@ -168,7 +168,7 @@ class SessionManager:
             logger.info(f"[Session] 已清理 {len(stale)} 个过期会话: {stale}")
 
     async def periodic_check(self):
-        """定时检查是否需要插话"""
+        """定时检查是否需要互动意愿"""
         try:
             if not self.session_buffers:
                 return
@@ -195,14 +195,14 @@ class SessionManager:
             target_groups = random.sample(candidates, min(2, len(candidates)))
 
             for group_id in target_groups:
-                logger.info(f"[Session] 定时插话检查触发，群 {group_id}")
+                logger.info(f"[Session] 定时互动意愿检查触发，群 {group_id}")
                 await self._trigger_interjection_via_eavesdropping(group_id)
 
         except Exception as e:
-            logger.warning(f"[Session] 定时插话检查异常: {e}")
+            logger.warning(f"[Session] 定时互动意愿检查异常: {e}")
 
     async def _trigger_interjection_via_eavesdropping(self, group_id: str):
-        """通过 EavesdroppingEngine 触发插话评估"""
+        """通过 EavesdroppingEngine 触发互动意愿评估"""
         self.processing_sessions.add(group_id)
 
         try:
@@ -239,7 +239,7 @@ class SessionManager:
                 pass
 
         except Exception as e:
-            logger.warning(f"[Session] 通过 EavesdroppingEngine 触发插话异常: {e}")
+            logger.warning(f"[Session] 通过 EavesdroppingEngine 触发互动意愿异常: {e}")
 
         finally:
             self.processing_sessions.discard(group_id)
@@ -249,7 +249,7 @@ class SessionManager:
         self.session_buffers.clear()
 
     def reset_eavesdrop_count(self, group_id: str):
-        """重置插话触发计数器"""
+        """重置互动意愿触发计数器"""
         if group_id in self.session_buffers:
             self.session_buffers[group_id]["eavesdrop_count"] = 0
 

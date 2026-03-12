@@ -545,10 +545,10 @@ class EavesdroppingEngine:
                 logger.info(
                     f"[CognitionCore] 无聊判定！SAN-{value}，阈值升至 {new_threshold}"
                 )
-                logger.info(f"[CognitionCore] 无聊判定，不插话。")
+                logger.info(f"[CognitionCore] 无聊判定，不回应。")
                 return
             elif ignore_match:
-                logger.info(f"[CognitionCore] 判定为忽略，不插话。")
+                logger.info(f"[CognitionCore] 判定为忽略，不回应。")
                 return
             else:
                 # 无法解析，直接忽略
@@ -566,7 +566,7 @@ class EavesdroppingEngine:
                 logger.warning(f"[CognitionCore] 清理 processing_sessions 失败: {e}")
 
     async def periodic_eavesdrop_check(self):
-        """定时检查是否需要插话 - 模拟人类偶尔瞥一眼群聊"""
+        """定时检查是否需要互动意愿 - 模拟人类偶尔瞥一眼群聊"""
         try:
             session_buffers = self.plugin.session_manager.session_buffers
             if not session_buffers:
@@ -627,7 +627,7 @@ class EavesdroppingEngine:
                     pass
 
         except Exception as e:
-            logger.warning(f"[CognitionCore] 定时插话检查异常: {e}")
+            logger.warning(f"[CognitionCore] 定时互动意愿检查异常: {e}")
 
     async def _decrease_san(self, event: AstrMessageEvent, value: int):
         """降低SAN精力值"""

@@ -6,10 +6,10 @@
 
 ## [5.1.0] - 2026-03-11
 
-### 插话机制优化
+### 互动意愿机制优化
 
 - 删除 `active_buffers`，统一使用 `session_buffers` 作为上下文数据源
-- 新增有趣/无聊动态判定机制：LLM 在插话时评估当前对话的兴趣值
+- 新增有趣/无聊动态判定机制：LLM 在评估互动意愿时判断当前对话的兴趣值
   - 有趣判定：降低触发阈值 + 增加泄漏积分器欲望值
   - 无聊判定：提高触发阈值 + 降低 SAN 精力值
 - 新增配置项 `eavesdrop_threshold_min`（默认 10）、`eavesdrop_threshold_max`（默认 50）
@@ -50,7 +50,7 @@
 ### 会话管理模块化
 
 - 新增 `engine/session.py`，封装滑动上下文窗口管理逻辑（4k Token 维护）
-- SessionManager 支持定时插话检查（默认每 10 分钟或消息超过 20 条）
+- SessionManager 支持定时互动意愿检查（默认每 10 分钟或消息超过 20 条）
 - 定时检查复用 EavesdroppingEngine 完整评估逻辑
 - 配置参数：`session_whitelist`、`session_max_tokens`、`eavesdrop_interval_minutes`、`eavesdrop_message_threshold`
 

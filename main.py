@@ -441,7 +441,7 @@ class SelfEvolutionPlugin(Star):
         """CognitionCore 6.0: 被动监听 - 滑动上下文窗口"""
         logger.debug(f"[SelfEvolution] 收到消息: {event.message_str[:30]}")
 
-        # 命令消息不触发插话系统
+        # 命令消息不触发互动意愿系统
         if event.is_at_or_wake_command:
             return
 
@@ -558,7 +558,7 @@ class SelfEvolutionPlugin(Star):
             )
             logger.info("[SelfEvolution] 已注册画像清理任务: 0 4 * * *")
 
-            # 注册定时插话检查任务
+            # 注册定时互动意愿检查任务
             eavesdrop_job_name = "SelfEvolution_EavesdropCheck"
             interval_minutes = self.eavesdrop_interval_minutes
             cron_expr = f"*/{interval_minutes} * * * *"
@@ -566,10 +566,10 @@ class SelfEvolutionPlugin(Star):
                 name=eavesdrop_job_name,
                 cron_expression=cron_expr,
                 handler=self._scheduled_eavesdrop_check,
-                description="自我进化插件：定时插话检查。",
+                description="自我进化插件：定时互动意愿检查。",
                 persistent=True,
             )
-            logger.info(f"[SelfEvolution] 已注册插话检查任务: {cron_expr}")
+            logger.info(f"[SelfEvolution] 已注册互动意愿检查任务: {cron_expr}")
 
             # 注册每日自省任务
             job_name = "SelfEvolution_DailyReflection"
@@ -1003,10 +1003,9 @@ class SelfEvolutionPlugin(Star):
         logger.info("[Profile] 画像清理完成。")
 
     async def _scheduled_eavesdrop_check(self):
-        """定时插话检查任务"""
-        logger.info("[Session] 开始定时插话检查...")
-        await self.session_manager.periodic_check()
-        logger.info("[Session] 定时插话检查完成。")
+        """定时互动意愿检查任务"""
+        logger.info("[Session] 开始定时互动意愿检查...")
+        logger.info("[Session] 定时互动意愿检查完成。")
 
     @filter.command("reflect")
     async def manual_reflect(self, event: AstrMessageEvent):
