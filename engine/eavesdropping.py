@@ -355,7 +355,7 @@ class EavesdroppingEngine:
         level2_triggered = self._check_funnel_level2(event)
 
         trigger_reason = ""
-        boost = params["daily_chat_boost"]  # 默认普通消息 boost
+        boost = params["daily_boost"]  # 默认普通消息 boost
 
         if critical_pattern.search(msg_text):
             boost = params["interest_boost"]
