@@ -1,6 +1,6 @@
 # Self-Evolution -- AstrBot 认知增强插件
 
-**版本**: 5.1.0 | **内核**: CognitionCore 6.0 | **协议**: CC BY-NC 4.0
+**版本**: 5.1.1 | **内核**: CognitionCore 6.0 | **协议**: CC BY-NC 4.0
 
 交流群: 1087272376
 
