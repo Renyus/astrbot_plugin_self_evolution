@@ -356,6 +356,13 @@ class EavesdroppingEngine:
                     "consecutive_replies": 0,
                 }
 
+            # 如果正在观察期间（triggered=True），重置计数器
+            if bucket_data.get("triggered", False):
+                bucket_data["consecutive_replies"] = 0
+                logger.info(
+                    f"[CognitionCore] 观察期间遇到感兴趣话题，立即回复，重置观察计数器 ({label})"
+                )
+
             bucket_data["triggered"] = True
             bucket_data["triggered_time"] = current_time
             bucket_data["value"] = (
@@ -666,11 +673,23 @@ class EavesdroppingEngine:
                         cooldown_messages = getattr(
                             self.plugin, "desire_cooldown_messages", 5
                         )
-                        bucket_data["consecutive_replies"] = consecutive_replies
 
-                        logger.info(
-                            f"[CognitionCore] AI 回复第 {consecutive_replies}/{cooldown_messages} 条"
+                        # 检查当前消息是否包含兴趣关键词
+                        msg_for_check = event.message_str or ""
+                        critical_pattern_check = re.compile(
+                            f"({self.plugin.critical_keywords})", re.IGNORECASE
                         )
+                        if critical_pattern_check.search(msg_for_check):
+                            # 本条消息包含兴趣关键词，重置计数器
+                            bucket_data["consecutive_replies"] = 0
+                            logger.info(
+                                f"[CognitionCore] 本条消息包含兴趣关键词，重置观察计数器，继续回复"
+                            )
+                        else:
+                            bucket_data["consecutive_replies"] = consecutive_replies
+                            logger.info(
+                                f"[CognitionCore] AI 回复第 {consecutive_replies}/{cooldown_messages} 条"
+                            )
 
                         if consecutive_replies >= cooldown_messages:
                             # 达到冷却消息数，进入贤者时间
