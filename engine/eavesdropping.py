@@ -346,6 +346,7 @@ class EavesdroppingEngine:
         params = self._get_leaky_params()
 
         if not params["enabled"]:
+            logger.info(f"[CognitionCore] 漏斗积分器未启用，跳过 ({label})")
             return
 
         # 计算 boost 值（统一入口，根据触发条件不同）
@@ -367,13 +368,13 @@ class EavesdroppingEngine:
             boost = params["interest_boost"] * 0.8  # L2 稍低
             trigger_reason = "L2意图"
         elif len(msg_text) < 6:
-            logger.debug(
-                f"[CognitionCore] 消息过短，跳过: {msg_text[:10] if msg_text else '(空)'}"
+            logger.info(
+                f"[CognitionCore] 消息过短跳过: {msg_text[:10] if msg_text else '(空)'} ({label})"
             )
             return
         elif entropy > 0.95:
-            logger.debug(
-                f"[CognitionCore] 信息熵过高，跳过: {msg_text[:10] if msg_text else '(空)'}"
+            logger.info(
+                f"[CognitionCore] 信息熵过高跳过: {msg_text[:10] if msg_text else '(空)'} ({label})"
             )
             return
 
