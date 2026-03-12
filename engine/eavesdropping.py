@@ -126,6 +126,19 @@ class EavesdroppingEngine:
 
     # ==================== 漏斗机制：用户活跃判定 ====================
 
+    def _get_or_init_bucket_data(self, session_id: str, current_time: float) -> dict:
+        bucket_data = self.leaky_bucket.get(session_id)
+        if not isinstance(bucket_data, dict):
+            bucket_data = {
+                "value": 2.0,
+                "last_time": current_time,
+                "is_cooling_down": False,
+                "cooling_end_time": 0,
+                "triggered": False,
+                "consecutive_replies": 0,
+            }
+        return bucket_data
+
     def _check_funnel_level1(self, event: AstrMessageEvent) -> bool:
         """第一级：框架级强特征（100%确定是互动）"""
         msg = event.message_obj
@@ -292,7 +305,9 @@ class EavesdroppingEngine:
             is_private = True
 
         group_id = str(group_id)
-        logger.debug(f"[CognitionCore] 被动监听消息，{label}: {msg_text[:30]}")
+        logger.debug(
+            f"[CognitionCore] 被动监听消息，{label}: {msg_text[:30] if msg_text else '(空)'}"
+        )
 
         # 漏斗机制：检测用户是否活跃
         level1_triggered = self._check_funnel_level1(event)
@@ -338,23 +353,14 @@ class EavesdroppingEngine:
         # 将无聊状态传递给评估函数
         self._current_boredom_state = is_bored
 
+        import time
+
         critical_pattern = re.compile(
             f"({self.plugin.critical_keywords})", re.IGNORECASE
         )
         if critical_pattern.search(msg_text):
-            import time
-
             current_time = time.time()
-            bucket_data = self.leaky_bucket.get(session_id)
-            if not isinstance(bucket_data, dict):
-                bucket_data = {
-                    "value": 2.0,
-                    "last_time": current_time,
-                    "is_cooling_down": False,
-                    "cooling_end_time": 0,
-                    "triggered": False,
-                    "consecutive_replies": 0,
-                }
+            bucket_data = self._get_or_init_bucket_data(session_id, current_time)
 
             # 如果正在观察期间（triggered=True），重置计数器
             if bucket_data.get("triggered", False):
@@ -381,12 +387,16 @@ class EavesdroppingEngine:
 
         # 前置低算力拦截：快速过滤明显无需介入的情况
         if not is_at and len(msg_text) < 6:
-            logger.debug(f"[CognitionCore] 消息过短，跳过评估: {msg_text[:10]}")
+            logger.debug(
+                f"[CognitionCore] 消息过短，跳过评估: {msg_text[:10] if msg_text else '(空)'}"
+            )
             return
 
         # 高信息熵直接跳过（全是重复字符/表情）
         if entropy > 0.95 and not is_at:
-            logger.debug(f"[CognitionCore] 信息熵过高，跳过: {msg_text[:10]}")
+            logger.debug(
+                f"[CognitionCore] 信息熵过高，跳过: {msg_text[:10] if msg_text else '(空)'}"
+            )
             return
 
         # L2强AI意图句式：触发插嘴（不只是标记活跃）
@@ -395,16 +405,7 @@ class EavesdroppingEngine:
             import time
 
             current_time = time.time()
-            bucket_data = self.leaky_bucket.get(session_id)
-            if not isinstance(bucket_data, dict):
-                bucket_data = {
-                    "value": 2.0,
-                    "last_time": current_time,
-                    "is_cooling_down": False,
-                    "cooling_end_time": 0,
-                    "triggered": False,
-                    "consecutive_replies": 0,
-                }
+            bucket_data = self._get_or_init_bucket_data(session_id, current_time)
 
             bucket_data["triggered"] = True
             bucket_data["triggered_time"] = current_time
@@ -424,16 +425,7 @@ class EavesdroppingEngine:
             import time
 
             current_time = time.time()
-            bucket_data = self.leaky_bucket.get(session_id)
-            if not isinstance(bucket_data, dict):
-                bucket_data = {
-                    "value": 2.0,
-                    "last_time": current_time,
-                    "is_cooling_down": False,
-                    "cooling_end_time": 0,
-                    "triggered": False,
-                    "consecutive_replies": 0,
-                }
+            bucket_data = self._get_or_init_bucket_data(session_id, current_time)
 
             bucket_data["triggered"] = True
             bucket_data["triggered_time"] = current_time
@@ -458,14 +450,7 @@ class EavesdroppingEngine:
             import math
 
             current_time = time.time()
-            bucket_data = self.leaky_bucket.get(session_id)
-            if not isinstance(bucket_data, dict):
-                bucket_data = {
-                    "value": 2.0,
-                    "last_time": current_time,
-                    "is_cooling_down": False,
-                    "cooling_end_time": 0,
-                }
+            bucket_data = self._get_or_init_bucket_data(session_id, current_time)
 
             last_time = bucket_data.get("last_time", current_time)
             delta_t = current_time - last_time

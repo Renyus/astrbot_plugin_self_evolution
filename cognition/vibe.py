@@ -50,7 +50,9 @@ class GroupVibeSystem:
         if not self.enabled:
             return
 
-        logger.debug(f"[Vibe] 收到群消息，群 {group_id}: {msg_text[:20]}")
+        logger.debug(
+            f"[Vibe] 收到群消息，群 {group_id}: {msg_text[:20] if msg_text else '(空)'}"
+        )
 
         # 定期清理过期数据
         self._cleanup_stale_vibes()

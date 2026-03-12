@@ -228,7 +228,7 @@ class PluginConfig:
 
     @property
     def interest_boost(self):
-        return int(self._config.get("interest_boost", 2))
+        return float(self._config.get("interest_boost", 2.0))
 
     @property
     def daily_chat_boost(self):

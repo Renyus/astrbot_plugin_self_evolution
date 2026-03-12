@@ -454,7 +454,9 @@ class SelfEvolutionPlugin(Star):
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message_listener(self, event: AstrMessageEvent):
         """CognitionCore 6.0: 被动监听 - 滑动上下文窗口"""
-        logger.debug(f"[SelfEvolution] 收到消息: {event.message_str[:30]}")
+        logger.debug(
+            f"[SelfEvolution] 收到消息: {event.message_str[:30] if event.message_str else '(空)'}"
+        )
 
         # 命令消息不触发互动意愿系统
         if event.is_at_or_wake_command:
