@@ -628,6 +628,8 @@ class EavesdroppingEngine:
                 logger.warning("[CognitionCore] LLM 返回空响应，已离线...")
                 return
 
+            logger.info(f"[CognitionCore] LLM 决策原始响应:\n{reply_text}")
+
             # 解析有趣/无聊判定并调整阈值和SAN
             session_buffer = self.plugin.session_manager.session_buffers.get(
                 lookup_key, {}
@@ -725,6 +727,7 @@ class EavesdroppingEngine:
                 return
             else:
                 # 无法解析，直接忽略
+                logger.warning(f"[CognitionCore] 无法解析 LLM 响应，已拦截")
                 return
         except Exception as e:
             if "安全检查" in str(e) or "Safety" in str(e):
