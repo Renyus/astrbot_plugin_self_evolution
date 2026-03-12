@@ -367,16 +367,17 @@ class EavesdroppingEngine:
         elif level2_triggered:
             boost = params["interest_boost"] * 0.8  # L2 稍低
             trigger_reason = "L2意图"
-        elif len(msg_text) < 6:
+        elif len(msg_text) < 6 and not is_at:
             logger.info(
                 f"[CognitionCore] 消息过短跳过: {msg_text[:10] if msg_text else '(空)'} ({label})"
             )
             return
         elif entropy > 0.95:
-            logger.info(
-                f"[CognitionCore] 信息熵过高跳过: {msg_text[:10] if msg_text else '(空)'} ({label})"
-            )
-            return
+            if not is_at:
+                logger.info(
+                    f"[CognitionCore] 信息熵过高跳过: {msg_text[:10] if msg_text else '(空)'} ({label})"
+                )
+                return
 
         # 统一欲望累积流程
         import math
