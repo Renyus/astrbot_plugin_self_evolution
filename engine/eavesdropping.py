@@ -342,7 +342,30 @@ class EavesdroppingEngine:
             f"({self.plugin.critical_keywords})", re.IGNORECASE
         )
         if critical_pattern.search(msg_text):
-            logger.info(f"[CognitionCore] 预扫描命中关键词，强制立即触发评估。")
+            import time
+
+            current_time = time.time()
+            bucket_data = self.leaky_bucket.get(session_id)
+            if not isinstance(bucket_data, dict):
+                bucket_data = {
+                    "value": 2.0,
+                    "last_time": current_time,
+                    "is_cooling_down": False,
+                    "cooling_end_time": 0,
+                    "triggered": False,
+                    "consecutive_replies": 0,
+                }
+
+            bucket_data["triggered"] = True
+            bucket_data["triggered_time"] = current_time
+            bucket_data["value"] = (
+                bucket_data.get("value", 2.0) + self.plugin.interest_boost
+            )
+            self.leaky_bucket[session_id] = bucket_data
+
+            logger.info(
+                f"[CognitionCore] 预扫描命中关键词，欲望触发! 将观察 {self.plugin.desire_cooldown_messages} 条消息后进入贤者时间"
+            )
             async for result in self._evaluate_interjection(
                 event, session_id, force_immediate=True
             ):
@@ -362,12 +385,59 @@ class EavesdroppingEngine:
         # L2强AI意图句式：触发插嘴（不只是标记活跃）
         level2_triggered = self._check_funnel_level2(event)
         if level2_triggered:
-            logger.info(f"[漏斗] L2强AI意图触发插嘴: {msg_text[:20]}")
+            import time
+
+            current_time = time.time()
+            bucket_data = self.leaky_bucket.get(session_id)
+            if not isinstance(bucket_data, dict):
+                bucket_data = {
+                    "value": 2.0,
+                    "last_time": current_time,
+                    "is_cooling_down": False,
+                    "cooling_end_time": 0,
+                    "triggered": False,
+                    "consecutive_replies": 0,
+                }
+
+            bucket_data["triggered"] = True
+            bucket_data["triggered_time"] = current_time
+            bucket_data["value"] = (
+                bucket_data.get("value", 2.0) + self.plugin.interest_boost
+            )
+            self.leaky_bucket[session_id] = bucket_data
+
+            logger.info(
+                f"[漏斗] L2强AI意图触发欲望! 将观察 {self.plugin.desire_cooldown_messages} 条消息后进入贤者时间"
+            )
             async for result in self._evaluate_interjection(event, session_id):
                 yield result
             return
 
         if is_at:
+            import time
+
+            current_time = time.time()
+            bucket_data = self.leaky_bucket.get(session_id)
+            if not isinstance(bucket_data, dict):
+                bucket_data = {
+                    "value": 2.0,
+                    "last_time": current_time,
+                    "is_cooling_down": False,
+                    "cooling_end_time": 0,
+                    "triggered": False,
+                    "consecutive_replies": 0,
+                }
+
+            bucket_data["triggered"] = True
+            bucket_data["triggered_time"] = current_time
+            bucket_data["value"] = (
+                bucket_data.get("value", 2.0) + self.plugin.interest_boost
+            )
+            self.leaky_bucket[session_id] = bucket_data
+
+            logger.info(
+                f"[@机器人] 触发欲望! 将观察 {self.plugin.desire_cooldown_messages} 条消息后进入贤者时间"
+            )
             async for result in self._evaluate_interjection(event, session_id):
                 yield result
             return
@@ -425,22 +495,24 @@ class EavesdroppingEngine:
 
             current_z = new_value
 
-            if current_z >= params["threshold"]:
+            triggered = bucket_data.get("triggered", False)
+            consecutive_replies = bucket_data.get("consecutive_replies", 0)
+            cooldown_messages = getattr(self.plugin, "desire_cooldown_messages", 5)
+
+            if current_z >= params["threshold"] and not triggered:
                 logger.info(
-                    f"[CognitionCore] 欲望触发! Z={current_z:.2f} >= {params['threshold']}"
+                    f"[CognitionCore] 欲望触发! Z={current_z:.2f} >= {params['threshold']}，将观察 {cooldown_messages} 条消息后进入贤者时间"
                 )
+                bucket_data["triggered"] = True
+                bucket_data["triggered_time"] = current_time
+                bucket_data["value"] = current_z
+                self.leaky_bucket[session_id] = bucket_data
                 async for result in self._evaluate_interjection(event, session_id):
                     yield result
-                new_urge = current_z * 0.1
-                cooling_end = current_time + 60
-                self.leaky_bucket[session_id] = {
-                    "value": new_urge,
-                    "last_time": current_time,
-                    "is_cooling_down": True,
-                    "cooling_end_time": cooling_end,
-                }
-                logger.info(
-                    f"[CognitionCore] 进入贤者时间，欲望降至 {new_urge:.2f}，冷却 60 秒 ({label})"
+                return
+            elif triggered:
+                logger.debug(
+                    f"[CognitionCore] 欲望已触发，观察中 {consecutive_replies}/{cooldown_messages} ({label})"
                 )
         else:
             if session_id not in self.plugin.session_manager.processing_sessions:
@@ -584,6 +656,39 @@ class EavesdroppingEngine:
                         f"[CognitionCore] 有趣判定生成正式回复: {formal_reply[:30]}"
                     )
                     yield event.plain_result(formal_reply)
+
+                    # AI 回复了，增加连续回复计数器
+                    bucket_data = self.leaky_bucket.get(session_id, {})
+                    if bucket_data.get("triggered", False):
+                        consecutive_replies = (
+                            bucket_data.get("consecutive_replies", 0) + 1
+                        )
+                        cooldown_messages = getattr(
+                            self.plugin, "desire_cooldown_messages", 5
+                        )
+                        bucket_data["consecutive_replies"] = consecutive_replies
+
+                        logger.info(
+                            f"[CognitionCore] AI 回复第 {consecutive_replies}/{cooldown_messages} 条"
+                        )
+
+                        if consecutive_replies >= cooldown_messages:
+                            # 达到冷却消息数，进入贤者时间
+                            import time
+
+                            current_time = time.time()
+                            new_urge = bucket_data.get("value", 2.0) * 0.1
+                            bucket_data["value"] = new_urge
+                            bucket_data["is_cooling_down"] = True
+                            bucket_data["cooling_end_time"] = current_time + 60
+                            bucket_data["triggered"] = False
+                            bucket_data["consecutive_replies"] = 0
+                            self.leaky_bucket[session_id] = bucket_data
+                            logger.info(
+                                f"[CognitionCore] 连续回复 {consecutive_replies} 条，进入贤者时间，欲望降至 {new_urge:.2f}"
+                            )
+                        else:
+                            self.leaky_bucket[session_id] = bucket_data
                 return
             elif boring_match:
                 value = int(boring_match.group(2))

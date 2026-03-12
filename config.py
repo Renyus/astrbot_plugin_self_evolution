@@ -235,6 +235,10 @@ class PluginConfig:
         return float(self._config.get("daily_chat_boost", 1.0))
 
     @property
+    def desire_cooldown_messages(self):
+        return int(self._config.get("desire_cooldown_messages", 5))
+
+    @property
     def core_info_keywords(self):
         return self._config.get(
             "core_info_keywords",

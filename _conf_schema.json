@@ -190,6 +190,13 @@
         "type": "float",
         "default": 1.0
     },
+    "desire_cooldown_messages": {
+        "title": "欲望冷却消息数",
+        "description": "AI连续回复多少条消息后进入贤者时间",
+        "hint": "触发后不立即冷却，连续回复N条后才休息，默认5条",
+        "type": "int",
+        "default": 5
+    },
     "debate_enabled": {
         "title": "启用多智能体对抗",
         "description": "启用代码审查的双 Agent 对抗机制。",
