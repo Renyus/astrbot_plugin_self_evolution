@@ -37,32 +37,38 @@ class SessionManager:
         return int(chinese * 0.7 + other * 0.25)
 
     def add_message(self, group_id: str, sender_name: str, user_id: str, msg_text: str):
-        """添加消息到滑动窗口"""
+        """添加消息到滑动窗口（支持群聊和私聊）"""
         if not msg_text:
             logger.debug(f"[Session] 消息内容为空（非文字信息），跳过记录")
             return
-        if not group_id:
-            logger.debug(f"[Session] 群ID为空，跳过记录")
+
+        is_private = not group_id
+        buffer_key = group_id if group_id else f"private_{user_id}"
+        label = f"群 {group_id}" if group_id else f"私聊 {user_id}"
+
+        if not buffer_key:
+            logger.debug(f"[Session] 群ID和用户ID都为空，跳过记录")
             return
 
-        logger.info(f"[Session] 记录消息，群 {group_id}: {msg_text[:30]}")
+        logger.info(f"[Session] 记录消息，{label}: {msg_text[:30]}")
 
         max_tokens = self.max_tokens
         msg = f"[{sender_name}]({user_id}): {msg_text}"
         tokens = self._estimate_tokens(msg)
 
-        if group_id not in self.session_buffers:
-            self.session_buffers[group_id] = {
+        if buffer_key not in self.session_buffers:
+            self.session_buffers[buffer_key] = {
                 "messages": [],
                 "token_count": 0,
                 "last_active": time.time(),
                 "eavesdrop_count": 0,
                 "threshold": self.plugin.eavesdrop_message_threshold,
                 "evicted_messages": [],
+                "is_private": is_private,
             }
-            logger.info(f"[Session] 新建会话缓冲: {group_id}")
+            logger.info(f"[Session] 新建会话缓冲: {label}")
 
-        buffer = self.session_buffers[group_id]
+        buffer = self.session_buffers[buffer_key]
         buffer["last_active"] = time.time()
 
         if tokens > max_tokens:
@@ -89,28 +95,38 @@ class SessionManager:
             buffer["token_count"] = 0
 
         logger.info(
-            f"[Session] 消息已记录，群 {group_id}，当前 {len(buffer['messages'])} 条，{buffer['token_count']} tokens"
+            f"[Session] 消息已记录，{label}，当前 {len(buffer['messages'])} 条，{buffer['token_count']} tokens"
         )
 
-    def get_context(self, group_id: str) -> str:
-        """获取滑动窗口上下文"""
-        logger.info(f"[Session] 尝试获取上下文，群 {group_id}")
+    def get_context(self, group_id: str = None, user_id: str = None) -> str:
+        """获取滑动窗口上下文（支持群聊和私聊）"""
+        if group_id:
+            buffer_key = group_id
+            label = f"群 {group_id}"
+        elif user_id:
+            buffer_key = f"private_{user_id}"
+            label = f"私聊 {user_id}"
+        else:
+            logger.warning(f"[Session] group_id 和 user_id 都为空，无法获取上下文")
+            return ""
 
-        if group_id not in self.session_buffers:
+        logger.info(f"[Session] 尝试获取上下文，{label}")
+
+        if buffer_key not in self.session_buffers:
             logger.warning(
-                f"[Session] 群 {group_id} 无缓冲，session_buffers 包含: {list(self.session_buffers.keys())}"
+                f"[Session] {label} 无缓冲，session_buffers 包含: {list(self.session_buffers.keys())}"
             )
             return ""
 
-        buffer = self.session_buffers[group_id]
+        buffer = self.session_buffers[buffer_key]
         if not buffer.get("messages"):
-            logger.warning(f"[Session] 群 {group_id} 缓冲为空")
+            logger.warning(f"[Session] {label} 缓冲为空")
             return ""
 
         context = "\n".join(buffer["messages"])
         token_count = buffer.get("token_count", 0)
         logger.info(
-            f"[Session] 获取上下文成功，群 {group_id}，{len(buffer['messages'])} 条消息，{token_count} tokens"
+            f"[Session] 获取上下文成功，{label}，{len(buffer['messages'])} 条消息，{token_count} tokens"
         )
         return context
 

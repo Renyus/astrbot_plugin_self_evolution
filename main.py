@@ -397,9 +397,10 @@ class SelfEvolutionPlugin(Star):
             req.system_prompt += f"\n\n【潜意识警告】{social_bias_hint}"
 
         # 6. 滑动上下文窗口注入
+        private_session_enabled = getattr(self, "private_session_enabled", True)
         if group_id:
             logger.info(f"[Session] 获取滑动窗口上下文，群 {group_id}")
-            session_context = self.session_manager.get_context(group_id)
+            session_context = self.session_manager.get_context(group_id=group_id)
             logger.info(f"[Session] 滑动窗口内容长度: {len(session_context)} 字符")
             if session_context:
                 req.system_prompt += f"\n\n【群聊最近对话】\n{session_context}"
@@ -408,8 +409,17 @@ class SelfEvolutionPlugin(Star):
                 )
             else:
                 logger.warning(f"[Session] 滑动窗口为空，群 {group_id}")
-        else:
-            logger.warning(f"[Session] group_id 为空，无法获取滑动窗口上下文")
+        elif private_session_enabled and user_id:
+            logger.info(f"[Session] 获取滑动窗口上下文，私聊 {user_id}")
+            session_context = self.session_manager.get_context(user_id=user_id)
+            logger.info(f"[Session] 滑动窗口内容长度: {len(session_context)} 字符")
+            if session_context:
+                req.system_prompt += f"\n\n【私聊最近对话】\n{session_context}"
+                logger.info(
+                    f"[Session] 已注入私聊滑动窗口上下文: {len(session_context)} 字符"
+                )
+            else:
+                logger.warning(f"[Session] 私聊滑动窗口为空，用户 {user_id}")
 
         # 最后注入框架人格（确保人格设定优先，不被稀释）
         try:
@@ -450,6 +460,11 @@ class SelfEvolutionPlugin(Star):
 
             # 使用 SessionManager 记录消息
             self.session_manager.add_message(group_id, sender_name, user_id, msg_text)
+        else:
+            # 私聊也记录到滑动窗口
+            private_session_enabled = getattr(self, "private_session_enabled", True)
+            if private_session_enabled:
+                self.session_manager.add_message(None, sender_name, user_id, msg_text)
 
         # 被动插嘴：关键词/@触发
         async for result in self.eavesdropping.handle_message(event):

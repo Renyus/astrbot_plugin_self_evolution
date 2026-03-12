@@ -336,6 +336,10 @@ class PluginConfig:
         return self._parse_bool(self._config.get("session_auto_commit"), True)
 
     @property
+    def private_session_enabled(self):
+        return self._parse_bool(self._config.get("private_session_enabled"), True)
+
+    @property
     def session_evicted_max(self):
         return int(self._config.get("session_evicted_max", 30))
 

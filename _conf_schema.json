@@ -369,6 +369,13 @@
         "type": "bool",
         "default": true
     },
+    "private_session_enabled": {
+        "title": "私聊滑动窗口",
+        "description": "是否在私聊中启用滑动窗口记录上下文",
+        "hint": "开启后私聊也会记录对话历史，AI不会忘记上下文",
+        "type": "bool",
+        "default": true
+    },
     "session_evicted_max": {
         "title": "滑动窗口溢出消息保留数",
         "description": "滑动窗口超限被移除的消息，保留的最大条数",
