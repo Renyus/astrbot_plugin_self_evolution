@@ -156,39 +156,39 @@
         "default": 0.15
     },
     "leaky_integrator_enabled": {
-        "title": "启用泄漏积分器",
-        "description": "启用泄漏积分器替代死板计数器。",
-        "hint": "替代 buffer_threshold 的动态触发机制",
+        "title": "启用欲望积分器",
+        "description": "启用欲望积分器（模拟人类情绪波动）。",
+        "hint": "替代传统计数器的动态触发机制",
         "type": "bool",
         "default": true
     },
     "leaky_decay_factor": {
-        "title": "泄漏衰减系数",
-        "description": "互动意愿欲随时间的衰减系数。",
+        "title": "欲望衰减系数",
+        "description": "欲望随时间的自然衰减系数。",
         "hint": "0-1 之间，建议 0.85-0.95，越小衰减越快",
         "type": "float",
         "default": 0.9
     },
     "leaky_trigger_threshold": {
-        "title": "泄漏积分器触发阈值",
-        "description": "互动意愿欲突破此值时触发互动意愿。",
-        "hint": "建议 3-5，与衰减系数配合调整",
+        "title": "欲望触发阈值",
+        "description": "欲望值突破此值时触发互动意愿。",
+        "hint": "建议 3-5，欲望初始值 2.0",
         "type": "float",
         "default": 4.0
     },
     "interest_boost": {
         "title": "兴趣话题增益",
-        "description": "命中兴趣关键词时的互动意愿欲增益。",
-        "hint": "高价值话题的权重加成",
+        "description": "命中兴趣关键词时的欲望增益。",
+        "hint": "高价值话题的权重加成，默认 2.0",
         "type": "float",
         "default": 2.0
     },
     "daily_chat_boost": {
         "title": "日常话题增益",
-        "description": "日常对话的互动意愿欲增益。",
-        "hint": "日常话题的权重，较低",
+        "description": "日常对话的欲望增益。",
+        "hint": "日常话题的权重，默认 1.0",
         "type": "float",
-        "default": 1
+        "default": 1.0
     },
     "debate_enabled": {
         "title": "启用多智能体对抗",

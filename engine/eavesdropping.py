@@ -383,38 +383,65 @@ class EavesdroppingEngine:
             current_time = time.time()
             bucket_data = self.leaky_bucket.get(session_id)
             if not isinstance(bucket_data, dict):
-                bucket_data = {"value": 0.0, "last_time": current_time}
+                bucket_data = {
+                    "value": 2.0,
+                    "last_time": current_time,
+                    "is_cooling_down": False,
+                    "cooling_end_time": 0,
+                }
 
             last_time = bucket_data.get("last_time", current_time)
             delta_t = current_time - last_time
 
-            decay_factor = params.get("decay", 0.9)
-            exp_decay = math.exp(-decay_factor * delta_t / 60)
+            is_cooling_down = bucket_data.get("is_cooling_down", False)
+            cooling_end_time = bucket_data.get("cooling_end_time", 0)
 
-            old_value = float(bucket_data.get("value", 0))
-            new_value = old_value * exp_decay + boost
+            if is_cooling_down and current_time >= cooling_end_time:
+                is_cooling_down = False
+                logger.info(f"[CognitionCore] 冷却结束，欲望恢复累积 ({label})")
+
+            old_value = float(bucket_data.get("value", 2.0))
+
+            if is_cooling_down:
+                new_value = old_value + (delta_t * 0.01)
+                logger.debug(
+                    f"[CognitionCore] 冷却恢复中 Z={new_value:.2f}/{params['threshold']} ({label})"
+                )
+            else:
+                decay_factor = params.get("decay", 0.9)
+                exp_decay = math.exp(-decay_factor * delta_t / 60)
+                new_value = old_value * exp_decay + boost
+
+                logger.debug(
+                    f"[CognitionCore] 欲望累积 Z={new_value:.2f}/{params['threshold']} ({label})"
+                )
 
             self.leaky_bucket[session_id] = {
                 "value": new_value,
                 "last_time": current_time,
+                "is_cooling_down": is_cooling_down,
+                "cooling_end_time": cooling_end_time,
             }
 
             current_z = new_value
 
-            logger.debug(
-                f"[CognitionCore] 泄漏积分器 Z={current_z:.2f}/{params['threshold']} ({label})"
-            )
-
             if current_z >= params["threshold"]:
                 logger.info(
-                    f"[CognitionCore] 泄漏积分器触发! Z={current_z:.2f} >= {params['threshold']}"
+                    f"[CognitionCore] 欲望触发! Z={current_z:.2f} >= {params['threshold']}"
                 )
                 async for result in self._evaluate_interjection(event, session_id):
                     yield result
+                new_urge = current_z * 0.1
+                cooling_end = current_time + 60
                 self.leaky_bucket[session_id] = {
-                    "value": 0.0,
+                    "value": new_urge,
                     "last_time": current_time,
+                    "is_cooling_down": True,
+                    "cooling_end_time": cooling_end,
                 }
+                logger.info(
+                    f"[CognitionCore] 进入贤者时间，欲望降至 {new_urge:.2f}，冷却 60 秒 ({label})"
+                )
         else:
             if session_id not in self.plugin.session_manager.processing_sessions:
                 session_buffer = self.plugin.session_manager.session_buffers.get(
@@ -426,6 +453,9 @@ class EavesdroppingEngine:
                 )
 
                 if msg_count >= dynamic_threshold:
+                    logger.info(
+                        f"[CognitionCore] 消息数阈值触发 {msg_count}/{dynamic_threshold} ({label})"
+                    )
                     count = session_buffer.get("eavesdrop_count", 0) + 1
                     session_buffer["eavesdrop_count"] = count
 

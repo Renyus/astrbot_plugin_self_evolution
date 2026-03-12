@@ -232,7 +232,7 @@ class PluginConfig:
 
     @property
     def daily_chat_boost(self):
-        return int(self._config.get("daily_chat_boost", 1))
+        return float(self._config.get("daily_chat_boost", 1.0))
 
     @property
     def core_info_keywords(self):
