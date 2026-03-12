@@ -334,6 +334,7 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 | `timeout_memory_commit` | float | 10.0 | 写入知识库超时时间（秒） |
 | `timeout_memory_recall` | float | 12.0 | 检索知识库超时时间（秒） |
 | `enable_context_recall` | bool | true | 启用上下文追踪（用户引用 AI 发言时自动注入） |
+| `auto_memory_recall_enabled` | bool | true | 用户提问时自动检索相关记忆注入上下文 |
 
 ### 画像与做梦
 

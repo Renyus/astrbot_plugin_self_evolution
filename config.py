@@ -340,6 +340,10 @@ class PluginConfig:
         return self._parse_bool(self._config.get("private_session_enabled"), True)
 
     @property
+    def auto_memory_recall_enabled(self):
+        return self._parse_bool(self._config.get("auto_memory_recall_enabled"), True)
+
+    @property
     def session_evicted_max(self):
         return int(self._config.get("session_evicted_max", 30))
 

@@ -376,6 +376,13 @@
         "type": "bool",
         "default": true
     },
+    "auto_memory_recall_enabled": {
+        "title": "自动记忆检索",
+        "description": "用户提问时自动检索相关历史记忆注入上下文",
+        "hint": "开启后无需AI主动调用recall_memories工具，自动注入相关记忆",
+        "type": "bool",
+        "default": true
+    },
     "session_evicted_max": {
         "title": "滑动窗口溢出消息保留数",
         "description": "滑动窗口超限被移除的消息，保留的最大条数",

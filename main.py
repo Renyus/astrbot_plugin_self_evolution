@@ -421,6 +421,19 @@ class SelfEvolutionPlugin(Star):
             else:
                 logger.warning(f"[Session] 私聊滑动窗口为空，用户 {user_id}")
 
+        # 7. 自动记忆检索注入
+        auto_memory_recall_enabled = getattr(self, "auto_memory_recall_enabled", True)
+        if auto_memory_recall_enabled:
+            try:
+                memory_injection = await self.memory.auto_recall_for_injection(event)
+                if memory_injection:
+                    req.system_prompt += f"\n\n{memory_injection}"
+                    logger.info(
+                        f"[Memory] 已自动注入相关记忆: {len(memory_injection)} 字符"
+                    )
+            except Exception as e:
+                logger.warning(f"[Memory] 自动记忆检索失败: {e}")
+
         # 最后注入框架人格（确保人格设定优先，不被稀释）
         try:
             personality = await self.context.persona_manager.get_default_persona_v3(

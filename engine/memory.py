@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from datetime import datetime
@@ -339,3 +340,39 @@ class MemoryManager:
             f"----------------\n"
             f"注：以上记忆仅供参考，请根据当前对话的实际情况判断。不确定的信息不要妄下结论。"
         )
+
+    async def auto_recall_for_injection(self, event) -> str:
+        """自动检索记忆并返回用于 prompt 注入的内容（不打印给用户）"""
+        import asyncio
+
+        query = event.message_str
+        if not query or len(query) < 2:
+            return ""
+
+        kb_manager = self.plugin.context.kb_manager
+        try:
+            results = await asyncio.wait_for(
+                kb_manager.retrieve(
+                    query=query, kb_names=[self.memory_kb_name], top_m_final=3
+                ),
+                timeout=self.timeout_memory_recall,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("[Memory] 自动检索记忆超时")
+            return ""
+        except Exception as e:
+            logger.warning(f"[Memory] 自动检索记忆失败: {e}")
+            return ""
+
+        if not results or not results.get("results"):
+            return ""
+
+        context_text = results.get("context_text", "")
+        if not context_text:
+            return ""
+
+        logger.info(
+            f"[Memory] 自动检索记忆找到 {len(results.get('results', []))} 条相关记忆"
+        )
+
+        return f"--- 相关记忆 ---\n{context_text}\n注：以上为历史记忆，仅供参考。"
