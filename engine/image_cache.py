@@ -114,7 +114,11 @@ class ImageCacheEngine:
                             f"[ImageCache] 使用缓存: {img_hash[:8]}... -> {cached_summary}"
                         )
                     else:
-                        logger.debug("[ImageCache] 无缓存，等待拦截器处理")
+                        # 无缓存时添加标记，让 LLM 自行理解
+                        image_summaries.append("[新图片]")
+                        logger.info(
+                            f"[ImageCache] 新图片无缓存，标记为待理解: {img_hash[:8]}..."
+                        )
 
             if not found_image:
                 logger.debug("[ImageCache] 没有找到 Image 组件")

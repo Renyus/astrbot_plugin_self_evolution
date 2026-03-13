@@ -455,18 +455,28 @@ class SelfEvolutionPlugin(Star):
             buffer_key = str(group_id) if group_id else f"private_{user_id}"
             session_buffer = self.session_manager.session_buffers.get(buffer_key, {})
             image_summaries = session_buffer.get("image_summaries", [])
+
             if image_summaries:
-                req.system_prompt += (
-                    "\n\n【图片识别】以下图片我已识别内容，不需要调用任何图像理解工具："
-                )
-                for summary in image_summaries:
-                    if summary.startswith("[") and " | " in summary:
-                        content = summary.strip("[]")
-                        req.system_prompt += f"\n- {content}"
-                        logger.info(f"[ImageCache] 已注入图片: {content}")
-                    else:
-                        req.system_prompt += f"\n- {summary}"
-                        logger.info(f"[ImageCache] 已注入图片内容: {summary}")
+                known_images = [s for s in image_summaries if s != "[新图片]"]
+                unknown_images = [s for s in image_summaries if s == "[新图片]"]
+
+                if known_images:
+                    req.system_prompt += "\n\n【图片识别】以下图片我已识别内容，不需要调用任何图像理解工具："
+                    for summary in known_images:
+                        if summary.startswith("[") and " | " in summary:
+                            content = summary.strip("[]")
+                            req.system_prompt += f"\n- {content}"
+                            logger.info(f"[ImageCache] 已注入已知图片: {content}")
+                        else:
+                            req.system_prompt += f"\n- {summary}"
+                            logger.info(f"[ImageCache] 已注入已知图片内容: {summary}")
+
+                if unknown_images:
+                    req.system_prompt += "\n\n【图片】收到新图片，请自行理解内容，不需要调用任何图像理解工具。"
+                    logger.info(
+                        f"[ImageCache] 已注入新图片引导: {len(unknown_images)} 张"
+                    )
+
                 session_buffer.pop("image_summaries", None)
         except Exception as e:
             logger.warning(f"[ImageCache] 注入图片标签失败: {e}")
