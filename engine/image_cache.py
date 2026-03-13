@@ -251,7 +251,7 @@ class ImageCacheEngine:
                 return False
 
             summary = await self.generate_summary(caption)
-            summary = summary if summary else f"[{caption[:100]}]"
+            summary = summary if summary else f"[{caption}]"
             await self.dao.add_image_cache(img_hash, caption, summary)
 
             group_id = event.get_group_id()
