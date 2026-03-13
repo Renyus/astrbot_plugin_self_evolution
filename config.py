@@ -206,6 +206,10 @@ class PluginConfig:
         return int(self._config.get("desire_cooldown_messages", 5))
 
     @property
+    def desire_cooldown_seconds(self):
+        return int(self._config.get("desire_cooldown_seconds", 60))
+
+    @property
     def core_info_keywords(self):
         return self._config.get(
             "core_info_keywords",

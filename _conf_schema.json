@@ -197,6 +197,13 @@
         "type": "int",
         "default": 5
     },
+    "desire_cooldown_seconds": {
+        "title": "贤者时间冷却时长",
+        "description": "进入贤者时间后的冷却秒数",
+        "hint": "连续回复触发后，AI需要等待多少秒才能恢复，默认60秒",
+        "type": "int",
+        "default": 60
+    },
     "debate_enabled": {
         "title": "启用多智能体对抗",
         "description": "启用代码审查的双 Agent 对抗机制。",

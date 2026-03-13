@@ -328,6 +328,7 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 | `interest_boost` | float | 2.0 | 关键词命中时的权重增益 |
 | `daily_chat_boost` | float | 1.0 | 日常消息的权重增益 |
 | `desire_cooldown_messages` | int | 5 | 欲望冷却消息数 |
+| `desire_cooldown_seconds` | int | 60 | 贤者时间冷却时长(秒) |
 | `boredom_enabled` | bool | true | 启用信息熵无聊检测 |
 | `boredom_consecutive_count` | int | 5 | 连续低信息量消息达到此数量后触发无聊状态 |
 | `boredom_sarcastic_reply` | bool | true | 无聊时被@是否输出傲慢回复 |

@@ -469,9 +469,11 @@ class EavesdroppingEngine:
         old_value = float(bucket_data.get("value", 2.0))
 
         if is_cooling_down:
-            new_value = old_value + (delta_t * 0.01)
+            decay_factor = 0.3
+            exp_decay = math.exp(-decay_factor * delta_t / 60)
+            new_value = old_value * exp_decay
             logger.info(
-                f"[CognitionCore] 冷却恢复中 Z={new_value:.2f}/{params['threshold']} ({label})"
+                f"[CognitionCore] 贤者时间冷却中 Z={new_value:.2f}/{params['threshold']} ({label})"
             )
         else:
             decay_factor = params.get("decay", 0.9)
@@ -727,64 +729,69 @@ class EavesdroppingEngine:
                     await self._generate_inner_monologue(event, session_id, "忽略")
                 return
             else:
-                # 无法解析时，检查是否包含负数判断
-                negative_match = re.search(r"\[(-?\d+)\]", reply_text)
-                if negative_match and int(negative_match.group(1)) < 0:
-                    # 返回负数视为无聊
-                    logger.info(f"[CognitionCore] 判定为负数（无聊），不回应。")
-                    return
+                # 无法解析时，检查是否包含正/负数（无方括号也可）
+                number_match = re.search(r"([+-]?\d+)", reply_text)
+                if number_match:
+                    value = int(number_match.group(1))
+                    if value < 0:
+                        logger.info(f"[CognitionCore] 判定为负数（无聊），不回应。")
+                        return
+                    elif value > 0:
+                        logger.info(f"[CognitionCore] 判定为正数（有趣）")
+                        yield event.plain_result(reply_text)
 
-                # 无法解析，但有回复内容，视为有趣直接发送
-                if reply_text and len(reply_text.strip()) > 0:
-                    logger.info(f"[CognitionCore] LLM 直接回复，视为有趣")
-                    yield event.plain_result(reply_text)
-
-                    # AI 回复了，始终检查贤者时间（不依赖 triggered 状态）
-                    consecutive_replies = (
-                        session_buffer.get("consecutive_replies", 0) + 1
-                    )
-                    session_buffer["consecutive_replies"] = consecutive_replies
-                    cooldown_messages = getattr(
-                        self.plugin, "desire_cooldown_messages", 5
-                    )
-
-                    msg_for_check = event.message_str or ""
-                    critical_pattern_check = re.compile(
-                        f"({self.plugin.critical_keywords})", re.IGNORECASE
-                    )
-                    if critical_pattern_check.search(msg_for_check):
-                        session_buffer["consecutive_replies"] = 0
-                        consecutive_replies = 0
-                        logger.info(
-                            f"[CognitionCore] 本条消息包含兴趣关键词，重置观察计数器，继续回复"
+                        # AI 回复了，始终检查贤者时间（不依赖 triggered 状态）
+                        consecutive_replies = (
+                            session_buffer.get("consecutive_replies", 0) + 1
+                        )
+                        session_buffer["consecutive_replies"] = consecutive_replies
+                        cooldown_messages = getattr(
+                            self.plugin, "desire_cooldown_messages", 5
                         )
 
-                    logger.info(
-                        f"[CognitionCore] AI 回复第 {consecutive_replies}/{cooldown_messages} 条"
-                    )
+                        msg_for_check = event.message_str or ""
+                        critical_pattern_check = re.compile(
+                            f"({self.plugin.critical_keywords})", re.IGNORECASE
+                        )
+                        if critical_pattern_check.search(msg_for_check):
+                            session_buffer["consecutive_replies"] = 0
+                            consecutive_replies = 0
+                            logger.info(
+                                f"[CognitionCore] 本条消息包含兴趣关键词，重置观察计数器，继续回复"
+                            )
 
-                    if consecutive_replies >= cooldown_messages:
-                        import time
+                        logger.info(
+                            f"[CognitionCore] AI 回复第 {consecutive_replies}/{cooldown_messages} 条"
+                        )
 
                         bucket_data = self.leaky_bucket.get(session_id, {})
-                        current_time = time.time()
-                        new_urge = bucket_data.get("value", 2.0) * 0.1
-                        bucket_data["value"] = new_urge
-                        bucket_data["is_cooling_down"] = True
-                        bucket_data["cooling_end_time"] = current_time + 60
-                        bucket_data["triggered"] = False
-                        bucket_data["consecutive_replies"] = 0
-                        session_buffer["consecutive_replies"] = 0
-                        self.leaky_bucket[session_id] = bucket_data
-                        logger.info(
-                            f"[CognitionCore] 连续回复 {consecutive_replies} 条，进入贤者时间，欲望降至 {new_urge:.2f}"
-                        )
-                    else:
-                        self.leaky_bucket[session_id] = bucket_data
-                    return
+                        if consecutive_replies >= cooldown_messages:
+                            import time
+
+                            current_time = time.time()
+                            cooldown_seconds = getattr(
+                                self.plugin.cfg, "desire_cooldown_seconds", 60
+                            )
+                            new_urge = bucket_data.get("value", 2.0) * 0.1
+                            bucket_data["value"] = new_urge
+                            bucket_data["is_cooling_down"] = True
+                            bucket_data["cooling_end_time"] = (
+                                current_time + cooldown_seconds
+                            )
+                            bucket_data["triggered"] = False
+                            bucket_data["consecutive_replies"] = 0
+                            session_buffer["consecutive_replies"] = 0
+                            self.leaky_bucket[session_id] = bucket_data
+                            logger.info(
+                                f"[CognitionCore] 连续回复 {consecutive_replies} 条，进入贤者时间 {cooldown_seconds}秒，欲望降至 {new_urge:.2f}"
+                            )
+                        else:
+                            bucket_data["consecutive_replies"] = consecutive_replies
+                            self.leaky_bucket[session_id] = bucket_data
+                        return
                 else:
-                    logger.warning(f"[CognitionCore] 无法解析 LLM 响应，已拦截")
-                    return
+                    logger.info(f"[CognitionCore] 无法解析 LLM 判定，发送原始回复")
+                    yield event.plain_result(reply_text)
         except Exception as e:
             logger.warning(f"[CognitionCore] 插嘴评估过程发生异常: {e}")
         finally:
@@ -834,14 +841,13 @@ class EavesdroppingEngine:
 请直接输出，不要有任何格式前缀。
 输出格式：<inner_monologue>你的内心独白</inner_monologue>"""
 
-            req = ProviderRequest(prompt=prompt)
-            resp = await provider.chat(req)
+            res = await provider.text_chat(prompt=prompt, contexts=[])
 
-            if not resp or not resp.completion_text:
+            if not res or not res.completion_text:
                 logger.warning(f"[CognitionCore] 生成内心独白失败：LLM 响应为空")
                 return
 
-            response_text = resp.completion_text.strip()
+            response_text = res.completion_text.strip()
 
             # 解析内心独白
             import re

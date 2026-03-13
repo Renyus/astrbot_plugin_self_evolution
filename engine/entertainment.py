@@ -97,14 +97,14 @@ class EntertainmentEngine:
 
                     sticker_hash = hashlib.md5(base64_data.encode()).hexdigest()
 
-                    daily_count = await self.dao.get_today_sticker_count(group_id)
+                    daily_count = await self.dao.get_today_sticker_count()
                     if daily_count >= self.cfg.sticker_daily_limit:
                         logger.info(
                             f"[Sticker] 今日已达上限 {self.cfg.sticker_daily_limit}"
                         )
                         return False
 
-                    total_count = await self.dao.get_sticker_count(group_id)
+                    total_count = await self.dao.get_sticker_count()
                     if total_count >= self.cfg.sticker_total_limit:
                         await self.dao.delete_oldest_sticker()
                         logger.info(f"[Sticker] 已达总上限，删除最旧的")

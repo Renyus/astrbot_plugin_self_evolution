@@ -4,6 +4,23 @@
 
 ---
 
+## [5.5.1] - 2026-03-13
+
+### Bug 修复
+
+- 修复贤者时间冷却机制：冷却期间欲望指数衰减，不再增加
+- 修复 bucket_data 变量未定义问题
+- 修复内心独白生成调用方式（provider.chat → provider.text_chat）
+- 修复 +1/-1 判定逻辑：正确识别无方括号的正负数
+- 修复 entertainment.py 中 get_today_sticker_count 和 get_sticker_count 多余参数
+
+### 新功能
+
+- 新增配置项 `desire_cooldown_seconds`（贤者时间冷却时长，默认60秒）
+- 日志输出显示冷却时长
+
+---
+
 ## [5.2.1] - 2026-03-13
 
 ### 与框架解耦
