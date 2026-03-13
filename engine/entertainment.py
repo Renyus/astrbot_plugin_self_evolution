@@ -229,7 +229,7 @@ class EntertainmentEngine:
                             await self.dao.update_sticker_tags(sticker["id"], tags)
                             self._last_tag_time = time.time()
                             logger.info(
-                                f"[Sticker] 打标签成功: id={sticker['id']}, tags={tags}"
+                                f"[Sticker] 打标签成功: uuid={sticker['uuid']}, tags={tags}"
                             )
                             return True
                     except Exception as e:
