@@ -1797,6 +1797,7 @@ class SelfEvolutionPlugin(Star):
 
             base64_data = sticker["base64_data"]
             yield event.chain_result([Image.fromBase64(base64_data)])
+            yield event.plain_result("[图片]")
         except Exception as e:
             logger.warning(f"[Sticker] 发送表情包失败: {e}")
             yield event.plain_result(f"发送失败: {e}")
