@@ -164,29 +164,9 @@ class EntertainmentEngine:
 
             img_base64 = base64.b64encode(img_bytes).decode("utf-8")
 
-            # 检测图片类型
-            def detect_image_type(data):
-                if len(data) < 4:
-                    return "jpeg"
-                # 检查常见图片格式的头字节
-                if data[:2] == b"\xff\xd8":
-                    return "jpeg"
-                elif data[:8] == b"\x89PNG\r\n\x1a\n":
-                    return "png"
-                elif data[:4] == b"GIF87a" or data[:4] == b"GIF89a":
-                    return "gif"
-                elif data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-                    return "webp"
-                elif data[:2] == b"BM":
-                    return "bmp"
-                else:
-                    return "jpeg"  # 默认
-
-            mime = f"image/{detect_image_type(img_bytes)}"
-
             resp = await provider.text_chat(
                 prompt=prompt,
-                image_urls=[f"data:{mime};base64,{img_base64}"],
+                image_urls=[f"base64://{img_base64}"],
             )
 
             if not resp or not resp.completion_text:
