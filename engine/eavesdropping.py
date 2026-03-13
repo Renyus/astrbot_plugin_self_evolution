@@ -863,10 +863,9 @@ class EavesdroppingEngine:
                     "inner_monologue"
                 ] = monologue
 
-                # 同时存入数据库作为持久化
-                await self.plugin.dao.save_inner_monologue(buffer_key, monologue)
-
-                logger.info(f"[CognitionCore] 内心独白已缓存: {monologue[:50]}...")
+                logger.info(
+                    f"[CognitionCore] 内心独白已缓存(内存): {monologue[:50]}..."
+                )
             else:
                 logger.warning(f"[CognitionCore] 无法解析内心独白内容")
 

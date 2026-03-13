@@ -102,6 +102,7 @@ class SelfEvolutionPlugin(Star):
         self.daily_reflection_pending = False
         self._pending_db_reset = {}  # 待确认的数据库重置操作 {user_id: timestamp}
         self._shut_until = None  # 闭嘴截止时间 (timestamp)
+        self._inner_monologue_cache = {}  # 内心独白缓存（内存，阅后即焚）
 
     def _setup_debug_logging(self):
         """根据配置设置 debug 日志模式"""
@@ -494,10 +495,8 @@ class SelfEvolutionPlugin(Star):
                     logger.info(
                         f"[InnerMonologue] 注入内心独白: {inner_monologue[:50]}..."
                     )
-                    # 注入后清除
+                    # 注入后清除（阅后即焚）
                     session_buffer.pop("inner_monologue", None)
-                    # 清除数据库中的记录
-                    await self.dao.clear_inner_monologue(buffer_key)
                     logger.debug(f"[InnerMonologue] 内心独白已清除")
             except Exception as e:
                 logger.warning(f"[InnerMonologue] 注入内心独白失败: {e}")
@@ -1968,9 +1967,18 @@ class SelfEvolutionPlugin(Star):
         if action == "show":
             # 显示数据库统计信息
             stats = await self.dao.get_db_stats()
+            table_cn = {
+                "pending_evolutions": "待审核进化",
+                "pending_reflections": "待反思",
+                "user_relationships": "用户关系",
+                "user_interactions": "用户互动",
+                "stickers": "表情包",
+                "inner_monologues": "内心独白",
+            }
             msg = ["【数据库统计】\n"]
             for table, count in stats.items():
-                msg.append(f"- {table}: {count}")
+                cn_name = table_cn.get(table, table)
+                msg.append(f"- {cn_name}: {count}")
             yield event.plain_result("\n".join(msg))
             return
 
