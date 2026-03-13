@@ -324,16 +324,10 @@ class EavesdroppingEngine:
             pass
 
         if has_image:
-            logger.info(f"[漏斗] 检测到图片，尝试获取标签...")
-            try:
-                image_summaries = await self.plugin.image_cache.process_image_captions(
-                    event
-                )
-                if image_summaries:
-                    image_boost = 0.2  # 图片欲望值降低
-                    logger.info(f"[漏斗] 检测到图片，增加欲望值: +{image_boost}")
-            except Exception as e:
-                logger.warning(f"[漏斗] 图片处理失败: {e}")
+            # 图片只在 on_llm_request 时处理，这里只记录 boost
+            image_boost = 0.1  # 纯文字标记，不消耗性能
+            logger.info(f"[漏斗] 检测到图片，欲望 +{image_boost}")
+
         # =========================================
 
         logger.info(
