@@ -195,36 +195,38 @@ class EntertainmentEngine:
                             timedelta(seconds=60),
                         )
 
-                    if tool_result and tool_result.content:
-                        # 提取文本内容
-                        response_text = ""
-                        for content in tool_result.content:
-                            if hasattr(content, "text"):
-                                response_text += content.text
-                            elif isinstance(content, str):
-                                response_text += content
+                        if tool_result and tool_result.content:
+                            # 提取文本内容
+                            response_text = ""
+                            for content in tool_result.content:
+                                if hasattr(content, "text"):
+                                    response_text += content.text
+                                elif isinstance(content, str):
+                                    response_text += content
 
-                        logger.info(f"[Sticker] MCP 工具响应: {response_text[:100]}")
+                            logger.info(
+                                f"[Sticker] MCP 工具响应: {response_text[:100]}"
+                            )
 
-                        # 解析标签
-                        tags = ""
-                        if "标签：" in response_text:
-                            tags = response_text.split("标签：")[1].strip()
-                        elif "标签:" in response_text:
-                            tags = response_text.split("标签:")[1].strip()
+                            # 解析标签
+                            tags = ""
+                            if "标签：" in response_text:
+                                tags = response_text.split("标签：")[1].strip()
+                            elif "标签:" in response_text:
+                                tags = response_text.split("标签:")[1].strip()
 
-                        if not tags:
-                            tags = response_text.split("\n")[0][:50]
+                            if not tags:
+                                tags = response_text.split("\n")[0][:50]
 
-                        await self.dao.update_sticker_tags(sticker["id"], tags)
-                        self._last_tag_time = time.time()
-                        logger.info(
-                            f"[Sticker] 打标签成功: id={sticker['id']}, tags={tags}"
-                        )
-                        return True
-                except Exception as e:
-                    logger.warning(f"[Sticker] MCP 客户端 {mcp_name} 调用失败: {e}")
-                    continue
+                            await self.dao.update_sticker_tags(sticker["id"], tags)
+                            self._last_tag_time = time.time()
+                            logger.info(
+                                f"[Sticker] 打标签成功: id={sticker['id']}, tags={tags}"
+                            )
+                            return True
+                    except Exception as e:
+                        logger.warning(f"[Sticker] MCP 客户端调用失败: {e}")
+                        continue
 
             logger.warning(f"[Sticker] 所有 MCP 客户端调用失败")
             return False
