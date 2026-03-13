@@ -257,6 +257,7 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 | `/reject_evolution <ID>` | 拒绝指定的进化请求 |
 | `/clear_evolutions` | 清空所有待审核的进化请求 |
 | `/image_cache [操作]` | 图片缓存管理（list: 列出缓存 / clear: 清理过期 / flush: 刷新 / delete <hash>: 删除指定缓存） |
+| `/sticker [操作]` | 表情包管理（list: 列出 / delete <ID>: 删除 / clear: 清空 / stats: 统计） |
 
 ---
 
