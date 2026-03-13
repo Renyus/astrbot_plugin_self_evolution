@@ -1090,7 +1090,7 @@ class SelfEvolutionPlugin(Star):
 /reject_evolution <ID>       - 拒绝指定的进化请求
 /clear_evolutions            - 清空所有待审核的进化请求
 /session                     - 会话管理
-/image_cache [操作]          - 图片缓存管理（list|clear|flush）"""
+/image_cache [操作]          - 图片缓存管理（list|clear|flush|delete）"""
 
         yield event.plain_result(help_text)
 
@@ -1657,17 +1657,24 @@ class SelfEvolutionPlugin(Star):
         if action == "list":
             offset = int(param) * page_size if param else 0
             caches = await self.image_cache.list_caches(page_size, offset)
+            total = await self.image_cache.count_caches()
             if not caches:
                 yield event.plain_result("暂无图片缓存记录。")
                 return
             result = [
-                f"【图片缓存列表】（显示 {offset + 1}-{offset + len(caches)} 条）\n"
+                f"【图片缓存列表】（{offset + 1}-{offset + len(caches)} 条，共 {total} 条）\n"
             ]
-            for img_hash, summary, created_at in caches:
-                short_hash = img_hash[:8]
+            for idx, (img_hash, summary, created_at) in enumerate(
+                caches, start=offset + 1
+            ):
+                short_hash = img_hash[:16]
                 result.append(
-                    f"Hash: {short_hash}...\n标签: {summary}\n时间: {created_at[:19]}\n---"
+                    f"[{idx}] Hash: {short_hash}\n    标签: {summary}\n    时间: {created_at[:19]}\n"
                 )
+            result.append("\n【删除指令】")
+            result.append("/image_cache delete <序号>        # 删除指定序号")
+            result.append("/image_cache delete <序号>-<序号> # 删除范围")
+            result.append("/image_cache delete <hash前16位> # 通过hash删除")
             yield event.plain_result("\n".join(result))
 
         elif action == "clear":
@@ -1681,13 +1688,61 @@ class SelfEvolutionPlugin(Star):
 
         elif action == "delete":
             if not param:
-                yield event.plain_result("请提供要删除的图片 hash（前8位）。")
+                yield event.plain_result("请提供要删除的序号或hash（前16位）。")
                 return
-            result = await self.image_cache.delete_cache(param)
-            if "已删除" in result:
-                yield event.plain_result(result)
+
+            deleted_count = 0
+
+            # 序号删除：纯数字、数字-数字、数字,数字
+            if param.replace("-", "").replace(",", "").isdigit():
+                # 获取所有缓存（用于序号映射到hash）
+                all_caches = await self.image_cache.list_caches(1000, 0)
+
+                # 解析序号
+                indices_to_delete = set()
+                parts = param.replace(",", "-").split("-")
+                for part in parts:
+                    part = part.strip()
+                    if "-" in param:
+                        # 范围删除，如 1-3
+                        range_parts = param.replace(",", "-").split("-")
+                        if len(range_parts) == 2:
+                            start = int(range_parts[0])
+                            end = int(range_parts[1])
+                            indices_to_delete.update(range(start, end + 1))
+                            break
+                    else:
+                        # 单个序号
+                        idx = int(part)
+                        indices_to_delete.add(idx)
+
+                # 删除对应序号的缓存
+                for idx in indices_to_delete:
+                    if 1 <= idx <= len(all_caches):
+                        img_hash, summary, _ = all_caches[idx - 1]
+                        success = await self.dao.delete_image_cache(img_hash)
+                        if success:
+                            deleted_count += 1
+                            logger.info(f"[ImageCache] 删除第{idx}条: {img_hash[:16]}")
+
+                if deleted_count > 0:
+                    yield event.plain_result(f"已删除 {deleted_count} 条图片缓存。")
+                    return
+                else:
+                    yield event.plain_result("未找到对应序号的缓存。")
+                    return
             else:
-                yield event.plain_result(result)
+                # hash 删除（至少16位）
+                if len(param) < 16:
+                    yield event.plain_result(
+                        f"hash 长度至少需要16位，当前为 {len(param)} 位。"
+                    )
+                    return
+                result = await self.image_cache.delete_cache(param)
+                if "已删除" in result:
+                    yield event.plain_result(result)
+                else:
+                    yield event.plain_result(result)
         else:
             yield event.plain_result(
                 "用法：/image_cache list|clear|flush|delete [参数]"
@@ -1700,14 +1755,22 @@ class SelfEvolutionPlugin(Star):
         """删除指定的图片描述缓存。
 
         Args:
-            image_hash(string): 图片的 MD5 hash 值（完整或前8位）
+            image_hash(string): 图片的 MD5 hash 值（完整或前16位）
         """
-        if len(image_hash) == 8:
+        if len(image_hash) >= 16:
             caches = await self.image_cache.list_caches(1000, 0)
             for full_hash, summary, _ in caches:
                 if full_hash.startswith(image_hash):
-                    return await self.image_cache.delete_cache(full_hash)
-        return await self.image_cache.delete_cache(image_hash)
+                    await self.dao.delete_image_cache(full_hash)
+                    return f"已删除图片缓存: {image_hash}..."
+        elif image_hash.isdigit():
+            idx = int(image_hash)
+            caches = await self.image_cache.list_caches(1000, 0)
+            if 1 <= idx <= len(caches):
+                img_hash, summary, _ = caches[idx - 1]
+                await self.dao.delete_image_cache(img_hash)
+                return f"已删除第 {idx} 条图片缓存"
+        return f"未找到图片缓存: {image_hash}"
 
     @register_on_llm_tool_respond()
     async def on_tool_result_handler(

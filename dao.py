@@ -428,6 +428,16 @@ class SelfEvolutionDAO:
             ]
 
     @with_db_retry()
+    async def count_image_caches(self) -> int:
+        """获取图片缓存总数"""
+        db = await self.get_conn()
+        async with db.execute(
+            "SELECT COUNT(*) as count FROM image_cache",
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row["count"] if row else 0
+
+    @with_db_retry()
     async def delete_image_cache(self, image_hash: str) -> bool:
         """删除指定图片缓存"""
         db = await self.get_conn()

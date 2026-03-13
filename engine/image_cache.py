@@ -271,6 +271,10 @@ class ImageCacheEngine:
         """分页查看图片缓存"""
         return await self.dao.list_image_caches(limit, offset)
 
+    async def count_caches(self) -> int:
+        """获取图片缓存总数"""
+        return await self.dao.count_image_caches()
+
     async def cleanup_old_caches(self, days: int = 30) -> int:
         """清理 N 天前的图片缓存"""
         return await self.dao.cleanup_image_cache(days)
