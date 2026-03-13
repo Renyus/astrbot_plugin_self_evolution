@@ -179,10 +179,16 @@ class EntertainmentEngine:
                 logger.warning(f"[Sticker] 没有可用的 MCP 服务")
                 return False
 
+            logger.info(f"[Sticker] 找到 {len(mcp_runtime)} 个 MCP 服务器")
+
             # 遍历所有 MCP 服务器，找到 understand_image 工具并调用
             for server_name, runtime in mcp_runtime.items():
+                logger.info(
+                    f"[Sticker] 检查 MCP 服务器: {server_name}, runtime: {runtime}"
+                )
                 if runtime and runtime.client:
                     mcp_client = runtime.client
+                    logger.info(f"[Sticker] 准备调用 MCP 客户端: {server_name}")
                     try:
                         from datetime import timedelta
 
@@ -194,6 +200,8 @@ class EntertainmentEngine:
                             },
                             timedelta(seconds=60),
                         )
+
+                        logger.info(f"[Sticker] MCP 返回结果: {tool_result}")
 
                         if tool_result and tool_result.content:
                             # 提取文本内容
