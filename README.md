@@ -236,11 +236,13 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 
 | 指令 | 说明 |
 |------|------|
+| `/sehelp` | 显示 Self-Evolution 插件指令帮助 |
 | `/reflect` | 手动触发一次自我反省，在下一次对话时执行深度实体提取 |
 | `/affinity` | 查看 AI 对你的当前好感度评分和分类状态 |
 | `/view_profile [用户ID]` | 查看指定用户的画像信息（不填则查看自己） |
 | `/graph_info [用户ID]` | 查看指定用户的关系图谱信息 |
 | `/graph_stats [群ID]` | 查看群聊的关系图谱统计 |
+| `/session` | 查看当前群的滑动窗口缓存内容 |
 
 ### 管理员指令
 
@@ -253,6 +255,7 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 | `/approve_evolution <ID>` | 批准指定的进化请求 |
 | `/reject_evolution <ID>` | 拒绝指定的进化请求 |
 | `/clear_evolutions` | 清空所有待审核的进化请求 |
+| `/image_cache [操作]` | 图片缓存管理（list: 列出缓存 / clear: 清理过期 / flush: 刷新 / delete <hash>: 删除指定缓存） |
 
 ---
 
