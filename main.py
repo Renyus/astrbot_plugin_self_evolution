@@ -20,6 +20,7 @@ from mcp.types import CallToolResult, TextContent
 # 导入模块化组件
 from .dao import SelfEvolutionDAO
 from .engine.eavesdropping import EavesdroppingEngine
+from .engine.entertainment import EntertainmentEngine
 from .engine.image_cache import ImageCacheEngine
 from .engine.meta_infra import MetaInfra
 from .engine.memory import MemoryManager
@@ -86,11 +87,13 @@ class SelfEvolutionPlugin(Star):
             self.persona = PersonaManager(self)
             self.profile = ProfileManager(self)
             self.graph = GraphRAG(self)
+            # 娱乐功能模块
+            self.entertainment = EntertainmentEngine(self)
             # 认知系统模块
             self.san_system = SANSystem(self)
             self.vibe_system = GroupVibeSystem(self)
             logger.info(
-                "[SelfEvolution] 核心组件 (DAO, Eavesdropping, ImageCache, MetaInfra, Memory, Persona, Profile, GraphRAG, SAN, Vibe, Config) 初始化完成。"
+                "[SelfEvolution] 核心组件 (DAO, Eavesdropping, Entertainment, ImageCache, MetaInfra, Memory, Persona, Profile, GraphRAG, SAN, Vibe, Config) 初始化完成。"
             )
         except Exception as e:
             logger.error(f"[SelfEvolution] 核心组件初始化失败: {e}")
