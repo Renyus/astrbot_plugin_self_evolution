@@ -330,7 +330,7 @@ class EavesdroppingEngine:
                     event
                 )
                 if image_summaries:
-                    image_boost = self.plugin.cfg.interest_boost
+                    image_boost = 0.2  # 图片欲望值降低
                     logger.info(f"[漏斗] 检测到图片，增加欲望值: +{image_boost}")
             except Exception as e:
                 logger.warning(f"[漏斗] 图片处理失败: {e}")
