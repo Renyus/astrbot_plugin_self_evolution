@@ -268,10 +268,6 @@ class PluginConfig:
         return self._parse_bool(self._config.get("boredom_enabled"), True)
 
     @property
-    def boredom_threshold(self):
-        return float(self._config.get("boredom_threshold", 0.3))
-
-    @property
     def boredom_consecutive_count(self):
         return int(self._config.get("boredom_consecutive_count", 10))
 
@@ -303,24 +299,8 @@ class PluginConfig:
         return int(self._config.get("session_cleanup_timeout", 600))
 
     @property
-    def session_auto_commit(self):
-        return self._parse_bool(self._config.get("session_auto_commit"), True)
-
-    @property
     def private_session_enabled(self):
         return self._parse_bool(self._config.get("private_session_enabled"), True)
-
-    @property
-    def auto_memory_recall_enabled(self):
-        return self._parse_bool(self._config.get("auto_memory_recall_enabled"), True)
-
-    @property
-    def session_evicted_max(self):
-        return int(self._config.get("session_evicted_max", 30))
-
-    @property
-    def session_evicted_commit_threshold(self):
-        return int(self._config.get("session_evicted_commit_threshold", 30))
 
     @property
     def session_commit_threshold(self):

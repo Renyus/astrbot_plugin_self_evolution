@@ -233,7 +233,7 @@ class EavesdroppingEngine:
     def _get_boredom_params(self):
         return {
             "enabled": self.plugin.cfg.boredom_enabled,
-            "threshold": self.plugin.cfg.boredom_threshold,
+            "threshold": 0.3,  # 硬编码：信息熵阈值
             "consecutive_count": self.plugin.cfg.boredom_consecutive_count,
             "sarcastic_reply": self.plugin.cfg.boredom_sarcastic_reply,
         }

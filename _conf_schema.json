@@ -266,12 +266,6 @@
         "type": "bool",
         "default": true
     },
-    "boredom_threshold": {
-        "title": "无聊阈值",
-        "description": "信息熵阈值，低于此值被视为无聊内容。",
-        "type": "float",
-        "default": 0.3
-    },
     "boredom_consecutive_count": {
         "title": "连续无聊计数",
         "description": "连续多少条低信息量消息后触发无聊状态。",
@@ -369,47 +363,12 @@
         "type": "int",
         "default": 600
     },
-    "session_auto_commit": {
-        "title": "会话超时自动存入知识库",
-        "description": "会话超时清理时自动存入知识库",
-        "hint": "滑动窗口会话超时被清理时，是否自动将内容存入知识库",
-        "type": "bool",
-        "default": true
-    },
     "private_session_enabled": {
         "title": "私聊滑动窗口",
         "description": "是否在私聊中启用滑动窗口记录上下文",
         "hint": "开启后私聊也会记录对话历史，AI不会忘记上下文",
         "type": "bool",
         "default": true
-    },
-    "auto_memory_recall_enabled": {
-        "title": "自动记忆检索",
-        "description": "用户提问时自动检索相关历史记忆注入上下文",
-        "hint": "开启后无需AI主动调用recall_memories工具，自动注入相关记忆",
-        "type": "bool",
-        "default": true
-    },
-    "session_evicted_max": {
-        "title": "滑动窗口溢出消息保留数",
-        "description": "滑动窗口超限被移除的消息，保留的最大条数",
-        "hint": "用于收集有价值但被滑动窗口淘汰的对话，默认30",
-        "type": "int",
-        "default": 30
-    },
-    "session_evicted_commit_threshold": {
-        "title": "溢出消息存入阈值",
-        "description": "溢出队列达到此条数时自动存入知识库",
-        "hint": "溢出消息存满此数量后异步存入知识库，建议等于溢出保留数，默认30",
-        "type": "int",
-        "default": 30
-    },
-    "session_commit_threshold": {
-        "title": "会话存入知识库的阈值",
-        "description": "会话存入知识库的阈值",
-        "hint": "滑动窗口消息数超过此值时才存入知识库，避免存入太少内容",
-        "type": "int",
-        "default": 5
     },
     "debug_log_enabled": {
         "title": "Debug 日志模式",
