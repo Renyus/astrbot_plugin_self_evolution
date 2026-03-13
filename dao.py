@@ -554,11 +554,22 @@ class SelfEvolutionDAO:
 
     @with_db_retry()
     async def update_sticker_tags(self, sticker_id: int, tags: str) -> bool:
-        """更新表情包标签"""
+        """更新表情包标签（内部使用）"""
         db = await self.get_conn()
         async with self._write_lock:
             cursor = await db.execute(
                 "UPDATE stickers SET tags = ? WHERE id = ?", (tags, sticker_id)
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
+    @with_db_retry()
+    async def update_sticker_tags_by_uuid(self, sticker_uuid: str, tags: str) -> bool:
+        """根据UUID更新表情包标签"""
+        db = await self.get_conn()
+        async with self._write_lock:
+            cursor = await db.execute(
+                "UPDATE stickers SET tags = ? WHERE uuid = ?", (tags, sticker_uuid)
             )
             await db.commit()
             return cursor.rowcount > 0

@@ -143,7 +143,7 @@ class EntertainmentEngine:
             return False
 
         sticker = untagged[0]
-        logger.info(f"[Sticker] 准备给表情包打标签: id={sticker['id']}")
+        logger.info(f"[Sticker] 准备给表情包打标签: uuid={sticker['uuid']}")
 
         temp_file_path = None
         try:
@@ -226,7 +226,9 @@ class EntertainmentEngine:
                             if not tags:
                                 tags = response_text.split("\n")[0][:50]
 
-                            await self.dao.update_sticker_tags(sticker["id"], tags)
+                            await self.dao.update_sticker_tags_by_uuid(
+                                sticker["uuid"], tags
+                            )
                             self._last_tag_time = time.time()
                             logger.info(
                                 f"[Sticker] 打标签成功: uuid={sticker['uuid']}, tags={tags}"
