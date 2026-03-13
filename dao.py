@@ -86,6 +86,15 @@ class SelfEvolutionDAO:
                 UNIQUE(source_user_id, target_user_id, group_id)
             )
         """)
+        # 图片描述缓存表
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS image_cache (
+                image_hash TEXT PRIMARY KEY,
+                caption TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
         await db.commit()
 
     async def get_conn(self):
@@ -370,3 +379,86 @@ class SelfEvolutionDAO:
         ) as cursor:
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
+
+    # --- 图片描述缓存 ---
+    @with_db_retry()
+    async def add_image_cache(self, image_hash: str, caption: str, summary: str):
+        """存入图片描述缓存（完整描述 + 简短标签）"""
+        db = await self.get_conn()
+        async with self._write_lock:
+            await db.execute(
+                "INSERT OR REPLACE INTO image_cache (image_hash, caption, summary, created_at) VALUES (?, ?, ?, ?)",
+                (image_hash, caption, summary, datetime.now().isoformat()),
+            )
+            await db.commit()
+
+    @with_db_retry()
+    async def get_image_caption(self, image_hash: str) -> str | None:
+        """获取图片完整描述"""
+        db = await self.get_conn()
+        async with db.execute(
+            "SELECT caption FROM image_cache WHERE image_hash = ?",
+            (image_hash,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row["caption"] if row else None
+
+    @with_db_retry()
+    async def get_image_summary(self, image_hash: str) -> str | None:
+        """获取图片简短标签"""
+        db = await self.get_conn()
+        async with db.execute(
+            "SELECT summary FROM image_cache WHERE image_hash = ?",
+            (image_hash,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row["summary"] if row else None
+
+    @with_db_retry()
+    async def list_image_caches(self, limit: int = 20, offset: int = 0):
+        """分页查看图片缓存"""
+        db = await self.get_conn()
+        async with db.execute(
+            "SELECT image_hash, summary, created_at FROM image_cache ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [
+                (row["image_hash"], row["summary"], row["created_at"]) for row in rows
+            ]
+
+    @with_db_retry()
+    async def delete_image_cache(self, image_hash: str) -> bool:
+        """删除指定图片缓存"""
+        db = await self.get_conn()
+        async with self._write_lock:
+            cursor = await db.execute(
+                "DELETE FROM image_cache WHERE image_hash = ?",
+                (image_hash,),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
+    @with_db_retry()
+    async def cleanup_image_cache(self, days: int = 30) -> int:
+        """清理 N 天前的图片缓存，返回清理数量"""
+        db = await self.get_conn()
+        async with self._write_lock:
+            cursor = await db.execute(
+                "DELETE FROM image_cache WHERE created_at < datetime('now', ?)",
+                (f"-{days} days",),
+            )
+            await db.commit()
+            return cursor.rowcount
+
+    @with_db_retry()
+    async def flush_image_cache(self) -> int:
+        """删除全部图片缓存，返回删除数量"""
+        db = await self.get_conn()
+        async with self._write_lock:
+            cursor = await db.execute("SELECT COUNT(*) as cnt FROM image_cache")
+            row = await cursor.fetchone()
+            count = row["cnt"] if row else 0
+            await db.execute("DELETE FROM image_cache")
+            await db.commit()
+            return count
