@@ -124,6 +124,7 @@ class SelfEvolutionDAO:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS stickers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                uuid TEXT UNIQUE NOT NULL,
                 group_id TEXT NOT NULL,
                 user_id TEXT NOT NULL,
                 base64_data TEXT NOT NULL,
@@ -132,6 +133,19 @@ class SelfEvolutionDAO:
                 UNIQUE(group_id, user_id, base64_data)
             )
         """)
+        # 迁移旧数据：给已有记录生成 uuid
+        cursor = await db.execute(
+            "SELECT COUNT(*) as cnt FROM stickers WHERE uuid IS NULL"
+        )
+        row = await cursor.fetchone()
+        if row and row["cnt"] > 0:
+            import uuid as uuid_module
+
+            await db.execute(
+                "UPDATE stickers SET uuid = ? WHERE uuid IS NULL",
+                (uuid_module.uuid4().hex,),
+            )
+            await db.commit()
         # 内心独白表
         await db.execute("""
             CREATE TABLE IF NOT EXISTS inner_monologues (
@@ -480,9 +494,12 @@ class SelfEvolutionDAO:
         db = await self.get_conn()
         async with self._write_lock:
             try:
+                import uuid
+
+                sticker_uuid = uuid.uuid4().hex
                 await db.execute(
-                    "INSERT INTO stickers (group_id, user_id, base64_data, tags, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
-                    (group_id, user_id, base64_data, tags),
+                    "INSERT INTO stickers (uuid, group_id, user_id, base64_data, tags, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+                    (sticker_uuid, group_id, user_id, base64_data, tags),
                 )
                 await db.commit()
                 return True
@@ -549,18 +566,19 @@ class SelfEvolutionDAO:
         async with self._db_lock:
             if tags:
                 cursor = await db.execute(
-                    "SELECT id, group_id, user_id, base64_data, tags, created_at FROM stickers WHERE tags LIKE ? ORDER BY id DESC LIMIT ? OFFSET ?",
+                    "SELECT id, uuid, group_id, user_id, base64_data, tags, created_at FROM stickers WHERE tags LIKE ? ORDER BY id DESC LIMIT ? OFFSET ?",
                     (f"%{tags}%", limit, offset),
                 )
             else:
                 cursor = await db.execute(
-                    "SELECT id, group_id, user_id, base64_data, tags, created_at FROM stickers ORDER BY id DESC LIMIT ? OFFSET ?",
+                    "SELECT id, uuid, group_id, user_id, base64_data, tags, created_at FROM stickers ORDER BY id DESC LIMIT ? OFFSET ?",
                     (limit, offset),
                 )
             rows = await cursor.fetchall()
             return [
                 {
                     "id": row["id"],
+                    "uuid": row["uuid"],
                     "group_id": row["group_id"],
                     "user_id": row["user_id"],
                     "base64_data": row["base64_data"],
@@ -596,13 +614,35 @@ class SelfEvolutionDAO:
         db = await self.get_conn()
         async with self._db_lock:
             cursor = await db.execute(
-                "SELECT id, group_id, user_id, base64_data, tags, created_at FROM stickers WHERE id = ?",
+                "SELECT id, uuid, group_id, user_id, base64_data, tags, created_at FROM stickers WHERE id = ?",
                 (sticker_id,),
             )
             row = await cursor.fetchone()
             if row:
                 return {
                     "id": row["id"],
+                    "uuid": row["uuid"],
+                    "group_id": row["group_id"],
+                    "user_id": row["user_id"],
+                    "base64_data": row["base64_data"],
+                    "tags": row["tags"],
+                    "created_at": row["created_at"],
+                }
+
+    @with_db_retry()
+    async def get_sticker_by_uuid(self, sticker_uuid: str) -> dict | None:
+        """根据UUID获取表情包"""
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute(
+                "SELECT id, uuid, group_id, user_id, base64_data, tags, created_at FROM stickers WHERE uuid = ?",
+                (sticker_uuid,),
+            )
+            row = await cursor.fetchone()
+            if row:
+                return {
+                    "id": row["id"],
+                    "uuid": row["uuid"],
                     "group_id": row["group_id"],
                     "user_id": row["user_id"],
                     "base64_data": row["base64_data"],

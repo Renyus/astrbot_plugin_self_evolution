@@ -1748,23 +1748,30 @@ class SelfEvolutionPlugin(Star):
         result = ["【表情包列表】"]
         for s in stickers:
             tag_str = s.get("tags", "") or "无标签"
-            result.append(f"[ID:{s['id']}] {tag_str}")
+            result.append(f"[UUID:{s['uuid']}] {tag_str}")
 
         return "\n".join(result)
 
     @filter.llm_tool(name="send_sticker")
     async def send_sticker_tool(
-        self, event: AstrMessageEvent, sticker_id: int = None, tags: str = ""
+        self,
+        event: AstrMessageEvent,
+        sticker_id: int = None,
+        sticker_uuid: str = None,
+        tags: str = "",
     ):
         """发送表情包给用户。不传参数时随机发送一张。
 
         Args:
-            sticker_id(int): 可选，指定表情包ID，不指定则随机发送
+            sticker_id(int): 可选，指定表情包数字ID
+            sticker_uuid(string): 可选，指定表情包UUID（推荐）
             tags(string): 可选，按标签筛选后随机发送，如 "搞笑" 或 "表情包"
         """
         # 日志记录
-        if sticker_id:
-            logger.info(f"[Sticker] 发送表情包: 指定ID={sticker_id}")
+        if sticker_uuid:
+            logger.info(f"[Sticker] 发送表情包: UUID={sticker_uuid}")
+        elif sticker_id:
+            logger.info(f"[Sticker] 发送表情包: ID={sticker_id}")
         elif tags:
             logger.info(f"[Sticker] 发送表情包: 标签筛选={tags}")
         else:
@@ -1780,7 +1787,9 @@ class SelfEvolutionPlugin(Star):
             return
 
         sticker = None
-        if sticker_id:
+        if sticker_uuid:
+            sticker = await self.dao.get_sticker_by_uuid(sticker_uuid)
+        elif sticker_id:
             sticker = await self.dao.get_sticker_by_id(sticker_id)
         elif tags:
             stickers = await self.entertainment.list_stickers(tags, 1)
@@ -1849,9 +1858,9 @@ class SelfEvolutionPlugin(Star):
             result = [f"【未打标签表情包】（共 {len(untagged)} 张）\n"]
             for s in untagged:
                 result.append(
-                    f"ID:{s['id']} | 用户:{s['user_id']} | 时间:{s['created_at'][:19]}"
+                    f"UUID:{s['uuid']} | 用户:{s['user_id']} | 时间:{s['created_at'][:19]}"
                 )
-            result.append(f"\n删除指令：/sticker delete <ID>")
+            result.append(f"\n删除指令：/sticker delete <数字ID>")
             yield event.plain_result("\n".join(result))
 
         elif action == "delete":
