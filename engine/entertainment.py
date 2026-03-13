@@ -38,7 +38,7 @@ class EntertainmentEngine:
             avatar_url = f"https://q1.qlogo.cn/g?b=qq&nk={user_id}&s=640"
 
             # 返回结果列表 [文字消息, 图片消息]
-            return [f"今日老婆是：{nickname}！", avatar_url]
+            return [f"你今日的群友老婆是：{nickname}！", avatar_url]
 
         except Exception as e:
             logger.warning(f"[Entertainment] 今日老婆功能异常: {e}")

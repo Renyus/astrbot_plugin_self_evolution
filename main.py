@@ -1123,13 +1123,11 @@ class SelfEvolutionPlugin(Star):
     @filter.command("今日老婆")
     async def today_waifu(self, event: AstrMessageEvent):
         """今日老婆功能 - 随机抽取一名群友"""
+        from astrbot.core.message.components import Image
+
         result = await self.entertainment.today_waifu(event)
-        if isinstance(result, list):
-            if len(result) == 2:
-                yield event.plain_result(result[0])
-                yield event.image_result(result[1])
-            else:
-                yield event.plain_result(result[0])
+        if isinstance(result, list) and len(result) == 2:
+            yield event.chain_result([Image.fromURL(result[1]), Plain(result[0])])
 
     @filter.command("reflect")
     async def manual_reflect(self, event: AstrMessageEvent):
