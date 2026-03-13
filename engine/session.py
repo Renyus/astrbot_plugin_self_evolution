@@ -93,25 +93,6 @@ class SessionManager:
         while buffer["token_count"] > max_tokens and buffer["messages"]:
             old_msg = buffer["messages"].pop(0)
             buffer["token_count"] -= self._estimate_tokens(old_msg)
-            evicted = buffer.get("evicted_messages", [])
-            evicted.append(old_msg)
-            evicted_max = self.plugin.cfg.session_evicted_max
-            if len(evicted) > evicted_max:
-                evicted.pop(0)
-            buffer["evicted_messages"] = evicted
-            logger.debug(
-                f"[Session] 滑动窗口溢出，收集被移除消息，当前 evicted 队列: {len(evicted)} 条"
-            )
-
-            evicted_commit_threshold = self.plugin.cfg.session_evicted_commit_threshold
-            if len(evicted) >= evicted_commit_threshold:
-                asyncio.create_task(
-                    self._commit_evicted_to_memory(group_id, evicted.copy())
-                )
-                buffer["evicted_messages"] = []
-                logger.info(
-                    f"[Session] 溢出队列已满（{len(evicted)} 条），异步存入知识库"
-                )
 
         if buffer["token_count"] < 0:
             buffer["token_count"] = 0
@@ -153,12 +134,9 @@ class SessionManager:
         return context
 
     async def cleanup_stale(self):
-        """清理过期缓冲"""
+        """清理过期缓冲（不再自动存入 KB，与框架 KB 功能解耦）"""
         now = time.time()
         timeout = self.plugin.cfg.session_cleanup_timeout
-        logger.info(
-            f"[Session] cleanup_stale 检查，当前缓冲: {list(self.session_buffers.keys())}，超时时间: {timeout}秒"
-        )
 
         stale = []
         for gid, buffer in self.session_buffers.items():
@@ -167,24 +145,7 @@ class SessionManager:
                 stale.append(gid)
 
         for gid in stale:
-            buffer = self.session_buffers.get(gid)
-            if buffer:
-                messages = buffer.get("messages", [])
-                evicted_messages = buffer.get("evicted_messages", [])
-                if messages:
-                    try:
-                        await self._commit_session_to_memory(
-                            messages, gid, evicted_messages
-                        )
-                        self.session_buffers.pop(gid, None)
-                    except Exception as e:
-                        import traceback
-
-                        logger.warning(
-                            f"[Session] 存入失败，保留缓冲: {gid}, 异常: {e}, 堆栈: {traceback.format_exc()}"
-                        )
-            else:
-                self.session_buffers.pop(gid, None)
+            self.session_buffers.pop(gid, None)
 
         if stale:
             logger.info(f"[Session] 已清理 {len(stale)} 个过期会话: {stale}")
@@ -281,96 +242,3 @@ class SessionManager:
             self.session_buffers[group_id]["threshold"] = (
                 self.plugin.cfg.eavesdrop_message_threshold
             )
-
-    async def _commit_session_to_memory(
-        self, messages: list, group_id: str, evicted_messages: list = None
-    ):
-        """将会话内容存入知识库"""
-        if evicted_messages is None:
-            evicted_messages = []
-
-        auto_commit = self.plugin.cfg.session_auto_commit
-        threshold = self.plugin.cfg.session_commit_threshold
-
-        if not auto_commit:
-            return
-
-        total_messages = len(messages) + len(evicted_messages)
-        if total_messages < threshold:
-            logger.info(
-                f"[Session] 消息数 {total_messages}（滑动窗口 {len(messages)} + 溢出 {len(evicted_messages)}）少于阈值 {threshold}，跳过存入"
-            )
-            return
-
-        try:
-            memory_kb_name = self.plugin.cfg.memory_kb_name
-            kb_manager = self.plugin.context.kb_manager
-            kb_helper = await kb_manager.get_kb_by_name(memory_kb_name)
-
-            if not kb_helper:
-                logger.warning(f"[Session] 知识库 {memory_kb_name} 不存在，跳过存入")
-                return
-
-            content = "\n".join(messages)
-            formatted = f"""【群聊会话记录】
-群号: {group_id}
-消息数: {len(messages)}（滑动窗口）+ {len(evicted_messages)}（溢出）
----
-{content}
-"""
-
-            if evicted_messages:
-                evicted_text = "\n".join(evicted_messages)
-                formatted += f"""
----
-【滑动窗口溢出时被移除的对话】
-{evicted_text}
-"""
-
-            await kb_helper.upload_document(
-                file_name=f"session_{group_id}_{int(time.time() * 1000)}.txt",
-                file_content=b"",
-                file_type="txt",
-                pre_chunked_text=[formatted],
-            )
-            logger.info(
-                f"[Session] 已将会话（含 {len(evicted_messages)} 条溢出消息）存入知识库，群 {group_id}，共 {total_messages} 条"
-            )
-        except Exception as e:
-            logger.warning(f"[Session] 存入知识库失败: {e}")
-
-    async def _commit_evicted_to_memory(self, group_id: str, evicted_messages: list):
-        """异步存入溢出消息到知识库（只存溢出内容，简化逻辑）"""
-        if not evicted_messages:
-            return
-
-        try:
-            memory_kb_name = getattr(
-                self.plugin, "memory_kb_name", "self_evolution_memory"
-            )
-            kb_manager = self.plugin.context.kb_manager
-            kb_helper = await kb_manager.get_kb_by_name(memory_kb_name)
-
-            if not kb_helper:
-                logger.warning(f"[Session] 知识库 {memory_kb_name} 不存在，跳过存入")
-                return
-
-            evicted_text = "\n".join(evicted_messages)
-            formatted = f"""【滑动窗口溢出记录】
-群号: {group_id}
-消息数: {len(evicted_messages)}
----
-{evicted_text}
-"""
-
-            await kb_helper.upload_document(
-                file_name=f"evicted_{group_id}_{int(time.time() * 1000)}.txt",
-                file_content=b"",
-                file_type="txt",
-                pre_chunked_text=[formatted],
-            )
-            logger.info(
-                f"[Session] 已异步存入溢出消息 {len(evicted_messages)} 条到知识库，群 {group_id}"
-            )
-        except Exception as e:
-            logger.warning(f"[Session] 异步存入溢出消息失败: {e}")

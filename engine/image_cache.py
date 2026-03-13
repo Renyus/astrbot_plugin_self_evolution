@@ -125,6 +125,9 @@ class ImageCacheEngine:
                 )
                 session_buffer["image_summaries"] = image_summaries
                 self.session_manager.session_buffers[buffer_key] = session_buffer
+                # 标记图片已处理，避免重复调用
+                if hasattr(event, "message_obj"):
+                    event._image_processed = True
         except Exception as e:
             logger.warning(f"[ImageCache] 处理图片描述失败: {e}")
         return image_summaries

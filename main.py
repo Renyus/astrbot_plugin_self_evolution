@@ -188,15 +188,19 @@ class SelfEvolutionPlugin(Star):
 
         logger.debug(f"[CognitionCore] 进入 LLM 请求拦截层。用户: {user_id}")
 
-        # 0.5 图片处理：获取图片标签
-        try:
-            image_summaries = await self.image_cache.process_image_captions(event)
-            if image_summaries:
-                logger.info(
-                    f"[ImageCache] 获取到 {len(image_summaries)} 个图片标签: {image_summaries}"
-                )
-        except Exception as e:
-            logger.warning(f"[ImageCache] 图片处理失败: {e}")
+        # 图片处理去重：检查是否已在消息监听阶段处理过
+        if hasattr(event, "_image_processed") and event._image_processed:
+            logger.debug("[ImageCache] 图片已在消息监听阶段处理，跳过")
+        else:
+            # 0.5 图片处理：获取图片标签
+            try:
+                image_summaries = await self.image_cache.process_image_captions(event)
+                if image_summaries:
+                    logger.info(
+                        f"[ImageCache] 获取到 {len(image_summaries)} 个图片标签: {image_summaries}"
+                    )
+            except Exception as e:
+                logger.warning(f"[ImageCache] 图片处理失败: {e}")
 
         # SAN 值检查：精力耗尽时拒绝服务
         if self.san_enabled:
@@ -411,34 +415,8 @@ class SelfEvolutionPlugin(Star):
         if social_bias_hint:
             req.system_prompt += f"\n\n【潜意识警告】{social_bias_hint}"
 
-        # 6. 滑动上下文窗口注入
-        private_session_enabled = getattr(self, "private_session_enabled", True)
-        if group_id:
-            logger.debug(f"[Session] 获取滑动窗口上下文，群 {group_id}")
-            session_context = self.session_manager.get_context(group_id=group_id)
-            logger.info(f"[Session] 滑动窗口内容长度: {len(session_context)} 字符")
-            if session_context:
-                req.system_prompt += f"\n\n【群聊最近对话】\n{session_context}"
-                logger.info(
-                    f"[Session] 已注入滑动窗口上下文: {len(session_context)} 字符"
-                )
-            else:
-                logger.warning(f"[Session] 滑动窗口为空，群 {group_id}")
-        elif private_session_enabled and user_id:
-            # 先记录私聊消息到滑动窗口
-            self.session_manager.add_message(None, sender_name, user_id, msg_text)
-            logger.debug(f"[Session] 获取滑动窗口上下文，私聊 {user_id}")
-            session_context = self.session_manager.get_context(user_id=user_id)
-            logger.debug(f"[Session] 滑动窗口内容长度: {len(session_context)} 字符")
-            if session_context:
-                req.system_prompt += f"\n\n【私聊最近对话】\n{session_context}"
-                logger.debug(
-                    f"[Session] 已注入私聊滑动窗口上下文: {len(session_context)} 字符"
-                )
-            else:
-                logger.warning(f"[Session] 私聊滑动窗口为空，用户 {user_id}")
-
-        # 6.5 图片内容注入（从 session_buffer 中获取图片标签和简述）
+        # 6. 图片内容注入（依赖 SessionManager 缓存，但不使用滑动窗口上下文）
+        # 注：滑动窗口注入已移除，与框架 LongTermMemory 冲突
         try:
             buffer_key = str(group_id) if group_id else f"private_{user_id}"
             session_buffer = self.session_manager.session_buffers.get(buffer_key, {})
@@ -456,20 +434,20 @@ class SelfEvolutionPlugin(Star):
         except Exception as e:
             logger.warning(f"[ImageCache] 注入图片标签失败: {e}")
 
-        # 7. 自动记忆检索注入
-        auto_memory_recall_enabled = getattr(self, "auto_memory_recall_enabled", True)
-        if auto_memory_recall_enabled:
-            try:
-                memory_injection = await self.memory.auto_recall_for_injection(event)
-                if memory_injection:
-                    req.system_prompt += f"\n\n{memory_injection}"
-                    logger.info(
-                        f"[Memory] 已自动注入相关记忆: {len(memory_injection)} 字符"
-                    )
-            except Exception as e:
-                logger.warning(f"[Memory] 自动记忆检索失败: {e}")
+        # 7. 自动记忆检索注入已移除，与框架 KB 冲突
+        # 如需使用长期记忆，请调用 LLM 工具 recall_memories
 
         # 最后注入框架人格（确保人格设定优先，不被稀释）
+        # 先截断过长的注入内容，避免超出 token 限制
+        max_injection_length = getattr(self, "max_prompt_injection_length", 2000)
+        if len(req.system_prompt) > max_injection_length:
+            req.system_prompt = (
+                req.system_prompt[:max_injection_length] + "\n\n[...内容已截断...]"
+            )
+            logger.warning(
+                f"[SelfEvolution] 注入内容超长，已截断至 {max_injection_length} 字符"
+            )
+
         try:
             personality = await self.context.persona_manager.get_default_persona_v3(
                 event.unified_msg_origin
@@ -1058,9 +1036,9 @@ class SelfEvolutionPlugin(Star):
         logger.info("[Profile] 画像清理完成。")
 
     async def _scheduled_eavesdrop_check(self):
-        """定时互动意愿检查任务"""
+        """定时互动意愿检查任务（统一由 SessionManager 触发）"""
         logger.info("[Session] 开始定时互动意愿检查...")
-        await self.eavesdropping.periodic_eavesdrop_check()
+        await self.session_manager.periodic_check()
         logger.info("[Session] 定时互动意愿检查完成。")
 
     @filter.command("sehelp")

@@ -148,16 +148,16 @@ class EavesdroppingEngine:
             }
         return bucket_data
 
-    def _check_funnel_level1(self, event: AstrMessageEvent) -> bool:
-        """第一级：框架级强特征（100%确定是互动）"""
+    def _check_funnel_trigger(self, event: AstrMessageEvent) -> bool:
+        """漏斗触发检测：@/命令/引用/唤醒词/意图正则"""
         msg = event.message_obj
+        msg_text = event.message_str or ""
 
-        # 1.1 @ 提及检测
+        # @ 提及或命令前缀
         if event.is_at_or_wake_command:
             return True
 
-        # 1.2 命令前缀检测
-        msg_text = event.message_str or ""
+        # 命令前缀
         config = self.plugin.context.get_config()
         prefixes = config.get("wake_prefix", ["/"])
         prov_prefix = config.get("provider_settings", {}).get("wake_prefix", "/")
@@ -165,7 +165,7 @@ class EavesdroppingEngine:
         if any(msg_text.startswith(p) for p in prefixes if p):
             return True
 
-        # 1.3 引用回复检测（检查回复的是否是Bot的消息）
+        # 引用回复检测
         if hasattr(msg, "reply") and msg.reply:
             reply_msg = msg.reply
             if hasattr(reply_msg, "sender") and reply_msg.sender:
@@ -173,27 +173,21 @@ class EavesdroppingEngine:
                 if str(reply_msg.sender) == bot_id:
                     return True
 
-        return False
-
-    def _check_funnel_level2(self, event: AstrMessageEvent) -> bool:
-        """第二级：唤醒词与正则匹配（软特征）"""
-        msg_text = (event.message_str or "").lower()
-
-        # 2.1 名称唤醒
+        # 唤醒词检测
+        msg_lower = msg_text.lower()
         for name in self.wake_names:
-            if name.lower() in msg_text:
+            if name.lower() in msg_lower:
                 return True
 
-        # 2.2 强AI意图句式
+        # AI意图句式
         for pattern in self._ai_intent_patterns_compiled:
-            if pattern.search(msg_text):
+            if pattern.search(msg_lower):
                 return True
 
         return False
 
-    def _check_funnel_level3(self, group_id: str, user_id: str) -> bool:
-        """第三级：上下文时间窗（Session机制）"""
-        # 确保类型一致
+    def _is_user_in_active_window(self, group_id: str, user_id: str) -> bool:
+        """检查用户是否在活跃时间窗内"""
         group_id = str(group_id)
         user_id = str(user_id)
 
@@ -219,7 +213,7 @@ class EavesdroppingEngine:
 
     def is_user_active(self, group_id: str, user_id: str) -> bool:
         """检查用户是否处于活跃状态"""
-        return self._check_funnel_level3(str(group_id), str(user_id))
+        return self._is_user_in_active_window(str(group_id), str(user_id))
 
     def cleanup_expired_active_users(self):
         """清理过期的活跃用户记录"""
@@ -341,14 +335,11 @@ class EavesdroppingEngine:
         )
 
         # 漏斗机制：检测用户是否活跃
-        level1_triggered = self._check_funnel_level1(event)
-        level2_triggered = self._check_funnel_level2(event)
+        funnel_triggered = self._check_funnel_trigger(event)
 
-        if level1_triggered or level2_triggered:
+        if funnel_triggered:
             self._mark_user_active(group_id, user_id)
-            logger.debug(
-                f"[漏斗] 用户 {user_id} 在群 {group_id} 被标记为活跃 (L1={level1_triggered}, L2={level2_triggered})"
-            )
+            logger.debug(f"[漏斗] 用户 {user_id} 在群 {group_id} 被标记为活跃")
 
         # 清理过期的活跃用户（每100条消息清理一次）
         self._msg_counter = getattr(self, "_msg_counter", 0) + 1
@@ -396,7 +387,7 @@ class EavesdroppingEngine:
         critical_pattern = re.compile(
             f"({self.plugin.cfg.critical_keywords})", re.IGNORECASE
         )
-        level2_triggered = self._check_funnel_level2(event)
+        funnel_triggered = self._check_funnel_trigger(event)
 
         trigger_reason = ""
         boost = params["daily_boost"]  # 默认普通消息 boost
@@ -407,9 +398,9 @@ class EavesdroppingEngine:
         elif is_at:
             boost = params["interest_boost"]
             trigger_reason = "@机器人"
-        elif level2_triggered:
-            boost = params["interest_boost"] * 0.8  # L2 稍低
-            trigger_reason = "L2意图"
+        elif funnel_triggered:
+            boost = params["interest_boost"] * 0.8  # 漏斗触发稍低
+            trigger_reason = "意图"
         elif has_image and image_boost > 0:
             boost = image_boost
             trigger_reason = "图片"
@@ -757,80 +748,13 @@ class EavesdroppingEngine:
                     logger.warning(f"[CognitionCore] 无法解析 LLM 响应，已拦截")
                     return
         except Exception as e:
-            if "安全检查" in str(e) or "Safety" in str(e):
-                logger.warning(f"[CognitionCore] 插嘴评估被服务商安全策略拦截。")
-            else:
-                logger.warning(f"[CognitionCore] 插嘴评估过程发生异常: {e}")
+            logger.warning(f"[CognitionCore] 插嘴评估过程发生异常: {e}")
         finally:
             try:
                 self.plugin.session_manager.reset_eavesdrop_count(str(session_id))
                 self.plugin.session_manager.processing_sessions.discard(str(session_id))
             except Exception as e:
                 logger.warning(f"[CognitionCore] 清理 processing_sessions 失败: {e}")
-
-    async def periodic_eavesdrop_check(self):
-        """定时检查是否需要互动意愿 - 模拟人类偶尔瞥一眼群聊"""
-        try:
-            session_buffers = self.plugin.session_manager.session_buffers
-            if not session_buffers:
-                return
-
-            threshold = self.plugin.cfg.eavesdrop_message_threshold
-            whitelist = self.plugin.cfg.session_whitelist
-            processing = getattr(
-                self.plugin.session_manager, "processing_sessions", set()
-            )
-
-            candidates = []
-            for group_id, buffer in session_buffers.items():
-                if not isinstance(buffer, dict):
-                    continue
-                msg_count = len(buffer.get("messages", []))
-                if msg_count < threshold:
-                    continue
-                if whitelist and group_id not in whitelist:
-                    continue
-                if group_id in processing:
-                    continue
-                candidates.append(group_id)
-
-            if not candidates:
-                return
-
-            import random
-
-            target_groups = random.sample(candidates, min(2, len(candidates)))
-
-            for group_id in target_groups:
-                logger.info(
-                    f"[CognitionCore] 定时检查触发，群 {group_id} 消息数达到 {threshold}"
-                )
-                dummy_event = None
-
-                class DummyEvent:
-                    def __init__(self, gid):
-                        self.session_id = gid
-                        self._group_id = gid
-                        self.message_str = ""
-                        self.is_at_or_wake_command = False
-
-                    def get_group_id(self):
-                        return self._group_id
-
-                    def get_sender_id(self):
-                        return "periodic_check"
-
-                    def get_sender_name(self):
-                        return "System"
-
-                dummy_event = DummyEvent(group_id)
-                async for _ in self._evaluate_interjection(
-                    dummy_event, group_id, force_immediate=True
-                ):
-                    pass
-
-        except Exception as e:
-            logger.warning(f"[CognitionCore] 定时互动意愿检查异常: {e}")
 
     async def _decrease_san(self, event: AstrMessageEvent, value: int):
         """降低SAN精力值"""
