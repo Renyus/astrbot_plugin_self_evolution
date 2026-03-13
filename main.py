@@ -544,7 +544,7 @@ class SelfEvolutionPlugin(Star):
                 except Exception as e:
                     logger.warning(f"[Session] 存入AI回复失败: {e}")
 
-    @filter.on_astrbot_loaded()
+    @filter.on_plugin_loaded()
     async def on_loaded(self):
         """
         插件加载完成后，注册定时自省任务。
