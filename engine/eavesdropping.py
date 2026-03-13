@@ -719,6 +719,13 @@ class EavesdroppingEngine:
                 logger.info(f"[CognitionCore] 判定为忽略，不回应。")
                 return
             else:
+                # 无法解析时，检查是否包含负数判断
+                negative_match = re.search(r"\[(-?\d+)\]", reply_text)
+                if negative_match and int(negative_match.group(1)) < 0:
+                    # 返回负数视为无聊
+                    logger.info(f"[CognitionCore] 判定为负数（无聊），不回应。")
+                    return
+
                 # 无法解析，但有回复内容，视为有趣直接发送
                 if reply_text and len(reply_text.strip()) > 0:
                     logger.info(f"[CognitionCore] LLM 直接回复，视为有趣")
