@@ -145,54 +145,99 @@ class EntertainmentEngine:
         sticker = untagged[0]
         logger.info(f"[Sticker] 准备给表情包打标签: id={sticker['id']}")
 
+        temp_file_path = None
         try:
-            from astrbot.core.message.components import Image
+            import os
+            import uuid
 
             img_data = base64.b64decode(sticker["base64_data"])
-            img_bytes = img_data
 
-            provider = self.plugin.context.get_using_provider()
-            if not provider:
-                logger.warning(f"[Sticker] 获取 provider 失败")
+            # 获取临时目录并保存文件
+            try:
+                from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
+
+                temp_dir = get_astrbot_temp_path()
+            except ImportError:
+                temp_dir = os.path.join(os.path.expanduser("~"), ".astrbot", "temp")
+
+            os.makedirs(temp_dir, exist_ok=True)
+            temp_file_path = os.path.join(temp_dir, f"sticker_tag_{uuid.uuid4()}.jpg")
+
+            with open(temp_file_path, "wb") as f:
+                f.write(img_data)
+
+            logger.info(f"[Sticker] 已保存临时文件: {temp_file_path}")
+
+            # 调用 MCP 工具 understand_image
+            tool_manager = self.plugin.context.get_llm_tool_manager()
+            if not tool_manager:
+                logger.warning(f"[Sticker] 获取 tool_manager 失败")
                 return False
 
-            prompt = f"""请用一句话描述这张图片的内容，然后提取3-5个关键词标签（用|分隔）。
-
-输出格式：
-描述：<一句话描述>
-标签：<tag1|tag2|tag3>"""
-
-            img_base64 = base64.b64encode(img_bytes).decode("utf-8")
-
-            resp = await provider.text_chat(
-                prompt=prompt,
-                image_urls=[f"base64://{img_base64}"],
-            )
-
-            if not resp or not resp.completion_text:
-                logger.warning(f"[Sticker] LLM 响应为空")
+            mcp_clients = tool_manager.mcp_client_dict()
+            if not mcp_clients:
+                logger.warning(f"[Sticker] 没有可用的 MCP 客户端")
                 return False
 
-            response_text = resp.completion_text.strip()
-            logger.info(f"[Sticker] LLM 响应: {response_text}")
+            # 尝试调用第一个 MCP 客户端的 understand_image 工具
+            for mcp_name, mcp_client in mcp_clients.items():
+                try:
+                    from datetime import timedelta
 
-            tags = ""
-            if "标签：" in response_text:
-                tags = response_text.split("标签：")[1].strip()
-            elif "标签:" in response_text:
-                tags = response_text.split("标签:")[1].strip()
+                    tool_result = await mcp_client.call_tool_with_reconnect(
+                        "understand_image",
+                        {
+                            "prompt": "请用一句话描述这张图片的内容，然后提取3-5个关键词标签（用|分隔）。输出格式：描述：<一句话描述> 标签：<tag1|tag2|tag3>",
+                            "image_url": temp_file_path,
+                        },
+                        timedelta(seconds=60),
+                    )
 
-            if not tags:
-                tags = response_text.split("\n")[0][:50]
+                    if tool_result and tool_result.content:
+                        # 提取文本内容
+                        response_text = ""
+                        for content in tool_result.content:
+                            if hasattr(content, "text"):
+                                response_text += content.text
+                            elif isinstance(content, str):
+                                response_text += content
 
-            await self.dao.update_sticker_tags(sticker["id"], tags)
-            self._last_tag_time = time.time()
-            logger.info(f"[Sticker] 打标签成功: id={sticker['id']}, tags={tags}")
-            return True
+                        logger.info(f"[Sticker] MCP 工具响应: {response_text[:100]}")
+
+                        # 解析标签
+                        tags = ""
+                        if "标签：" in response_text:
+                            tags = response_text.split("标签：")[1].strip()
+                        elif "标签:" in response_text:
+                            tags = response_text.split("标签:")[1].strip()
+
+                        if not tags:
+                            tags = response_text.split("\n")[0][:50]
+
+                        await self.dao.update_sticker_tags(sticker["id"], tags)
+                        self._last_tag_time = time.time()
+                        logger.info(
+                            f"[Sticker] 打标签成功: id={sticker['id']}, tags={tags}"
+                        )
+                        return True
+                except Exception as e:
+                    logger.warning(f"[Sticker] MCP 客户端 {mcp_name} 调用失败: {e}")
+                    continue
+
+            logger.warning(f"[Sticker] 所有 MCP 客户端调用失败")
+            return False
 
         except Exception as e:
             logger.warning(f"[Sticker] 打标签异常: {e}")
             return False
+        finally:
+            # 清理临时文件
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.remove(temp_file_path)
+                    logger.debug(f"[Sticker] 已删除临时文件: {temp_file_path}")
+                except Exception:
+                    pass
 
     async def should_send_sticker(self, group_id: str) -> bool:
         """判断当前是否应该发表情包"""
