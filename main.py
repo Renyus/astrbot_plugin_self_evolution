@@ -1754,24 +1754,17 @@ class SelfEvolutionPlugin(Star):
 
     @filter.llm_tool(name="send_sticker")
     async def send_sticker_tool(
-        self,
-        event: AstrMessageEvent,
-        sticker_id: int = None,
-        sticker_uuid: str = None,
-        tags: str = "",
+        self, event: AstrMessageEvent, sticker_uuid: str = None, tags: str = ""
     ):
         """发送表情包给用户。不传参数时随机发送一张。
 
         Args:
-            sticker_id(int): 可选，指定表情包数字ID
             sticker_uuid(string): 可选，指定表情包UUID（推荐）
             tags(string): 可选，按标签筛选后随机发送，如 "搞笑" 或 "表情包"
         """
         # 日志记录
         if sticker_uuid:
             logger.info(f"[Sticker] 发送表情包: UUID={sticker_uuid}")
-        elif sticker_id:
-            logger.info(f"[Sticker] 发送表情包: ID={sticker_id}")
         elif tags:
             logger.info(f"[Sticker] 发送表情包: 标签筛选={tags}")
         else:
@@ -1789,8 +1782,6 @@ class SelfEvolutionPlugin(Star):
         sticker = None
         if sticker_uuid:
             sticker = await self.dao.get_sticker_by_uuid(sticker_uuid)
-        elif sticker_id:
-            sticker = await self.dao.get_sticker_by_id(sticker_id)
         elif tags:
             stickers = await self.entertainment.list_stickers(tags, 1)
             sticker = stickers[0] if stickers else None
@@ -1843,9 +1834,7 @@ class SelfEvolutionPlugin(Star):
                 tags = s["tags"][:30] if s["tags"] else "无标签"
                 result.append(f"ID:{s['id']} | 用户:{s['user_id']} | 标签:{tags}")
             result.append(f"\n【管理指令】")
-            result.append(
-                "/sticker delete <ID>     # 删除指定ID，如 delete 1 或 delete 1-3"
-            )
+            result.append("/sticker delete <UUID>  # 删除指定UUID")
             result.append("/sticker clear           # 清空所有表情包")
             yield event.plain_result("\n".join(result))
 
@@ -1860,44 +1849,20 @@ class SelfEvolutionPlugin(Star):
                 result.append(
                     f"UUID:{s['uuid']} | 用户:{s['user_id']} | 时间:{s['created_at'][:19]}"
                 )
-            result.append(f"\n删除指令：/sticker delete <数字ID>")
+            result.append(f"\n删除指令：/sticker delete <UUID>")
             yield event.plain_result("\n".join(result))
 
         elif action == "delete":
             if not param:
-                yield event.plain_result("请提供要删除的表情包ID，支持如 1、1-3、1,3,5")
+                yield event.plain_result("请提供要删除的表情包UUID")
                 return
 
-            # 解析批量删除参数
-            ids_to_delete = []
-            param = param.replace(" ", "")
-
-            # 支持格式: 1,3,5 或 1-3 或 1-3,5,7-9
-            parts = param.replace(",", "-").split("-")
-            i = 0
-            while i < len(parts):
-                if parts[i].isdigit():
-                    ids_to_delete.append(int(parts[i]))
-                    i += 1
-                elif parts[i] == "" and i + 1 < len(parts) and parts[i + 1].isdigit():
-                    # 这是一个范围
-                    start = ids_to_delete.pop() if ids_to_delete else 0
-                    end = int(parts[i + 1])
-                    for idx in range(start, end + 1):
-                        ids_to_delete.append(idx)
-                    i += 2
-                else:
-                    i += 1
-
-            if not ids_to_delete:
-                yield event.plain_result("无法解析ID，请检查格式")
-                return
-
-            # 去重
-            ids_to_delete = list(set(ids_to_delete))
-
-            deleted_count = await self.dao.delete_stickers_by_ids(ids_to_delete)
-            yield event.plain_result(f"已删除 {deleted_count} 张表情包")
+            sticker_uuid = param.strip()
+            deleted = await self.dao.delete_sticker_by_uuid(sticker_uuid)
+            if deleted:
+                yield event.plain_result(f"已删除表情包: {sticker_uuid}")
+            else:
+                yield event.plain_result(f"未找到表情包: {sticker_uuid}")
 
         elif action == "clear":
             count = await self.dao.get_sticker_count()
@@ -1924,7 +1889,7 @@ class SelfEvolutionPlugin(Star):
                 "【表情包管理】（全局）\n"
                 "/sticker list          # 列出表情包\n"
                 "/sticker untagged     # 查看未打标签的表情包\n"
-                "/sticker delete <ID>  # 删除指定表情包，支持批量如 1-3 或 1,3,5\n"
+                "/sticker delete <UUID> # 删除指定表情包\n"
                 "/sticker clear        # 清空所有表情包\n"
                 "/sticker stats        # 查看统计"
             )

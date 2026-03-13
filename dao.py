@@ -653,12 +653,24 @@ class SelfEvolutionDAO:
 
     @with_db_retry()
     async def delete_sticker_by_id(self, sticker_id: int) -> bool:
-        """根据ID删除表情包"""
+        """根据ID删除表情包（内部使用）"""
         db = await self.get_conn()
         async with self._write_lock:
             cursor = await db.execute(
                 "DELETE FROM stickers WHERE id = ?",
                 (sticker_id,),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
+    @with_db_retry()
+    async def delete_sticker_by_uuid(self, sticker_uuid: str) -> bool:
+        """根据UUID删除表情包"""
+        db = await self.get_conn()
+        async with self._write_lock:
+            cursor = await db.execute(
+                "DELETE FROM stickers WHERE uuid = ?",
+                (sticker_uuid,),
             )
             await db.commit()
             return cursor.rowcount > 0
