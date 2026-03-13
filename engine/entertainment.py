@@ -164,14 +164,10 @@ class EntertainmentEngine:
 
             img_base64 = base64.b64encode(img_bytes).decode("utf-8")
 
-            from astrbot.core.provider.entities import ProviderRequest
-
-            req = ProviderRequest(
+            resp = await provider.text_chat(
                 prompt=prompt,
                 image_urls=[f"base64://{img_base64}"],
             )
-
-            resp = await provider.chat(req)
 
             if not resp or not resp.completion_text:
                 logger.warning(f"[Sticker] LLM 响应为空")
