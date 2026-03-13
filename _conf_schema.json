@@ -417,5 +417,12 @@
         "hint": "生产环境建议关闭，否则日志量较大",
         "type": "bool",
         "default": false
+    },
+    "max_prompt_injection_length": {
+        "title": "Prompt 注入最大长度",
+        "description": "控制 prompt 注入的最大字符数，超出部分会被截断",
+        "hint": "用于防止 prompt 超出 LLM context 限制，默认 2000",
+        "type": "int",
+        "default": 2000
     }
 }

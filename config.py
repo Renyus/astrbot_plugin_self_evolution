@@ -349,3 +349,7 @@ class PluginConfig:
     @property
     def debug_log_enabled(self):
         return self._parse_bool(self._config.get("debug_log_enabled"), False)
+
+    @property
+    def max_prompt_injection_length(self):
+        return int(self._config.get("max_prompt_injection_length", 2000))

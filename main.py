@@ -473,8 +473,8 @@ class SelfEvolutionPlugin(Star):
 
         # 最后注入框架人格（确保人格设定优先，不被稀释）
         # 先截断过长的注入内容，避免超出 token 限制
-        max_injection_length = getattr(self, "max_prompt_injection_length", 2000)
-        if len(req.system_prompt) > max_injection_length:
+        max_injection_length = self.cfg.max_prompt_injection_length
+        if req.system_prompt and len(req.system_prompt) > max_injection_length:
             req.system_prompt = (
                 req.system_prompt[:max_injection_length] + "\n\n[...内容已截断...]"
             )
