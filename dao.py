@@ -705,6 +705,18 @@ class SelfEvolutionDAO:
             return None
 
     @with_db_retry()
+    async def delete_sticker_by_id(self, sticker_id: int) -> bool:
+        """根据ID删除表情包"""
+        db = await self.get_conn()
+        async with self._write_lock:
+            cursor = await db.execute(
+                "DELETE FROM stickers WHERE id = ?",
+                (sticker_id,),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
+    @with_db_retry()
     async def delete_oldest_sticker(self) -> bool:
         """删除最旧的表情包"""
         db = await self.get_conn()

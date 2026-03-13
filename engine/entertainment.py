@@ -146,8 +146,6 @@ class EntertainmentEngine:
         logger.info(f"[Sticker] 准备给表情包打标签: id={sticker['id']}")
 
         try:
-            import imghdr
-
             from astrbot.core.message.components import Image
 
             img_data = base64.b64decode(sticker["base64_data"])
@@ -165,8 +163,26 @@ class EntertainmentEngine:
 标签：<tag1|tag2|tag3>"""
 
             img_base64 = base64.b64encode(img_bytes).decode("utf-8")
-            img_type = imghdr.what(None, h=img_bytes[:32])
-            mime = f"image/{img_type}" if img_type else "image/jpeg"
+
+            # 检测图片类型
+            def detect_image_type(data):
+                if len(data) < 4:
+                    return "jpeg"
+                # 检查常见图片格式的头字节
+                if data[:2] == b"\xff\xd8":
+                    return "jpeg"
+                elif data[:8] == b"\x89PNG\r\n\x1a\n":
+                    return "png"
+                elif data[:4] == b"GIF87a" or data[:4] == b"GIF89a":
+                    return "gif"
+                elif data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+                    return "webp"
+                elif data[:2] == b"BM":
+                    return "bmp"
+                else:
+                    return "jpeg"  # 默认
+
+            mime = f"image/{detect_image_type(img_bytes)}"
 
             resp = await provider.text_chat(
                 prompt=prompt,

@@ -1932,3 +1932,85 @@ class SelfEvolutionPlugin(Star):
         except Exception as e:
             logger.warning(f"[Sticker] 发送表情包失败: {e}")
             yield event.plain_result(f"发送失败: {e}")
+
+    @filter.command("sticker")
+    async def sticker_cmd(
+        self, event: AstrMessageEvent, action: str = "list", param: str = ""
+    ):
+        """表情包管理命令"""
+        if not event.is_admin() and (
+            not self.admin_users or str(event.get_sender_id()) not in self.admin_users
+        ):
+            yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
+            return
+
+        group_id = event.get_group_id()
+        action = action.lower()
+
+        if action == "list":
+            page = int(param) if param else 1
+            page_size = 10
+            offset = (page - 1) * page_size
+
+            stickers = await self.dao.get_stickers_by_tags("", group_id, page_size)
+            total = await self.dao.get_sticker_count(group_id)
+            today = await self.dao.get_today_sticker_count(group_id)
+
+            if not stickers:
+                yield event.plain_result("暂无表情包。")
+                return
+
+            result = [
+                f"【表情包列表】（第 {page} 页，共 {total} 张，今日新增 {today} 张）\n"
+            ]
+            for s in stickers:
+                tags = s["tags"][:30] if s["tags"] else "无标签"
+                result.append(f"ID:{s['id']} | 用户:{s['user_id']} | 标签:{tags}")
+            result.append(f"\n【删除指令】")
+            result.append("/sticker delete <ID>    # 删除指定ID")
+            result.append("/sticker clear          # 清空所有表情包")
+            yield event.plain_result("\n".join(result))
+
+        elif action == "delete":
+            if not param:
+                yield event.plain_result("请提供要删除的表情包ID。")
+                return
+
+            try:
+                sticker_id = int(param)
+                deleted = await self.dao.delete_sticker_by_id(sticker_id)
+                if deleted:
+                    yield event.plain_result(f"已删除表情包 ID:{sticker_id}")
+                else:
+                    yield event.plain_result(f"未找到 ID:{sticker_id} 的表情包")
+            except ValueError:
+                yield event.plain_result("ID 必须是数字")
+
+        elif action == "clear":
+            count = await self.dao.get_sticker_count(group_id)
+            if count == 0:
+                yield event.plain_result("表情包库已经是空的")
+                return
+
+            # 逐个删除
+            deleted = 0
+            for _ in range(count):
+                if await self.dao.delete_oldest_sticker():
+                    deleted += 1
+
+            yield event.plain_result(f"已清空 {deleted} 张表情包")
+
+        elif action == "stats":
+            stats = await self.dao.get_sticker_stats(group_id)
+            yield event.plain_result(
+                f"【表情包统计】\n总计: {stats['total']} 张\n今日新增: {stats['today']} 张"
+            )
+
+        else:
+            yield event.plain_result(
+                "【表情包管理】\n"
+                "/sticker list          # 列出表情包\n"
+                "/sticker delete <ID>  # 删除指定表情包\n"
+                "/sticker clear        # 清空所有表情包\n"
+                "/sticker stats        # 查看统计"
+            )
