@@ -630,8 +630,9 @@ class EavesdroppingEngine:
             threshold_max = self.plugin.cfg.eavesdrop_threshold_max
 
             # 简化解析：支持多种格式
+            # 只匹配明确标注"有趣"的格式，避免匹配"无聊[-1]"中的[-1]
             interesting_match = re.search(
-                r"(?:有趣)?\s*\[([+-]?\d+)\]", reply_text, re.IGNORECASE
+                r"(有趣)\s*\[([+-]?\d+)\]", reply_text, re.IGNORECASE
             )
             boring_match = re.search(r"(无聊)\s*\[(-?\d+)\]", reply_text, re.IGNORECASE)
             ignore_match = re.search(
