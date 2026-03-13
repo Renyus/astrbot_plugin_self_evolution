@@ -584,7 +584,7 @@ class EavesdroppingEngine:
 
             # 简化解析：支持多种格式
             interesting_match = re.search(
-                r"(有趣)\s*\[([+-]?\d+)\]", reply_text, re.IGNORECASE
+                r"(?:有趣)?\s*\[([+-]?\d+)\]", reply_text, re.IGNORECASE
             )
             boring_match = re.search(r"(无聊)\s*\[(-?\d+)\]", reply_text, re.IGNORECASE)
             ignore_match = re.search(
