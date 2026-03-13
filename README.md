@@ -29,6 +29,7 @@ Self-Evolution 是一个面向 AstrBot 平台的认知增强插件。它赋予 A
 | 人格进化 | LLM 自主修改系统提示词，支持管理员审核 | 启用 |
 | 元编程 | AI 读取/修改自身源码，多智能体对抗审查 | 关闭 |
 | 图片处理优化 | 区分已知/未知图片，优化 MCP 工具调用 | 启用 |
+| 表情包学习 | 自动学习指定群友表情包，AI 主动发送活跃气氛 | 关闭 |
 
 ---
 
@@ -306,6 +307,13 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 | `get_plugin_source` | 读取插件指定模块的源码 |
 | `update_plugin_source` | 提交代码修改提案 |
 
+### 表情包管理
+
+| 工具 | 说明 |
+|------|------|
+| `list_stickers` | 列出表情包（支持按标签筛选） |
+| `send_sticker` | 发送表情包（支持按ID或随机发送） |
+
 ---
 
 ## 配置参考
@@ -400,6 +408,18 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 | `debate_agents` | string | JSON 数组 | 审查智能体列表 |
 | `graph_enabled` | bool | true | 启用关系图谱 RAG |
 
+### 表情包学习
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `sticker_learning_enabled` | bool | false | 启用表情包学习 |
+| `sticker_target_qq` | string | "" | 学习对象QQ号（逗号分隔） |
+| `sticker_fetch_interval` | int | 5 | 偷图检查间隔（分钟） |
+| `sticker_tag_cooldown` | int | 5 | 打标签冷却（分钟） |
+| `sticker_daily_limit` | int | 50 | 每日存储上限 |
+| `sticker_total_limit` | int | 100 | 总存储上限 |
+| `sticker_send_cooldown` | int | 30 | 发送冷却（分钟） |
+
 ---
 
 ## 数据存储
@@ -420,6 +440,7 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 | `pending_reflections` | 反思标记 |
 | `user_relationships` | 用户好感度评分 |
 | `user_interactions` | 用户互动关系图谱 |
+| `stickers` | 表情包存储（Base64编码） |
 
 ---
 
@@ -432,6 +453,7 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 | SelfEvolution_DailyReflection | 0 3 * * * (每天凌晨 3 点) | 做梦 + 好感度恢复 |
 | SelfEvolution_ProfileCleanup | 0 4 * * * (每天凌晨 4 点) | 清理 90 天未更新的画像 |
 | SelfEvolution_EavesdropCheck | 每 10 分钟 | 定时互动意愿检查 |
+| SelfEvolution_StickerTag | 每 N 分钟 | 自动给表情包打标签（取决于 sticker_tag_cooldown） |
 
 ---
 

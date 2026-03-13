@@ -333,3 +333,31 @@ class PluginConfig:
     @property
     def max_prompt_injection_length(self):
         return int(self._config.get("max_prompt_injection_length", 2000))
+
+    @property
+    def sticker_learning_enabled(self):
+        return self._parse_bool(self._config.get("sticker_learning_enabled"), False)
+
+    @property
+    def sticker_target_qq(self):
+        return self._config.get("sticker_target_qq", "")
+
+    @property
+    def sticker_fetch_interval(self):
+        return int(self._config.get("sticker_fetch_interval", 5))
+
+    @property
+    def sticker_tag_cooldown(self):
+        return int(self._config.get("sticker_tag_cooldown", 5))
+
+    @property
+    def sticker_daily_limit(self):
+        return int(self._config.get("sticker_daily_limit", 50))
+
+    @property
+    def sticker_total_limit(self):
+        return int(self._config.get("sticker_total_limit", 100))
+
+    @property
+    def sticker_send_cooldown(self):
+        return int(self._config.get("sticker_send_cooldown", 30))

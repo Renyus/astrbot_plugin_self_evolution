@@ -448,6 +448,10 @@ class SelfEvolutionPlugin(Star):
         if self.group_vibe_enabled and group_id:
             req.system_prompt += self.vibe_system.get_prompt_injection(str(group_id))
 
+        # 4.10 表情包库注入
+        if self.cfg.sticker_learning_enabled and group_id:
+            req.system_prompt += self.entertainment.get_prompt_injection(str(group_id))
+
         # 4.11 社交偏见注入
         if social_bias_hint:
             req.system_prompt += f"\n\n【潜意识警告】{social_bias_hint}"
@@ -538,6 +542,10 @@ class SelfEvolutionPlugin(Star):
 
             # 使用 SessionManager 记录消息
             self.session_manager.add_message(group_id, sender_name, user_id, msg_text)
+
+            # 表情包学习：检测指定人的图片
+            if self.cfg.sticker_learning_enabled:
+                asyncio.create_task(self.entertainment.learn_sticker_from_event(event))
         else:
             # 私聊也记录到滑动窗口
             self.session_manager.add_message(None, sender_name, user_id, msg_text)
@@ -664,6 +672,22 @@ class SelfEvolutionPlugin(Star):
             logger.info(
                 f"[SelfEvolution] 已注册定时自省任务: {self.reflection_schedule}"
             )
+
+            # 注册表情包打标签任务（每 N 分钟）
+            if self.cfg.sticker_learning_enabled:
+                sticker_tag_job_name = "SelfEvolution_StickerTag"
+                sticker_tag_interval = self.cfg.sticker_tag_cooldown
+                sticker_tag_cron = f"*/{sticker_tag_interval} * * * *"
+                await cron_mgr.add_basic_job(
+                    name=sticker_tag_job_name,
+                    cron_expression=sticker_tag_cron,
+                    handler=self._scheduled_sticker_tag,
+                    description="自我进化插件：定时给表情包打标签。",
+                    persistent=True,
+                )
+                logger.info(
+                    f"[SelfEvolution] 已注册表情包打标签任务: {sticker_tag_cron}"
+                )
 
         except Exception as e:
             logger.error(f"[SelfEvolution] 注册定时任务失败: {e}", exc_info=True)
@@ -1076,6 +1100,20 @@ class SelfEvolutionPlugin(Star):
 
         except Exception as e:
             logger.warning(f"[Dream] 跨群知识关联分析失败: {e}")
+
+    async def _scheduled_sticker_tag(self):
+        """表情包打标签定时任务"""
+        logger.info("[Sticker] 开始给表情包打标签...")
+        try:
+            result = await self.entertainment.tag_stickers()
+            if result:
+                logger.info("[Sticker] 表情包打标签完成。")
+            else:
+                logger.debug(
+                    "[Sticker] 表情包打标签跳过（冷却中或无未打标签的表情包）。"
+                )
+        except Exception as e:
+            logger.warning(f"[Sticker] 表情包打标签异常: {e}")
 
     async def _scheduled_profile_cleanup(self):
         """画像清理定时任务"""
@@ -1817,3 +1855,78 @@ class SelfEvolutionPlugin(Star):
     ):
         """拦截工具调用结果，委托给 ImageCacheEngine 处理"""
         await self.image_cache.handle_tool_result(event, tool, tool_args, tool_result)
+
+    # ========== 表情包相关 LLM 工具 ==========
+
+    @filter.llm_tool(name="list_stickers")
+    async def list_stickers_tool(
+        self, event: AstrMessageEvent, tags: str = "", limit: int = 10
+    ) -> str:
+        """列出可用的表情包。
+
+        Args:
+            tags(string): 可选，按标签筛选（模糊匹配）
+            limit(int): 返回数量，默认10，最大50
+        """
+        group_id = event.get_group_id()
+        if not group_id:
+            return "此功能仅限群聊使用"
+
+        if limit > 50:
+            limit = 50
+
+        stickers = await self.entertainment.list_stickers(
+            group_id, tags if tags else "", limit
+        )
+
+        if not stickers:
+            return "表情包库为空或未找到匹配的表情包"
+
+        result = ["【表情包列表】"]
+        for i, s in enumerate(stickers, 1):
+            tag_str = s.get("tags", "") or "无标签"
+            result.append(f"{i}. {tag_str}")
+
+        return "\n".join(result)
+
+    @filter.llm_tool(name="send_sticker")
+    async def send_sticker_tool(
+        self, event: AstrMessageEvent, sticker_id: int = None, tags: str = ""
+    ):
+        """发送表情包。
+
+        Args:
+            sticker_id(int): 可选，指定表情包ID，不指定则随机
+            tags(string): 可选，按标签筛选后随机发送
+        """
+        group_id = event.get_group_id()
+        if not group_id:
+            yield event.plain_result("此功能仅限群聊使用")
+            return
+
+        if not await self.entertainment.should_send_sticker(group_id):
+            cooldown = self.cfg.sticker_send_cooldown
+            yield event.plain_result(f"冷却中，请 {cooldown} 分钟后再试")
+            return
+
+        sticker = None
+        if sticker_id:
+            sticker = await self.dao.get_sticker_by_id(sticker_id)
+        elif tags:
+            stickers = await self.entertainment.list_stickers(group_id, tags, 1)
+            sticker = stickers[0] if stickers else None
+        else:
+            sticker = await self.entertainment.get_sticker_for_sending(group_id)
+
+        if not sticker:
+            yield event.plain_result("未找到合适的表情包")
+            return
+
+        try:
+            from astrbot.core.message.components import Image
+
+            base64_data = sticker["base64_data"]
+            yield event.chain_result([Image.fromBase64(base64_data)])
+        except Exception as e:
+            logger.warning(f"[Sticker] 发送表情包失败: {e}")
+            yield event.plain_result(f"发送失败: {e}")

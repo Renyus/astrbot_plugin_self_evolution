@@ -129,6 +129,18 @@ class SelfEvolutionDAO:
                 created_at TEXT NOT NULL
             )
         """)
+        # 表情包表
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS stickers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                base64_data TEXT NOT NULL,
+                tags TEXT DEFAULT '',
+                created_at TEXT NOT NULL,
+                UNIQUE(group_id, user_id, base64_data)
+            )
+        """)
         await db.commit()
 
     async def get_conn(self):
@@ -532,3 +544,194 @@ class SelfEvolutionDAO:
             await db.execute("DELETE FROM image_cache")
             await db.commit()
             return count
+
+    # ========== 表情包相关方法 ==========
+
+    @with_db_retry()
+    async def add_sticker(
+        self, group_id: str, user_id: str, base64_data: str, tags: str = ""
+    ) -> bool:
+        """添加表情包到数据库"""
+        db = await self.get_conn()
+        async with self._write_lock:
+            try:
+                await db.execute(
+                    "INSERT INTO stickers (group_id, user_id, base64_data, tags, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
+                    (group_id, user_id, base64_data, tags),
+                )
+                await db.commit()
+                return True
+            except aiosqlite.IntegrityError:
+                return False
+
+    @with_db_retry()
+    async def get_sticker_count(self, group_id: str = None) -> int:
+        """获取表情包数量"""
+        db = await self.get_conn()
+        async with self._db_lock:
+            if group_id:
+                cursor = await db.execute(
+                    "SELECT COUNT(*) as cnt FROM stickers WHERE group_id = ?",
+                    (group_id,),
+                )
+            else:
+                cursor = await db.execute("SELECT COUNT(*) as cnt FROM stickers")
+            row = await cursor.fetchone()
+            return row["cnt"] if row else 0
+
+    @with_db_retry()
+    async def get_today_sticker_count(self, group_id: str = None) -> int:
+        """获取今日新增表情包数量"""
+        db = await self.get_conn()
+        async with self._db_lock:
+            if group_id:
+                cursor = await db.execute(
+                    "SELECT COUNT(*) as cnt FROM stickers WHERE group_id = ? AND date(created_at) = date('now')",
+                    (group_id,),
+                )
+            else:
+                cursor = await db.execute(
+                    "SELECT COUNT(*) as cnt WHERE date(created_at) = date('now')"
+                )
+            row = await cursor.fetchone()
+            return row["cnt"] if row else 0
+
+    @with_db_retry()
+    async def get_untagged_stickers(self, limit: int = 1) -> list:
+        """获取未打标签的表情包"""
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute(
+                "SELECT id, group_id, user_id, base64_data FROM stickers WHERE tags = '' OR tags IS NULL LIMIT ?",
+                (limit,),
+            )
+            rows = await cursor.fetchall()
+            return [
+                {
+                    "id": row["id"],
+                    "group_id": row["group_id"],
+                    "user_id": row["user_id"],
+                    "base64_data": row["base64_data"],
+                }
+                for row in rows
+            ]
+
+    @with_db_retry()
+    async def update_sticker_tags(self, sticker_id: int, tags: str) -> bool:
+        """更新表情包标签"""
+        db = await self.get_conn()
+        async with self._write_lock:
+            cursor = await db.execute(
+                "UPDATE stickers SET tags = ? WHERE id = ?", (tags, sticker_id)
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
+    @with_db_retry()
+    async def get_stickers_by_tags(
+        self, tags: str = None, group_id: str = None, limit: int = 10
+    ) -> list:
+        """根据标签搜索表情包"""
+        db = await self.get_conn()
+        async with self._db_lock:
+            if tags:
+                cursor = await db.execute(
+                    "SELECT id, group_id, user_id, base64_data, tags, created_at FROM stickers WHERE tags LIKE ? AND group_id = ? ORDER BY RANDOM() LIMIT ?",
+                    (f"%{tags}%", group_id, limit),
+                )
+            else:
+                cursor = await db.execute(
+                    "SELECT id, group_id, user_id, base64_data, tags, created_at FROM stickers WHERE group_id = ? ORDER BY RANDOM() LIMIT ?",
+                    (group_id, limit),
+                )
+            rows = await cursor.fetchall()
+            return [
+                {
+                    "id": row["id"],
+                    "group_id": row["group_id"],
+                    "user_id": row["user_id"],
+                    "base64_data": row["base64_data"],
+                    "tags": row["tags"],
+                    "created_at": row["created_at"],
+                }
+                for row in rows
+            ]
+
+    @with_db_retry()
+    async def get_random_sticker(self, group_id: str = None) -> dict | None:
+        """随机获取一张表情包"""
+        db = await self.get_conn()
+        async with self._db_lock:
+            if group_id:
+                cursor = await db.execute(
+                    "SELECT id, group_id, user_id, base64_data, tags, created_at FROM stickers WHERE group_id = ? AND tags != '' ORDER BY RANDOM() LIMIT 1",
+                    (group_id,),
+                )
+            else:
+                cursor = await db.execute(
+                    "SELECT id, group_id, user_id, base64_data, tags, created_at FROM stickers WHERE tags != '' ORDER BY RANDOM() LIMIT 1"
+                )
+            row = await cursor.fetchone()
+            if row:
+                return {
+                    "id": row["id"],
+                    "group_id": row["group_id"],
+                    "user_id": row["user_id"],
+                    "base64_data": row["base64_data"],
+                    "tags": row["tags"],
+                    "created_at": row["created_at"],
+                }
+            return None
+
+    @with_db_retry()
+    async def get_sticker_by_id(self, sticker_id: int) -> dict | None:
+        """根据ID获取表情包"""
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute(
+                "SELECT id, group_id, user_id, base64_data, tags, created_at FROM stickers WHERE id = ?",
+                (sticker_id,),
+            )
+            row = await cursor.fetchone()
+            if row:
+                return {
+                    "id": row["id"],
+                    "group_id": row["group_id"],
+                    "user_id": row["user_id"],
+                    "base64_data": row["base64_data"],
+                    "tags": row["tags"],
+                    "created_at": row["created_at"],
+                }
+            return None
+
+    @with_db_retry()
+    async def delete_oldest_sticker(self) -> bool:
+        """删除最旧的表情包"""
+        db = await self.get_conn()
+        async with self._write_lock:
+            cursor = await db.execute(
+                "DELETE FROM stickers WHERE id = (SELECT id FROM stickers ORDER BY created_at ASC LIMIT 1)"
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
+    @with_db_retry()
+    async def get_sticker_stats(self, group_id: str = None) -> dict:
+        """获取表情包统计"""
+        db = await self.get_conn()
+        async with self._db_lock:
+            if group_id:
+                total = await db.execute(
+                    "SELECT COUNT(*) as cnt FROM stickers WHERE group_id = ?",
+                    (group_id,),
+                )
+                today = await db.execute(
+                    "SELECT COUNT(*) as cnt FROM stickers WHERE group_id = ? AND date(created_at) = date('now')",
+                    (group_id,),
+                )
+            else:
+                total = await db.execute("SELECT COUNT(*) as cnt FROM stickers")
+                today = await db.execute(
+                    "SELECT COUNT(*) as cnt FROM stickers WHERE date(created_at) = date('now')"
+                )
+            return {"total": total.fetchone()["cnt"], "today": today.fetchone()["cnt"]}

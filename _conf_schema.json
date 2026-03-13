@@ -383,5 +383,54 @@
         "hint": "用于防止 prompt 超出 LLM context 限制，默认 2000",
         "type": "int",
         "default": 2000
+    },
+    "sticker_learning_enabled": {
+        "title": "启用表情包学习",
+        "description": "开启后会自动学习指定群友的表情包",
+        "hint": "需要配置学习对象 QQ 号",
+        "type": "bool",
+        "default": false
+    },
+    "sticker_target_qq": {
+        "title": "表情包学习对象QQ号",
+        "description": "要学习的群友 QQ 号，多个用逗号分隔",
+        "hint": "如：123456789,987654321",
+        "type": "string",
+        "default": ""
+    },
+    "sticker_fetch_interval": {
+        "title": "偷图频率(分钟)",
+        "description": "每隔多久检查一次新表情包",
+        "hint": "默认 5 分钟",
+        "type": "int",
+        "default": 5
+    },
+    "sticker_tag_cooldown": {
+        "title": "打标签冷却时间(分钟)",
+        "description": "每次打标签后等待多久再处理下一张",
+        "hint": "防止 LLM 请求过多，默认 5 分钟",
+        "type": "int",
+        "default": 5
+    },
+    "sticker_daily_limit": {
+        "title": "每日存储上限",
+        "description": "每天最多存储多少张表情包",
+        "hint": "默认 50 张",
+        "type": "int",
+        "default": 50
+    },
+    "sticker_total_limit": {
+        "title": "总存储上限",
+        "description": "表情包库最多存储多少张",
+        "hint": "默认 100 张，超出后删除最旧的",
+        "type": "int",
+        "default": 100
+    },
+    "sticker_send_cooldown": {
+        "title": "发表情包冷却时间(分钟)",
+        "description": "AI 发送表情包后需要等待多久才能再次发送",
+        "hint": "默认 30 分钟",
+        "type": "int",
+        "default": 30
     }
 }
