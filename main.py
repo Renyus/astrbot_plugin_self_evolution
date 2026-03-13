@@ -1973,7 +1973,6 @@ class SelfEvolutionPlugin(Star):
                 "user_relationships": "用户关系",
                 "user_interactions": "用户互动",
                 "stickers": "表情包",
-                "inner_monologues": "内心独白",
             }
             msg = ["【数据库统计】\n"]
             for table, count in stats.items():

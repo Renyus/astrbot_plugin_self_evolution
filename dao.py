@@ -699,7 +699,6 @@ class SelfEvolutionDAO:
             "user_relationships",
             "user_interactions",
             "stickers",
-            "inner_monologues",
         ]
 
         async with self._db_lock:
@@ -725,7 +724,6 @@ class SelfEvolutionDAO:
             "user_relationships",
             "user_interactions",
             "stickers",
-            "inner_monologues",
         ]
 
         async with self._write_lock:
