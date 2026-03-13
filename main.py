@@ -551,18 +551,22 @@ class SelfEvolutionPlugin(Star):
         """
         try:
             cron_mgr = self.context.cron_manager
-            jobs = await cron_mgr.list_jobs(job_type="basic")
 
-            # 清理所有旧的SelfEvolution任务，避免处理器丢失
-            for job in jobs:
-                if job.name.startswith("SelfEvolution_"):
-                    try:
-                        await cron_mgr.delete_job(job.job_id)
-                        logger.info(f"[SelfEvolution] 已清理旧任务: {job.name}")
-                    except Exception as e:
-                        logger.warning(
-                            f"[SelfEvolution] 清理旧任务失败: {job.name}, {e}"
-                        )
+            # 直接从数据库清理所有旧的SelfEvolution任务，避免处理器丢失
+            # 不依赖 list_jobs，因为重载时旧任务可能不在列表中
+            try:
+                jobs = await cron_mgr.list_jobs()  # 获取所有任务
+                for job in jobs:
+                    if job.name.startswith("SelfEvolution_"):
+                        try:
+                            await cron_mgr.delete_job(job.job_id)
+                            logger.info(f"[SelfEvolution] 已清理旧任务: {job.name}")
+                        except Exception as e:
+                            logger.warning(
+                                f"[SelfEvolution] 清理旧任务失败: {job.name}, {e}"
+                            )
+            except Exception as e:
+                logger.warning(f"[SelfEvolution] 获取任务列表失败: {e}")
 
             # 注册画像清理任务（每天凌晨 4 点）
             cleanup_job_name = "SelfEvolution_ProfileCleanup"
