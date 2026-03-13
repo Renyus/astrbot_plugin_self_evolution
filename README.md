@@ -240,7 +240,7 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 | `/approve_evolution <ID>` | 批准指定的进化请求 |
 | `/reject_evolution <ID>` | 拒绝指定的进化请求 |
 | `/clear_evolutions` | 清空所有待审核的进化请求 |
-| `/sticker [操作]` | 表情包管理（list: 列出 / delete <ID>: 删除 / clear: 清空 / stats: 统计） |
+| `/sticker [操作]` | 表情包管理（list: 列出 / untagged: 未打标签 / delete <ID>: 删除 / clear: 清空 / stats: 统计） |
 
 ---
 
