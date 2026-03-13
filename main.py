@@ -101,6 +101,7 @@ class SelfEvolutionPlugin(Star):
         self._lock = None  # 用于元编程写锁
         self.daily_reflection_pending = False
         self._pending_db_reset = {}  # 待确认的数据库重置操作 {user_id: timestamp}
+        self._shut_until = None  # 闭嘴截止时间 (timestamp)
 
     def _setup_debug_logging(self):
         """根据配置设置 debug 日志模式"""
@@ -532,9 +533,17 @@ class SelfEvolutionPlugin(Star):
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message_listener(self, event: AstrMessageEvent):
         """CognitionCore 6.0: 被动监听 - 滑动上下文窗口"""
+        import time
+
         logger.debug(
             f"[SelfEvolution] 收到消息: {event.message_str[:30] if event.message_str else '(空)'}"
         )
+
+        # 检查是否处于闭嘴状态
+        if self._shut_until and time.time() < self._shut_until:
+            remaining = int(self._shut_until - time.time())
+            logger.info(f"[SelfEvolution] 闭嘴中，剩余 {remaining} 秒")
+            return
 
         # 命令消息不触发互动意愿系统
         if event.is_at_or_wake_command:
@@ -1894,6 +1903,45 @@ class SelfEvolutionPlugin(Star):
                 "/sticker clear        # 清空所有表情包\n"
                 "/sticker stats        # 查看统计"
             )
+
+    @filter.command("shut")
+    async def shut_cmd(self, event: AstrMessageEvent, minutes: str = ""):
+        """闭嘴命令：让AI暂停响应"""
+        import time
+
+        user_id = str(event.get_sender_id())
+
+        if not event.is_admin() and (
+            not self.admin_users or user_id not in self.admin_users
+        ):
+            yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
+            return
+
+        if not minutes:
+            # 显示当前状态
+            if self._shut_until and time.time() < self._shut_until:
+                remaining = int(self._shut_until - time.time())
+                yield event.plain_result(f"[!] 闭嘴模式，剩余 {remaining} 秒")
+            else:
+                yield event.plain_result("[OK] 正常模式，未闭嘴")
+            return
+
+        # 解析分钟数
+        try:
+            mins = int(minutes)
+        except ValueError:
+            yield event.plain_result("请输入有效的分钟数，如 /shut 5")
+            return
+
+        if mins <= 0:
+            # 取消闭嘴
+            self._shut_until = None
+            yield event.plain_result("[OK] 已取消闭嘴模式")
+            return
+
+        # 设置闭嘴时间
+        self._shut_until = time.time() + mins * 60
+        yield event.plain_result(f"[OK] 已进入闭嘴模式，持续 {mins} 分钟")
 
     @filter.command("db")
     async def db_cmd(self, event: AstrMessageEvent, action: str = "", param: str = ""):
