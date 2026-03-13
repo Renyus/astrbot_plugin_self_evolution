@@ -174,7 +174,7 @@ class EntertainmentEngine:
                 logger.warning(f"[Sticker] 获取 tool_manager 失败")
                 return False
 
-            mcp_clients = tool_manager.mcp_client_dict()
+            mcp_clients = tool_manager.mcp_client_dict
             if not mcp_clients:
                 logger.warning(f"[Sticker] 没有可用的 MCP 客户端")
                 return False
