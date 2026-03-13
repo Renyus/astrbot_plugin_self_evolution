@@ -1746,9 +1746,9 @@ class SelfEvolutionPlugin(Star):
             return "表情包库为空或未找到匹配的表情包"
 
         result = ["【表情包列表】"]
-        for i, s in enumerate(stickers, 1):
+        for s in stickers:
             tag_str = s.get("tags", "") or "无标签"
-            result.append(f"{i}. {tag_str}")
+            result.append(f"[ID:{s['id']}] {tag_str}")
 
         return "\n".join(result)
 
@@ -1838,7 +1838,6 @@ class SelfEvolutionPlugin(Star):
                 "/sticker delete <ID>     # 删除指定ID，如 delete 1 或 delete 1-3"
             )
             result.append("/sticker clear           # 清空所有表情包")
-            result.append("/sticker reindex       # 重新编号")
             yield event.plain_result("\n".join(result))
 
         elif action == "untagged":
@@ -1905,10 +1904,6 @@ class SelfEvolutionPlugin(Star):
 
             yield event.plain_result(f"已清空 {deleted} 张表情包")
 
-        elif action == "reindex":
-            remaining = await self.dao.reindex_stickers()
-            yield event.plain_result(f"ID 已重新编号，剩余 {remaining} 张表情包")
-
         elif action == "stats":
             stats = await self.dao.get_sticker_stats()
             yield event.plain_result(
@@ -1922,7 +1917,6 @@ class SelfEvolutionPlugin(Star):
                 "/sticker untagged     # 查看未打标签的表情包\n"
                 "/sticker delete <ID>  # 删除指定表情包，支持批量如 1-3 或 1,3,5\n"
                 "/sticker clear        # 清空所有表情包\n"
-                "/sticker reindex      # 重新编号\n"
                 "/sticker stats        # 查看统计"
             )
 
