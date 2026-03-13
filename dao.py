@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import aiosqlite
+import time
 from datetime import datetime
 from functools import wraps
 
@@ -36,6 +37,39 @@ class SelfEvolutionDAO:
         self.db_conn = None
         self._db_lock = None
         self._write_lock = None
+        # 好感度内存缓存（60秒过期）
+        self._affinity_cache = {}
+        self._affinity_cache_time = {}
+        self._cache_ttl = 60  # 缓存60秒
+        # 连接探针优化：每10次请求才探针一次
+        self._probe_counter = 0
+        self._probe_interval = 10  # 每10次请求探针一次
+        self._last_probe_time = 0
+        self._probe_interval_seconds = 30  # 至少30秒探针一次
+
+    async def _get_cached_affinity(self, user_id: str) -> int | None:
+        """从缓存获取好感度"""
+        if user_id in self._affinity_cache:
+            cache_time = self._affinity_cache_time.get(user_id, 0)
+            if time.time() - cache_time < self._cache_ttl:
+                return self._affinity_cache[user_id]
+        return None
+
+    async def _set_cached_affinity(self, user_id: str, score: int):
+        """设置好感度缓存"""
+        self._affinity_cache[user_id] = score
+        self._affinity_cache_time[user_id] = time.time()
+        # 定期清理过期缓存
+        if len(self._affinity_cache) > 1000:
+            current_time = time.time()
+            expired = [
+                k
+                for k, t in self._affinity_cache_time.items()
+                if current_time - t >= self._cache_ttl
+            ]
+            for k in expired:
+                self._affinity_cache.pop(k, None)
+                self._affinity_cache_time.pop(k, None)
 
     async def init_db(self):
         """兼容旧接口，内部实际上已融入 get_conn 的连接池锁机制，从而规避初始化并发造成的 WAL 锁定冲突"""
@@ -110,9 +144,25 @@ class SelfEvolutionDAO:
                 await self.db_conn.execute("PRAGMA journal_mode=WAL;")
                 self.db_conn.row_factory = aiosqlite.Row
                 await self._init_schema(self.db_conn)
+                self._last_probe_time = time.time()
+
+        # 优化探针频率：每隔一定次数或时间才探针
+        self._probe_counter += 1
+        current_time = time.time()
+        should_probe = (
+            self._probe_counter >= self._probe_interval
+            or current_time - self._last_probe_time >= self._probe_interval_seconds
+        )
+
+        if not should_probe:
+            return self.db_conn
+
+        # 执行探针
+        self._probe_counter = 0
+        self._last_probe_time = current_time
 
         try:
-            # 存活检测移出 _db_lock 死区，防止高频探针遭遇 SQLite 锁引发并发雪崩，并增加防挂起硬超时
+
             async def probe():
                 async with self.db_conn.execute("SELECT 1") as cursor:
                     await cursor.fetchone()
@@ -259,13 +309,21 @@ class SelfEvolutionDAO:
     @with_db_retry()
     async def get_affinity(self, user_id: str) -> int:
         user_id = str(user_id)  # 确保类型一致
+        # 优先从缓存获取
+        cached = await self._get_cached_affinity(user_id)
+        if cached is not None:
+            return cached
+        # 缓存未命中，查询数据库
         db = await self.get_conn()
         async with db.execute(
             "SELECT affinity_score FROM user_relationships WHERE user_id = ?",
             (user_id,),
         ) as cursor:
             row = await cursor.fetchone()
-            return row["affinity_score"] if row else 50
+            score = row["affinity_score"] if row else 50
+            # 写入缓存
+            await self._set_cached_affinity(user_id, score)
+            return score
 
     @with_db_retry()
     async def update_affinity(self, user_id: str, delta: int):
@@ -290,6 +348,8 @@ class SelfEvolutionDAO:
                     (user_id, new_score, datetime.now().isoformat()),
                 )
             await db.commit()
+            # 更新缓存
+            await self._set_cached_affinity(user_id, new_score)
 
     @with_db_retry()
     async def recover_all_affinity(self, recovery_amount: int = 1):

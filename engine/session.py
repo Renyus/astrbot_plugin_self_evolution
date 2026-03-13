@@ -6,6 +6,7 @@ from astrbot.api import logger
 import asyncio
 import random
 import time
+from functools import lru_cache
 
 
 class SessionManager:
@@ -15,26 +16,23 @@ class SessionManager:
         self.plugin = plugin
         self.session_buffers = {}  # {group_id: {"messages": [msg_list], "token_count": int}}
         self.processing_sessions = set()
-
-    @property
-    def max_tokens(self):
-        return self.plugin.cfg.session_max_tokens
-
-    @property
-    def whitelist(self):
-        return self.plugin.cfg.session_whitelist
-
-    @property
-    def message_threshold(self):
-        return self.plugin.cfg.eavesdrop_message_threshold
+        self._token_cache = {}  # Token 估算缓存
 
     def _estimate_tokens(self, text: str) -> int:
-        """估算 token 数量（中英文混合）"""
+        """估算 token 数量（中英文混合）- 带缓存"""
         if not text:
             return 0
+        # 使用文本前100字符作为缓存键，减少内存占用
+        cache_key = text[:100] if len(text) > 100 else text
+        if cache_key in self._token_cache:
+            return self._token_cache[cache_key]
         chinese = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
         other = len(text) - chinese
-        return int(chinese * 0.7 + other * 0.25)
+        result = int(chinese * 0.7 + other * 0.25)
+        # 缓存限制，避免无限增长
+        if len(self._token_cache) < 5000:
+            self._token_cache[cache_key] = result
+        return result
 
     def add_message(self, group_id: str, sender_name: str, user_id: str, msg_text: str):
         """添加消息到滑动窗口（支持群聊和私聊）"""
@@ -50,9 +48,9 @@ class SessionManager:
             logger.debug(f"[Session] 群ID和用户ID都为空，跳过记录")
             return
 
-        logger.info(
-            f"[Session] 记录消息，{label}: {msg_text[:30] if msg_text else '(空)'}"
-        )
+            logger.debug(
+                f"[Session] 记录消息，{label}: {msg_text[:30] if msg_text else '(空)'}"
+            )
 
         max_tokens = self.max_tokens
         msg = f"[{sender_name}]({user_id}): {msg_text}"
@@ -68,7 +66,7 @@ class SessionManager:
                 "evicted_messages": [],
                 "is_private": is_private,
             }
-            logger.info(f"[Session] 新建会话缓冲: {label}")
+            logger.debug(f"[Session] 新建会话缓冲: {label}")
 
         buffer = self.session_buffers[buffer_key]
         buffer["last_active"] = time.time()
@@ -122,22 +120,22 @@ class SessionManager:
             logger.warning(f"[Session] group_id 和 user_id 都为空，无法获取上下文")
             return ""
 
-        logger.info(f"[Session] 尝试获取上下文，{label}")
+        logger.debug(f"[Session] 尝试获取上下文，{label}")
 
         if buffer_key not in self.session_buffers:
-            logger.warning(
+            logger.debug(
                 f"[Session] {label} 无缓冲，session_buffers 包含: {list(self.session_buffers.keys())}"
             )
             return ""
 
         buffer = self.session_buffers[buffer_key]
         if not buffer.get("messages"):
-            logger.warning(f"[Session] {label} 缓冲为空")
+            logger.debug(f"[Session] {label} 缓冲为空")
             return ""
 
         context = "\n".join(buffer["messages"])
         token_count = buffer.get("token_count", 0)
-        logger.info(
+        logger.debug(
             f"[Session] 获取上下文成功，{label}，{len(buffer['messages'])} 条消息，{token_count} tokens"
         )
         return context

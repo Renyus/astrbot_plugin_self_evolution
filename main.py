@@ -186,7 +186,7 @@ class SelfEvolutionPlugin(Star):
         session_id = event.session_id
         msg_text = event.message_str or ""
 
-        logger.info(f"[CognitionCore] 进入 LLM 请求拦截层。用户: {user_id}")
+        logger.debug(f"[CognitionCore] 进入 LLM 请求拦截层。用户: {user_id}")
 
         # 0.5 图片处理：获取图片标签
         try:
@@ -414,7 +414,7 @@ class SelfEvolutionPlugin(Star):
         # 6. 滑动上下文窗口注入
         private_session_enabled = getattr(self, "private_session_enabled", True)
         if group_id:
-            logger.info(f"[Session] 获取滑动窗口上下文，群 {group_id}")
+            logger.debug(f"[Session] 获取滑动窗口上下文，群 {group_id}")
             session_context = self.session_manager.get_context(group_id=group_id)
             logger.info(f"[Session] 滑动窗口内容长度: {len(session_context)} 字符")
             if session_context:
@@ -427,12 +427,12 @@ class SelfEvolutionPlugin(Star):
         elif private_session_enabled and user_id:
             # 先记录私聊消息到滑动窗口
             self.session_manager.add_message(None, sender_name, user_id, msg_text)
-            logger.info(f"[Session] 获取滑动窗口上下文，私聊 {user_id}")
+            logger.debug(f"[Session] 获取滑动窗口上下文，私聊 {user_id}")
             session_context = self.session_manager.get_context(user_id=user_id)
-            logger.info(f"[Session] 滑动窗口内容长度: {len(session_context)} 字符")
+            logger.debug(f"[Session] 滑动窗口内容长度: {len(session_context)} 字符")
             if session_context:
                 req.system_prompt += f"\n\n【私聊最近对话】\n{session_context}"
-                logger.info(
+                logger.debug(
                     f"[Session] 已注入私聊滑动窗口上下文: {len(session_context)} 字符"
                 )
             else:
