@@ -652,8 +652,10 @@ class SelfEvolutionPlugin(Star):
         try:
             groups = self._get_target_groups()
             if not groups:
-                logger.debug("[Interject] 无目标群")
+                logger.debug("[Interject] 无目标群（eavesdropping 未监听任何群）")
                 return
+
+            logger.info(f"[Interject] 目标群列表: {groups}")
 
             for group_id in groups:
                 await self._interject_check_group(group_id)
@@ -661,7 +663,7 @@ class SelfEvolutionPlugin(Star):
             logger.info("[Interject] 主动插嘴检查完成")
 
         except Exception as e:
-            logger.warning(f"[Interject] 主动插嘴检查异常: {e}")
+            logger.warning(f"[Interject] 主动插嘴检查异常: {e}", exc_info=True)
 
     def _get_target_groups(self):
         """获取需要检查的群列表"""
@@ -676,14 +678,17 @@ class SelfEvolutionPlugin(Star):
         try:
             platform_insts = self.context.platform_manager.platform_insts
             if not platform_insts:
+                logger.debug(f"[Interject] 群 {group_id}: 无平台实例")
                 return
 
             platform = platform_insts[0]
             if not hasattr(platform, "get_client"):
+                logger.debug(f"[Interject] 群 {group_id}: 平台无 get_client")
                 return
 
             bot = platform.get_client()
             if not bot:
+                logger.debug(f"[Interject] 群 {group_id}: 无法获取 bot 实例")
                 return
 
             msg_count = self.cfg.interject_msg_count
@@ -693,6 +698,7 @@ class SelfEvolutionPlugin(Star):
 
             messages = result.get("messages", [])
             if not messages:
+                logger.debug(f"[Interject] 群 {group_id}: 无历史消息")
                 return
 
             formatted = []
@@ -704,10 +710,12 @@ class SelfEvolutionPlugin(Star):
                     formatted.append(f"{nickname}: {content}")
 
             if not formatted:
+                logger.debug(f"[Interject] 群 {group_id}: 消息格式化为空")
                 return
 
             llm_provider = self.context.get_using_provider("qq")
             if not llm_provider:
+                logger.debug(f"[Interject] 群 {group_id}: 无 LLM provider")
                 return
 
             prompt = f"""分析以下群聊消息，判断AI是否应该主动插嘴：
@@ -731,12 +739,14 @@ class SelfEvolutionPlugin(Star):
             )
 
             if not res.completion_text:
+                logger.debug(f"[Interject] 群 {group_id}: LLM 无返回")
                 return
 
             import re
 
             match = re.search(r"\{.*\}", res.completion_text, re.DOTALL)
             if not match:
+                logger.debug(f"[Interject] 群 {group_id}: LLM 返回无法解析 JSON")
                 return
 
             import json
@@ -744,6 +754,7 @@ class SelfEvolutionPlugin(Star):
             try:
                 result = json.loads(match.group())
             except:
+                logger.debug(f"[Interject] 群 {group_id}: JSON 解析失败")
                 return
 
             if result.get("should_interject"):
@@ -753,9 +764,12 @@ class SelfEvolutionPlugin(Star):
                         f"[Interject] 群 {group_id} 建议插嘴: {suggested[:50]}..."
                     )
                     await self._do_interject(group_id, suggested)
+            else:
+                reason = result.get("reason", "未知")
+                logger.debug(f"[Interject] 群 {group_id} 气氛不需要插嘴: {reason[:50]}")
 
         except Exception as e:
-            logger.warning(f"[Interject] 群 {group_id} 检查失败: {e}")
+            logger.warning(f"[Interject] 群 {group_id} 检查失败: {e}", exc_info=True)
 
     async def _do_interject(self, group_id: str, message: str):
         """执行插嘴"""
