@@ -1261,15 +1261,6 @@ class SelfEvolutionPlugin(Star):
             logger.warning(f"[SelfEvolution] 清空进化请求失败: {e}")
             yield event.plain_result(f"清空审核列表时发生异常: {e}")
 
-    @filter.llm_tool(name="commit_to_memory")
-    async def commit_to_memory(self, event: AstrMessageEvent, fact: str) -> str:
-        """当你发现了一些关于用户的重要的、需要永久记住的事实时，调用此工具将该事实存入你的长期记忆库。
-
-        Args:
-            fact(string): 需要记住的具体事实或信息
-        """
-        return await self.memory.commit_to_memory(event, fact)
-
     @filter.llm_tool(name="recall_memories")
     async def recall_memories(self, event: AstrMessageEvent, query: str) -> str:
         """当你需要回想起以前记住的事情、用户的偏好或过去的约定知识时，调用此工具。
@@ -1278,17 +1269,6 @@ class SelfEvolutionPlugin(Star):
             query(string): 搜索关键词或问题
         """
         return await self.memory.recall_memories(event, query)
-
-    @filter.llm_tool(name="learn_from_context")
-    async def learn_from_context(
-        self, event: AstrMessageEvent, key_info: str = ""
-    ) -> str:
-        """从当前对话中自动提取关键信息并存入长期记忆。
-
-        Args:
-            key_info(string): 需要记住的关键信息（如果留空，将自动提取当前对话中的关键内容）
-        """
-        return await self.memory.learn_from_context(event, key_info)
 
     @filter.llm_tool(name="clear_all_memory")
     async def clear_all_memory(
@@ -1305,15 +1285,6 @@ class SelfEvolutionPlugin(Star):
             return "权限拒绝：此操作仅限系统管理员执行。"
         return await self.memory.clear_all_memory(event, confirm)
 
-    @filter.llm_tool(name="list_memories")
-    async def list_memories(self, event: AstrMessageEvent, limit: int = 10) -> str:
-        """列出当前存储在知识库中的记忆条目。
-
-        Args:
-            limit(number): 最多显示的记忆条目数量，默认10条
-        """
-        return await self.memory.list_memories(event, limit)
-
     @filter.llm_tool(name="delete_memory")
     async def delete_memory(self, event: AstrMessageEvent, doc_id: str) -> str:
         """删除知识库中的单条记忆。
@@ -1322,31 +1293,6 @@ class SelfEvolutionPlugin(Star):
             doc_id(string): 要删除的记忆条目ID
         """
         return await self.memory.delete_memory(event, doc_id)
-
-    @filter.llm_tool(name="save_group_knowledge")
-    async def save_group_knowledge(
-        self,
-        event: AstrMessageEvent,
-        knowledge: str,
-        knowledge_type: str = "约定活动",
-        source_uuids: list = None,
-    ) -> str:
-        """当群聊中出现具体的约定、重要群规或者集体共识时，立即调用此工具。严禁保存日常闲聊或毫无信息量的废话。
-
-        触发场景：
-        - 群主/管理员宣布群规
-        - 群友约定活动时间/内容（如"今晚八点开会"）
-        - 重要事件
-        - 值得记住的群文化
-
-        Args:
-            knowledge(string): 用最简练的冷白描手法记录事实。必须包含明确的时间状语（如：今晚八点开会）。（必填）
-            knowledge_type(string): 记忆的分类：群规/约定活动/群共识（默认约定活动）
-            source_uuids(list): 触发记录的原始消息 UUID 列表，用于后期溯源。（可选，不填则自动记录时间戳）
-        """
-        return await self.memory.save_group_knowledge(
-            event, knowledge, knowledge_type, source_uuids
-        )
 
     @filter.llm_tool(name="list_tools")
     async def list_tools(self, event: AstrMessageEvent) -> str:
@@ -1458,45 +1404,6 @@ class SelfEvolutionPlugin(Star):
         if not profile:
             return "该用户暂无画像记录。"
         return profile
-
-    @filter.llm_tool(name="update_user_profile")
-    async def update_user_profile(
-        self,
-        event: AstrMessageEvent,
-        target_user_id: str,
-        content: str = "",
-    ) -> str:
-        """当你在对话中发现用户的兴趣偏好或性格特征时，调用此工具更新用户画像。
-
-        触发场景：
-        - 用户表达喜欢/讨厌某事物
-        - 用户透露自己的性格特点
-        - 用户展示行为习惯
-
-        Args:
-            target_user_id(string): 要更新的目标用户ID（必填）
-            content(string): 你对这个人的印象描述，用精简的纯文本（必填）
-        """
-        if not content:
-            return "请提供要更新的内容描述。"
-
-        # 简单处理：直接追加到现有 Markdown
-        existing = await self.profile.load_profile(target_user_id)
-
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-        new_content = f"\n\n---\n**{timestamp}**\n{content}"
-
-        if existing:
-            updated = existing + new_content
-        else:
-            updated = f"# 用户印象笔记\n{new_content}"
-
-        # 限制长度，保留最新内容
-        if len(updated) > 2000:
-            updated = updated[-2000:] + "\n\n(...早期记录已截断)"
-
-        await self.profile.save_profile(target_user_id, updated)
-        return f"已更新用户 {target_user_id} 的画像。"
 
     @filter.llm_tool(name="upsert_cognitive_memory")
     async def upsert_cognitive_memory(
