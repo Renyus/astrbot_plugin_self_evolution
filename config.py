@@ -35,18 +35,6 @@ class PluginConfig:
         return self._config.get("persona_name", "黑塔")
 
     @property
-    def persona_title(self):
-        return self._config.get("persona_title", "人偶负责人")
-
-    @property
-    def persona_style(self):
-        return self._config.get("persona_style", "理性、犀利且专业")
-
-    @property
-    def interjection_desire(self):
-        return int(self._config.get("interjection_desire", 5))
-
-    @property
     def critical_keywords(self):
         return self._config.get(
             "critical_keywords",

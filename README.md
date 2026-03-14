@@ -310,8 +310,6 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `persona_name` | string | 黑塔 | 机器人名称 |
-| `persona_title` | string | 人偶负责人 | 机器人头衔/身份 |
-| `persona_style` | string | 理性、犀利且专业 | 互动意愿时的语气风格描述 |
 | `core_principles` | string | (见配置) | 核心价值观/安全锚点 |
 | `admin_users` | list | [] | 管理员 ID 列表 |
 | `debug_log_enabled` | bool | false | Debug 日志模式 |
@@ -321,7 +319,6 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `interjection_desire` | int | 5 | 发言意愿（1 极冷淡，10 高度活跃） |
 | `critical_keywords` | string | 黑塔\|空间站\|... | 强制触发互动意愿的正则关键词 |
 | `leaky_integrator_enabled` | bool | true | 启用泄漏积分器 |
 | `leaky_decay_factor` | float | 0.9 | 衰减系数（0-1，越小衰减越快） |
