@@ -1662,15 +1662,24 @@ class SelfEvolutionPlugin(Star):
         - /shut 0 - 取消当前群闭嘴
         """
         user_id = str(event.get_sender_id())
+        current_group = event.get_group_id()
 
-        if not event.is_admin() and (
-            not self.admin_users or user_id not in self.admin_users
-        ):
+        # 检查是否是管理员
+        is_admin = event.is_admin() or (
+            self.admin_users and user_id in self.admin_users
+        )
+
+        # 检查群级别闭嘴：非管理员在闭嘴期间不能执行任何命令
+        if current_group and current_group in self._shut_until_by_group:
+            if time.time() < self._shut_until_by_group[current_group]:
+                if not is_admin:
+                    return  # 非管理员在闭嘴期间不能执行任何命令
+
+        # 管理员权限检查
+        if not is_admin:
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
 
-        # 获取当前群号
-        current_group = event.get_group_id()
         if not current_group:
             yield event.plain_result("此命令需要在群聊中使用")
             return
