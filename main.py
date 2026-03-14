@@ -830,7 +830,7 @@ class SelfEvolutionPlugin(Star):
                     logger.info(
                         f"[Interject] 群 {group_id} 建议插嘴: {suggested[:50]}..."
                     )
-                    await self._do_interject(group_id, suggested, "qq")
+                    await self._do_interject(group_id, suggested)
             else:
                 reason = result.get("reason", "未知")
                 logger.debug(f"[Interject] 群 {group_id} 气氛不需要插嘴: {reason[:50]}")
@@ -838,9 +838,7 @@ class SelfEvolutionPlugin(Star):
         except Exception as e:
             logger.warning(f"[Interject] 群 {group_id} 检查失败: {e}", exc_info=True)
 
-    async def _do_interject(
-        self, group_id: str, message: str, platform_origin: str = "qq"
-    ):
+    async def _do_interject(self, group_id: str, message: str):
         """执行插嘴"""
         try:
             platform_insts = self.context.platform_manager.platform_insts
@@ -855,16 +853,15 @@ class SelfEvolutionPlugin(Star):
             if not bot:
                 return
 
-            personality = await self.context.persona_manager.get_default_persona_v3(
-                platform_origin
-            )
-            persona_prefix = f"【{personality['name']}】" if personality else ""
+            persona_prefix = f"【{self.persona_name}】"
             full_message = f"{persona_prefix}{message}"
 
             await bot.call_action(
                 "send_group_msg", group_id=int(group_id), message=full_message
             )
-            logger.info(f"[Interject] 已向群 {group_id} 发送插嘴消息")
+            logger.info(
+                f"[Interject] 已向群 {group_id} 发送插嘴消息: {persona_prefix}{message[:30]}..."
+            )
 
         except Exception as e:
             logger.warning(f"[Interject] 发送插嘴消息失败: {e}")
