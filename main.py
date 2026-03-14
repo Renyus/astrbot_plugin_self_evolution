@@ -802,7 +802,7 @@ class SelfEvolutionPlugin(Star):
             res = await llm_provider.text_chat(
                 prompt=prompt,
                 contexts=[],
-                system_prompt="你是一个群聊助手，根据消息内容判断是否应该主动发言。只输出JSON。",
+                system_prompt=f"你是 {self.persona_name}。根据群聊消息判断是否应该主动插嘴，只输出JSON。",
             )
 
             if not res.completion_text:
