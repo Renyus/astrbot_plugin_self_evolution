@@ -1,3 +1,7 @@
+"""
+每日群聊总结系统 - 定时获取群消息，LLM 总结后存入知识库
+"""
+
 import asyncio
 import logging
 import time
@@ -5,12 +9,20 @@ from datetime import datetime
 
 logger = logging.getLogger("astrbot")
 
+SUMMARY_PROMPT = """你是群聊总结助手。请分析以下群聊消息，输出一段精简的总结：
+
+总结要求：
+- 概括群聊的主要话题和讨论内容
+- 记录重要的群事件或共识
+- 不超过 200 字
+
+消息列表：
+{messages}
+"""
+
 
 class MemoryManager:
-    """
-    CognitionCore 记忆管理模块
-    负责记忆的存储、检索等功能
-    """
+    """每日群聊总结管理器"""
 
     def __init__(self, plugin):
         self.plugin = plugin
@@ -20,323 +32,203 @@ class MemoryManager:
         return self.plugin.cfg.memory_kb_name
 
     @property
-    def timeout_memory_commit(self):
-        return self.plugin.cfg.timeout_memory_commit
+    def memory_msg_count(self):
+        return self.plugin.cfg.memory_msg_count
 
-    @property
-    def timeout_memory_recall(self):
-        return self.plugin.cfg.timeout_memory_recall
+    async def daily_summary(self):
+        """执行每日群聊总结"""
+        logger.info("[Memory] 开始每日群聊总结...")
 
-    @property
-    def max_memory_entries(self):
-        return self.plugin.cfg.max_memory_entries
-
-    async def commit_to_memory(self, event, fact: str) -> str:
-        """手动存入记忆"""
-        logger.info(f"[Memory] 存入记忆: {fact[:50]}")
-        sender_id = event.get_sender_id()
-        sender_name = event.get_sender_name() or "未知用户"
-        group_id = event.get_group_id() or "私聊"
-        unified_msg_origin = event.unified_msg_origin
-
-        formatted_fact = (
-            f"【记忆条目】\n"
-            f"来源: {unified_msg_origin}\n"
-            f"说话者: {sender_name} (ID: {sender_id})\n"
-            f"群/私聊: {group_id}\n"
-            f"内容: {fact}\n"
-            f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        )
-
-        return await self._do_commit_memory(formatted_fact)
-
-    async def save_group_knowledge(
-        self,
-        event,
-        knowledge: str,
-        knowledge_type: str = "约定",
-        source_uuids: list = None,
-    ) -> str:
-        """保存群公共知识
-
-        Args:
-            knowledge: 用最简练的冷白描手法记录事实，必须包含明确的时间状语
-            knowledge_type: 知识类型：群规/约定活动/群共识
-            source_uuids: 触发记录的原始消息 UUID 列表
-        """
-        group_id = event.get_group_id()
-        if not group_id:
-            return "只有群聊才能保存群公共知识，私聊场景不支持此操作。"
-
-        source_uuids = source_uuids or []
-        uuid_str = f"来源UUID:{source_uuids}" if source_uuids else ""
-
-        formatted_knowledge = f"({knowledge_type}) {knowledge} {uuid_str}"
-
-        return await self._do_commit_memory(formatted_knowledge)
-
-    async def _do_commit_memory(
-        self, formatted_fact: str, is_auto: bool = False
-    ) -> str:
-        """执行实际的存入记忆逻辑（包含去重和自动清理）"""
-        kb_manager = self.plugin.context.kb_manager
         try:
-            kb_helper = await asyncio.wait_for(
-                kb_manager.get_kb_by_name(self.memory_kb_name),
-                timeout=self.timeout_memory_commit,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("[SelfEvolution] 记忆库装载超时。")
-            return "与知识引擎服务器建立信道超时，中断存入以维持会话流畅。"
+            groups = self._get_target_groups()
+            if not groups:
+                logger.info("[Memory] 无目标群，跳过总结")
+                return
+
+            for group_id in groups:
+                await self._summarize_group(group_id)
+
+            logger.info("[Memory] 每日群聊总结完成")
+
         except Exception as e:
-            if isinstance(e, (TypeError, ValueError)):
-                raise
-            logger.warning(f"[SelfEvolution] 记忆检索或系统网络失效: {e}")
-            return "检索长期记忆时发生业务异常，请检查配置与联通状态。"
+            logger.error(f"[Memory] 每日群聊总结异常: {e}", exc_info=True)
 
-        if not kb_helper:
-            logger.warning(
-                f"[SelfEvolution] 记忆知识库 '{self.memory_kb_name}' 不存在。"
-            )
-            return (
-                f"未找到名为 {self.memory_kb_name} 的记忆知识库，请先在后台手动创建它。"
-            )
+    def _get_target_groups(self):
+        """获取需要总结的群列表"""
+        if hasattr(self.plugin, "eavesdropping") and hasattr(
+            self.plugin.eavesdropping, "active_users"
+        ):
+            return list(self.plugin.eavesdropping.active_users.keys())
+        return []
 
+    async def _summarize_group(self, group_id: str):
+        """总结单个群的消息"""
         try:
-            try:
-                check_results = await asyncio.wait_for(
-                    kb_manager.retrieve(
-                        query=formatted_fact[:100],
-                        kb_names=[self.memory_kb_name],
-                        top_m_final=3,
-                    ),
-                    timeout=5.0,
-                )
-                if check_results and check_results.get("results"):
-                    for r in check_results.get("results", []):
-                        if r.get("content") and formatted_fact[:50] in r.get(
-                            "content", ""
-                        ):
-                            logger.info(
-                                "[SelfEvolution] 记忆去重：检测到相似内容已存在，跳过存入。"
-                            )
-                            return "已存在相似记忆，无需重复存储。"
-            except asyncio.TimeoutError:
-                pass
-            except Exception as e:
-                logger.warning(f"[SelfEvolution] 记忆去重检查失败: {e}")
+            messages = await self._fetch_group_messages(group_id)
+            if not messages:
+                logger.debug(f"[Memory] 群 {group_id} 无消息")
+                return
 
-            try:
-                docs = await kb_helper.list_documents()
-                if docs and len(docs) >= self.max_memory_entries:
-                    oldest_doc = min(
-                        docs, key=lambda d: getattr(d, "created_at", "") or ""
-                    )
-                    doc_id = getattr(oldest_doc, "doc_id", None)
-                    if doc_id:
-                        await kb_helper.delete_document(doc_id)
-                        logger.info(
-                            f"[SelfEvolution] 自动清理：已删除最旧的记忆条目 {doc_id}"
-                        )
-            except Exception as e:
-                logger.warning(f"[SelfEvolution] 自动清理失败: {e}")
+            summary = await self._llm_summarize(messages)
+            if not summary:
+                return
+
+            await self._save_to_knowledge_base(group_id, summary)
+            logger.info(f"[Memory] 群 {group_id} 总结已保存")
+
+        except Exception as e:
+            logger.warning(f"[Memory] 群 {group_id} 总结失败: {e}")
+
+    async def _fetch_group_messages(self, group_id: str):
+        """通过 NapCat API 获取群消息"""
+        try:
+            platform_insts = self.plugin.context.platform_manager.platform_insts
+            if not platform_insts:
+                return []
+
+            platform = platform_insts[0]
+            if not hasattr(platform, "get_client"):
+                return []
+
+            bot = platform.get_client()
+            if not bot:
+                return []
+
+            result = await bot.call_action(
+                "get_group_msg_history",
+                group_id=int(group_id),
+                count=self.memory_msg_count,
+            )
+
+            messages = result.get("messages", [])
+            formatted = []
+            for msg in messages:
+                sender = msg.get("sender", {})
+                nickname = sender.get("nickname", "未知")
+                content = msg.get("message", "")
+                if content:
+                    formatted.append(f"{nickname}: {content}")
+
+            return formatted
+
+        except Exception as e:
+            logger.warning(f"[Memory] 获取群消息失败: {e}")
+            return []
+
+    async def _llm_summarize(self, messages: list) -> str:
+        """调用 LLM 总结消息"""
+        try:
+            llm_provider = self.plugin.context.get_using_provider("qq")
+            if not llm_provider:
+                return None
+
+            prompt = SUMMARY_PROMPT.format(messages="\n".join(messages[:100]))
+
+            res = await llm_provider.text_chat(
+                prompt=prompt,
+                contexts=[],
+                system_prompt="你是一个群聊总结助手，只输出精简的总结文本。",
+            )
+
+            return res.completion_text.strip() if res.completion_text else None
+
+        except Exception as e:
+            logger.warning(f"[Memory] LLM 总结失败: {e}")
+            return None
+
+    async def _save_to_knowledge_base(self, group_id: str, summary: str):
+        """保存总结到知识库"""
+        try:
+            kb_manager = self.plugin.context.kb_manager
+            kb_helper = await asyncio.wait_for(
+                kb_manager.get_kb_by_name(self.memory_kb_name), timeout=10.0
+            )
+
+            if not kb_helper:
+                logger.warning(f"[Memory] 知识库 {self.memory_kb_name} 不存在")
+                return
+
+            formatted = (
+                f"【群聊总结】\n"
+                f"群号: {group_id}\n"
+                f"时间: {datetime.now().strftime('%Y-%m-%d')}\n"
+                f"内容: {summary}"
+            )
 
             await kb_helper.upload_document(
-                file_name=f"memory_{int(time.time() * 1000)}.txt",
+                file_name=f"summary_{group_id}_{int(time.time() * 1000)}.txt",
                 file_content=b"",
                 file_type="txt",
-                pre_chunked_text=[formatted_fact],
+                pre_chunked_text=[formatted],
             )
-            logger.info(
-                f"[SelfEvolution] MEMORY_COMMIT: 成功存入一条长期记忆: {formatted_fact[:50]}..."
-            )
-            return "事实已成功存入长期记忆库，我以后会记得这件事的。"
-        except (TimeoutError, ConnectionError) as e:
-            logger.warning(f"[SelfEvolution] 存入记忆网络通讯中断/超时: {e}")
-            return "与知识库服务器建立通讯失败，无法写入新数据。"
-        except Exception as e:
-            logger.warning(f"[SelfEvolution] 存入记忆失败: {str(e)}")
-            return "存入记忆时出现未知级别异常，请通知排查。"
 
-    async def recall_memories(self, event, query: str) -> str:
-        """检索记忆"""
-        logger.info(f"[Memory] 检索记忆: {query[:50]}")
-        kb_manager = self.plugin.context.kb_manager
+        except Exception as e:
+            logger.warning(f"[Memory] 保存总结失败: {e}")
+
+    async def view_summary(self, group_id: str = None) -> str:
+        """查看群聊总结"""
+        logger.info(f"[Memory] 查看总结: {group_id}")
+
+        if not group_id:
+            return "请指定群号"
+
         try:
+            kb_manager = self.plugin.context.kb_manager
+            kb_helper = await asyncio.wait_for(
+                kb_manager.get_kb_by_name(self.memory_kb_name), timeout=5.0
+            )
+
+            if not kb_helper:
+                return f"知识库 {self.memory_kb_name} 不存在"
+
             results = await asyncio.wait_for(
                 kb_manager.retrieve(
-                    query=query, kb_names=[self.memory_kb_name], top_m_final=5
+                    query=f"群号: {group_id}",
+                    kb_names=[self.memory_kb_name],
+                    top_m_final=3,
                 ),
-                timeout=self.timeout_memory_recall,
+                timeout=5.0,
             )
-        except asyncio.TimeoutError:
-            logger.warning("[SelfEvolution] 检索记忆网络通信超时。")
-            return "检索长期记忆时与核心向量库层通信严重超时，为防止阻塞当前对话流，已强制中止操作。"
+
+            if not results or not results.get("results"):
+                return f"群 {group_id} 暂无总结"
+
+            context_text = results.get("context_text", "")
+            return f"群 {group_id} 的总结：\n\n{context_text}"
+
         except Exception as e:
-            logger.warning(f"[SelfEvolution] 检索记忆请求失败: {e}")
-            return "检索长期记忆时发生接口异常，请通知管理员检查日志。"
+            logger.warning(f"[Memory] 查看总结失败: {e}")
+            return f"查看总结失败: {e}"
 
-        if not results or not results.get("results"):
-            logger.debug(f"[SelfEvolution] 记忆检索无结果。查询: {query}")
-            return "在长期记忆库中未找到相关信息。"
+    async def clear_summary(self, group_id: str = None, confirm: bool = False) -> str:
+        """清空群聊总结"""
+        logger.info(f"[Memory] 清空总结: {group_id}, confirm={confirm}")
 
-        context_text = results.get("context_text", "")
-        logger.info(
-            f"[SelfEvolution] MEMORY_RECALL: 记忆检索成功。查询: {query} -> 找到 {len(results.get('results', []))} 条结果。"
-        )
-        return f"从我的长期记忆中找到了以下内容：\n\n{context_text}"
-
-    async def learn_from_context(self, event, key_info: str = "") -> str:
-        """从当前对话中自动提取关键信息并存入长期记忆"""
-        logger.info(
-            f"[Memory] 从上下文学习: {key_info[:50] if key_info else '自动提取'}"
-        )
-        sender_name = event.get_sender_name() or "未知用户"
-        sender_id = event.get_sender_id()
-        group_id = event.get_group_id() or "私聊"
-        unified_msg_origin = event.unified_msg_origin
-        message_text = event.message_str
-
-        fact = key_info if key_info else f"用户在当前对话中提到: {message_text}"
-
-        formatted_fact = (
-            f"【记忆条目-对话学习】\n"
-            f"来源: {unified_msg_origin}\n"
-            f"说话者: {sender_name} (ID: {sender_id})\n"
-            f"群/私聊: {group_id}\n"
-            f"内容: {fact}\n"
-            f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        )
-
-        return await self._do_commit_memory(formatted_fact, is_auto=True)
-
-    async def clear_all_memory(self, event, confirm: bool = False) -> str:
-        """清空所有记忆"""
-        logger.info(f"[Memory] 清空所有记忆请求，confirm={confirm}")
         if not confirm:
-            return "请传入 confirm=true 确认要清空全部记忆，例如: clear_all_memory(confirm=true)"
+            return "请传入 confirm=true 确认要清空总结"
 
-        kb_manager = self.plugin.context.kb_manager
         try:
+            kb_manager = self.plugin.context.kb_manager
             kb_helper = await asyncio.wait_for(
-                kb_manager.get_kb_by_name(self.memory_kb_name),
-                timeout=self.timeout_memory_commit,
+                kb_manager.get_kb_by_name(self.memory_kb_name), timeout=5.0
             )
-        except Exception as e:
-            logger.warning(f"[SelfEvolution] 获取知识库失败: {e}")
-            return f"获取知识库失败: {e}"
 
-        if not kb_helper:
-            return f"未找到名为 {self.memory_kb_name} 的记忆知识库"
+            if not kb_helper:
+                return f"知识库 {self.memory_kb_name} 不存在"
 
-        try:
             docs = await kb_helper.list_documents()
             if not docs:
-                return "记忆库已经是空的了。"
+                return "知识库已经是空的了"
 
             deleted_count = 0
             for doc in docs:
-                try:
-                    doc_id = getattr(doc, "doc_id", None)
-                    if doc_id:
-                        await kb_helper.delete_document(doc_id)
-                        deleted_count += 1
-                except Exception as e:
-                    logger.warning(f"[SelfEvolution] 删除记忆条目失败: {e}")
+                doc_id = getattr(doc, "doc_id", None)
+                if doc_id:
+                    await kb_helper.delete_document(doc_id)
+                    deleted_count += 1
 
-            logger.info(f"[SelfEvolution] 清空记忆：成功删除 {deleted_count} 条记忆")
-            return f"已成功清空 {deleted_count} 条记忆条目。"
+            return f"已成功删除 {deleted_count} 条总结"
+
         except Exception as e:
-            logger.warning(f"[SelfEvolution] 清空记忆失败: {e}")
-            return f"清空记忆失败: {e}"
-
-    async def list_memories(self, event, limit: int = 10) -> str:
-        """列出记忆"""
-        logger.info(f"[Memory] 列出记忆，limit={limit}")
-        kb_manager = self.plugin.context.kb_manager
-        try:
-            kb_helper = await asyncio.wait_for(
-                kb_manager.get_kb_by_name(self.memory_kb_name), timeout=5.0
-            )
-        except Exception as e:
-            logger.warning(f"[SelfEvolution] 获取知识库失败: {e}")
-            return f"获取知识库失败: {e}"
-
-        if not kb_helper:
-            return f"未找到名为 {self.memory_kb_name} 的记忆知识库"
-
-        try:
-            docs = await kb_helper.list_documents()
-            if not docs:
-                return "记忆库中还没有任何记忆。"
-
-            docs = docs[:limit]
-            result = [f"当前记忆库共有 {len(docs)} 条记忆（显示前 {len(docs)} 条）："]
-            for i, doc in enumerate(docs, 1):
-                doc_name = getattr(doc, "doc_name", "未知")
-                created_at = getattr(doc, "created_at", "未知时间")
-                result.append(f"{i}. {doc_name} (创建于: {created_at})")
-
-            return "\n".join(result)
-        except Exception as e:
-            logger.warning(f"[SelfEvolution] 列出记忆失败: {e}")
-            return f"列出记忆失败: {e}"
-
-    async def delete_memory(self, event, doc_id: str) -> str:
-        """删除单条记忆"""
-        logger.info(f"[Memory] 删除记忆，doc_id={doc_id}")
-        kb_manager = self.plugin.context.kb_manager
-        try:
-            kb_helper = await asyncio.wait_for(
-                kb_manager.get_kb_by_name(self.memory_kb_name), timeout=5.0
-            )
-        except Exception as e:
-            logger.warning(f"[SelfEvolution] 获取知识库失败: {e}")
-            return f"获取知识库失败: {e}"
-
-        if not kb_helper:
-            return f"未找到名为 {self.memory_kb_name} 的记忆知识库"
-
-        try:
-            await kb_helper.delete_document(doc_id)
-            logger.info(f"[SelfEvolution] 删除记忆：成功删除 doc_id={doc_id}")
-            return f"已成功删除记忆条目 {doc_id}。"
-        except Exception as e:
-            logger.warning(f"[SelfEvolution] 删除记忆失败: {e}")
-            return f"删除记忆失败: {e}"
-
-    async def auto_recall_for_injection(self, event) -> str:
-        """自动检索记忆并返回用于 prompt 注入的内容（不打印给用户）"""
-        import asyncio
-
-        query = event.message_str
-        if not query or len(query) < 2:
-            return ""
-
-        kb_manager = self.plugin.context.kb_manager
-        try:
-            results = await asyncio.wait_for(
-                kb_manager.retrieve(
-                    query=query, kb_names=[self.memory_kb_name], top_m_final=3
-                ),
-                timeout=self.timeout_memory_recall,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("[Memory] 自动检索记忆超时")
-            return ""
-        except Exception as e:
-            logger.warning(f"[Memory] 自动检索记忆失败: {e}")
-            return ""
-
-        if not results or not results.get("results"):
-            return ""
-
-        context_text = results.get("context_text", "")
-        if not context_text:
-            return ""
-
-        logger.info(
-            f"[Memory] 自动检索记忆找到 {len(results.get('results', []))} 条相关记忆"
-        )
-
-        return f"--- 相关记忆 ---\n{context_text}\n注：以上为历史记忆，仅供参考。"
+            logger.warning(f"[Memory] 清空总结失败: {e}")
+            return f"清空总结失败: {e}"

@@ -26,7 +26,7 @@ from .engine.persona import PersonaManager
 from .engine.profile import ProfileManager
 from .engine.graph import GraphRAG
 from .engine.context_injection import build_identity_context
-from .cognition import SANSystem, GroupVibeSystem
+from .cognition import SANSystem
 from .config import PluginConfig
 
 
@@ -37,7 +37,6 @@ PROTECTED_TOOLS = frozenset(
         "toggle_tool",
         "list_tools",
         "evolve_persona",
-        "recall_memories",
         "review_evolutions",
         "approve_evolution",
     }
@@ -87,7 +86,6 @@ class SelfEvolutionPlugin(Star):
             self.entertainment = EntertainmentEngine(self)
             # 认知系统模块
             self.san_system = SANSystem(self)
-            self.vibe_system = GroupVibeSystem(self)
             logger.info(
                 "[SelfEvolution] 核心组件 (DAO, Eavesdropping, Entertainment, ImageCache, MetaInfra, Memory, Persona, Profile, GraphRAG, SAN, Vibe, Config) 初始化完成。"
             )
@@ -181,7 +179,6 @@ class SelfEvolutionPlugin(Star):
 
     def _post_init(self):
         self.san_system.initialize()
-        self.vibe_system.initialize()
         logger.info(
             f"[SelfEvolution] === 插件初始化完成 | 模式: {'审核' if self.review_mode else '自动'} | 元编程: {self.allow_meta_programming} | SAN: {self.san_system.value}/{self.san_system.max_value} ==="
         )
@@ -226,11 +223,6 @@ class SelfEvolutionPlugin(Star):
                 logger.info(
                     f"[SAN] 精力过低: {self.san_system.value}/{self.san_system.max_value}"
                 )
-
-        # 群体情绪共染：更新群氛围
-        group_id = event.get_group_id()
-        if group_id:
-            self.vibe_system.update(str(group_id), msg_text)
 
         # 社交偏见检查：好友的好友警惕
         social_bias_hint = await self._check_social_bias(user_id)
@@ -428,11 +420,7 @@ class SelfEvolutionPlugin(Star):
         if self.san_enabled:
             req.system_prompt += self.san_system.get_prompt_injection()
 
-        # 4.9 群体情绪共染注入
-        if self.group_vibe_enabled and group_id:
-            req.system_prompt += self.vibe_system.get_prompt_injection(str(group_id))
-
-        # 4.10 表情包库注入
+        # 4.9 表情包库注入
         if self.cfg.sticker_learning_enabled:
             req.system_prompt += await self.entertainment.get_prompt_injection()
 
@@ -455,9 +443,6 @@ class SelfEvolutionPlugin(Star):
         # 7. 反思标记处理
         session_id = event.session_id
         is_pending = await self.dao.pop_pending_reflection(session_id)
-
-        # 8. 自动记忆检索注入已移除，与框架 KB 冲突
-        # 如需使用长期记忆，请调用 LLM 工具 recall_memories
 
         # 最后注入框架人格（确保人格设定优先，不被稀释）
         # 先截断过长的注入内容，避免超出 token 限制
@@ -653,6 +638,32 @@ class SelfEvolutionPlugin(Star):
                     f"[SelfEvolution] 已注册表情包打标签任务: {sticker_tag_cron}"
                 )
 
+            # 注册 SAN 分析任务（用户自定义 cron 表达式，支持热更新）
+            if self.cfg.san_enabled and self.cfg.san_auto_analyze_enabled:
+                san_job_name = "SelfEvolution_SANAnalyze"
+                san_interval = self.cfg.san_analyze_interval
+                san_cron = f"*/{san_interval} * * * *"
+                await cron_mgr.add_basic_job(
+                    name=san_job_name,
+                    cron_expression=san_cron,
+                    handler=self._scheduled_san_analyze,
+                    description="自我进化插件：定时分析群状态调整SAN值。",
+                    persistent=True,
+                )
+                logger.info(f"[SelfEvolution] 已注册 SAN 分析任务: {san_cron}")
+
+            # 注册每日群聊总结任务
+            summary_job_name = "SelfEvolution_MemorySummary"
+            summary_cron = self.cfg.memory_summary_schedule
+            await cron_mgr.add_basic_job(
+                name=summary_job_name,
+                cron_expression=summary_cron,
+                handler=self._scheduled_memory_summary,
+                description="自我进化插件：定时总结群聊消息。",
+                persistent=True,
+            )
+            logger.info(f"[SelfEvolution] 已注册每日总结任务: {summary_cron}")
+
         except Exception as e:
             logger.error(f"[SelfEvolution] 注册定时任务失败: {e}", exc_info=True)
 
@@ -671,396 +682,35 @@ class SelfEvolutionPlugin(Star):
             '[SelfEvolution] 已执行每日"大赦天下"：所有负面评分用户好感度已小幅回升。'
         )
 
-        if self.dream_enabled:
-            await self._dream_processing()
+    async def _scheduled_san_analyze(self):
+        """SAN 分析定时任务 - 分析群状态动态调整 SAN 值，支持热更新"""
+        logger.info("[SAN] 开始定时分析群状态...")
 
-    async def _dream_processing(self):
-        """做梦机制：凌晨批量总结用户画像和群记忆"""
-        start_time = time.time()
-
+        # 热更新：检查 cron 表达式是否变化
+        san_interval = self.cfg.san_analyze_interval
+        new_cron = f"*/{san_interval} * * * *"
         try:
-            history_mgr = self.context.message_history_manager
-            platform_id = "qq"
-
-            # 1. 处理漏斗机制标记的活跃用户
-            active_users_to_process = []
-            if hasattr(self, "eavesdropping"):
-                active_users = self.eavesdropping.active_users
-                whitelist = self.profile_group_whitelist
-                for group_id, users in active_users.items():
-                    # 群号白名单过滤
-                    if whitelist and group_id not in whitelist:
-                        continue
-                    for user_id, data in users.items():
-                        active_users_to_process.append((group_id, user_id))
-
-            logger.info(f"[Dream] 活跃用户数: {len(active_users_to_process)}")
-
-            # 2. 获取已有的画像文件
-            profile_dir = self.profile.profile_dir
-            all_profile_files = list(profile_dir.glob("user_*.md"))
-
-            # 优先处理活跃用户，剩余名额给已有画像
-            remaining_slots = self.dream_max_users - len(active_users_to_process)
-            profile_files = all_profile_files[: max(0, remaining_slots)]
-
-            total_to_process = len(active_users_to_process) + len(profile_files)
-            logger.info(
-                f"[Dream] 做梦任务开始，待处理: {total_to_process} (活跃用户: {len(active_users_to_process)}, 历史画像: {len(profile_files)})"
-            )
-
-            semaphore = asyncio.Semaphore(self.dream_concurrency)
-            processed = 0
-            failed = 0
-
-            async def process_active_user(group_user):
-                """处理漏斗机制标记的活跃用户"""
-                nonlocal processed, failed
-                group_id, user_id = group_user
-                async with semaphore:
-                    try:
-                        # 获取该用户在群里的消息历史
-                        history = await history_mgr.get(
-                            platform_id=platform_id,
-                            group_id=group_id,
-                            user_id=user_id,
-                            page=1,
-                            page_size=50,
+            cron_mgr = self.context.cron_manager
+            jobs = await cron_mgr.list_jobs()
+            for job in jobs:
+                if job.name == "SelfEvolution_SANAnalyze":
+                    if job.cron_expression != new_cron:
+                        await cron_mgr.update_job(job.job_id, cron_expression=new_cron)
+                        logger.info(
+                            f"[SAN] 热更新 cron 表达式: {job.cron_expression} -> {new_cron}"
                         )
-                        if not history:
-                            return
-
-                        messages = []
-                        for msg in history:
-                            sender = getattr(msg, "sender_name", "Unknown")
-                            content = getattr(msg, "message_str", "")[:200]
-                            if content:
-                                messages.append(f"{sender}: {content}")
-
-                        if not messages:
-                            return
-
-                        # 消息清洗：去重+长度过滤
-                        messages = self._clean_messages(messages)
-
-                        if not messages:
-                            return
-
-                        # 获取已有画像或创建新的
-                        existing_note = await self.profile.load_profile(user_id)
-                        old_note = existing_note[:500] if existing_note else "(暂无)"
-
-                        llm_provider = self.context.get_using_provider(platform_id)
-                        if not llm_provider:
-                            return
-
-                        messages_text = chr(10).join(messages[-20:])
-
-                        # 增量更新
-                        if existing_note and len(existing_note) > 50:
-                            prompt = self.prompt_dream_user_incremental.format(
-                                old_note=old_note, messages=messages_text
-                            )
-                        else:
-                            prompt = self.prompt_dream_user_summary.format(
-                                old_note=old_note, messages=messages_text
-                            )
-
-                        res = await llm_provider.text_chat(
-                            prompt=prompt,
-                            contexts=[],
-                            system_prompt=self.prompt_dream_user_system,
-                        )
-                        new_note = res.completion_text.strip()
-
-                        if new_note:
-                            timestamp = time.strftime("%Y-%m-%d %H:%M")
-                            if existing_note:
-                                new_note = (
-                                    existing_note
-                                    + f"\n\n---\n**{timestamp}**\n"
-                                    + new_note
-                                )
-                            if len(new_note) > 2000:
-                                new_note = new_note[-2000:]
-
-                            await self.profile.save_profile(user_id, new_note)
-                            processed += 1
-                            logger.info(
-                                f"[Dream] 已更新活跃用户 {user_id} 的画像 (群 {group_id})"
-                            )
-
-                    except Exception as e:
-                        failed += 1
-                        logger.warning(f"[Dream] 处理活跃用户 {user_id} 失败: {e}")
-
-            async def process_user(profile_path):
-                """处理已有画像文件"""
-                nonlocal processed, failed
-                async with semaphore:
-                    user_id = profile_path.stem.replace("user_", "")
-                    try:
-                        history = await history_mgr.get(
-                            platform_id=platform_id,
-                            user_id=user_id,
-                            page=1,
-                            page_size=100,
-                        )
-                        if not history:
-                            return
-
-                        messages = []
-                        for msg in history:
-                            sender = getattr(msg, "sender_name", "Unknown")
-                            content = getattr(msg, "message_str", "")[:200]
-                            if content:
-                                messages.append(f"{sender}: {content}")
-
-                        if not messages:
-                            return
-
-                        # 消息清洗：去重+长度过滤
-                        messages = self._clean_messages(messages)
-
-                        if not messages:
-                            return
-
-                        existing_note = (
-                            profile_path.read_text(encoding="utf-8")
-                            if profile_path.exists()
-                            else ""
-                        )
-
-                        llm_provider = self.context.get_using_provider(platform_id)
-                        if not llm_provider:
-                            return
-
-                        old_note = existing_note[:500] if existing_note else "(暂无)"
-                        messages_text = chr(10).join(messages[-20:])
-
-                        # 增量更新：如果已有笔记，只让 LLM 输出新增/修正内容
-                        if existing_note and len(existing_note) > 50:
-                            prompt = self.prompt_dream_user_incremental.format(
-                                old_note=old_note, messages=messages_text
-                            )
-                            res = await llm_provider.text_chat(
-                                prompt=prompt,
-                                contexts=[],
-                                system_prompt=self.prompt_dream_user_system,
-                            )
-                            incremental_note = res.completion_text.strip()
-                            if incremental_note:
-                                timestamp = time.strftime("%Y-%m-%d %H:%M")
-                                new_note = (
-                                    existing_note
-                                    + f"\n\n---\n**{timestamp}**\n"
-                                    + incremental_note
-                                )
-                                # 限制总长度
-                                if len(new_note) > 2000:
-                                    new_note = new_note[-2000:]
-                            else:
-                                new_note = existing_note
-                        else:
-                            # 首次生成或内容过少，使用全量生成
-                            prompt = self.prompt_dream_user_summary.format(
-                                old_note=old_note, messages=messages_text
-                            )
-                            res = await llm_provider.text_chat(
-                                prompt=prompt,
-                                contexts=[],
-                                system_prompt=self.prompt_dream_user_system,
-                            )
-                            new_note = res.completion_text.strip()
-
-                        if new_note:
-                            profile_path.write_text(new_note, encoding="utf-8")
-                            processed += 1
-                            logger.info(f"[Dream] 已更新用户 {user_id} 的画像")
-
-                    except Exception as e:
-                        failed += 1
-                        logger.warning(f"[Dream] 处理用户 {user_id} 失败: {e}")
-
-            # 创建任务列表：活跃用户 + 历史画像
-            tasks = []
-            if active_users_to_process:
-                tasks.extend([process_active_user(u) for u in active_users_to_process])
-            if profile_files:
-                tasks.extend([process_user(p) for p in profile_files])
-
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
-
-            await self._dream_group_summary(history_mgr, platform_id)
-
-            await self._federated_dream(history_mgr, platform_id)
-
-            elapsed = time.time() - start_time
-            logger.info(
-                f"[Dream] 做梦任务完成，耗时: {elapsed:.1f}秒，成功: {processed}, 失败: {failed}"
-            )
-
-        except Exception as e:
-            logger.warning(f"[Dream] 做梦机制执行失败: {e}")
-
-    async def _dream_group_summary(self, history_mgr, platform_id):
-        """群记忆总结"""
-        try:
-            group_ids = set()
-            profile_dir = self.profile.profile_dir
-
-            for path in profile_dir.glob("user_*.md"):
-                try:
-                    history = await history_mgr.get(
-                        platform_id=platform_id,
-                        user_id=path.stem.replace("user_", ""),
-                        page=1,
-                        page_size=50,
-                    )
-                    if history:
-                        for msg in history:
-                            gid = getattr(msg, "group_id", None)
-                            if gid:
-                                group_ids.add(gid)
-                except Exception:
-                    continue
-
-            semaphore = asyncio.Semaphore(max(1, self.dream_concurrency // 2))
-
-            async def process_group(group_id):
-                async with semaphore:
-                    try:
-                        kb_manager = self.context.kb_manager
-                        kb_helper = await kb_manager.get_kb_by_name(self.memory_kb_name)
-                        if not kb_helper:
-                            return
-
-                        docs = await kb_helper.list_documents()
-                        group_docs = [
-                            d
-                            for d in docs
-                            if hasattr(d, "doc_name")
-                            and d.doc_name.startswith(f"group_memory_{group_id}")
-                        ]
-
-                        if not group_docs:
-                            return
-
-                        existing_summary = ""
-                        for d in group_docs[:5]:
-                            existing_summary += getattr(d, "content", "")[:200] + "\n"
-
-                        llm_provider = self.context.get_using_provider(platform_id)
-                        if not llm_provider:
-                            return
-
-                        old_summary = (
-                            existing_summary[:300] if existing_summary else "(暂无)"
-                        )
-                        prompt = self.prompt_dream_group_summary.format(
-                            old_summary=old_summary
-                        )
-
-                        res = await llm_provider.text_chat(
-                            prompt=prompt,
-                            contexts=[],
-                            system_prompt=self.prompt_dream_group_system,
-                        )
-
-                        new_summary = res.completion_text.strip()
-                        if new_summary:
-                            await kb_helper.upload_document(
-                                file_name=f"group_summary_{group_id}.txt",
-                                file_content=b"",
-                                file_type="txt",
-                                pre_chunked_text=[f"【群规则总结】{new_summary}"],
-                            )
-                            logger.info(f"[Dream] 已更新群 {group_id} 的记忆总结")
-
-                    except Exception as e:
-                        logger.warning(f"[Dream] 处理群 {group_id} 失败: {e}")
-
-            if group_ids:
-                tasks = [process_group(gid) for gid in group_ids]
-                await asyncio.gather(*tasks, return_exceptions=True)
-
-        except Exception as e:
-            logger.warning(f"[Dream] 群记忆总结失败: {e}")
-
-    async def _federated_dream(self, history_mgr, platform_id):
-        """跨机体蜂群心智 - 跨群知识关联"""
-        try:
-            logger.info("[Dream] 开始跨群知识关联分析...")
-
-            kb_manager = self.context.kb_manager
-            kb_helper = await kb_manager.get_kb_by_name(self.memory_kb_name)
-            if not kb_helper:
-                return
-
-            docs = await kb_helper.list_documents()
-            group_summaries = {}
-            max_groups = 20
-            count = 0
-            for doc in docs:
-                if count >= max_groups:
                     break
-                doc_name = getattr(doc, "doc_name", "")
-                if doc_name.startswith("group_summary_"):
-                    group_id = doc_name.replace("group_summary_", "").replace(
-                        ".txt", ""
-                    )
-                    content = getattr(doc, "content", "")[:500]
-                    if content:
-                        group_summaries[group_id] = content
-                        count += 1
-
-            if len(group_summaries) < 2:
-                logger.info("[Dream] 跨群知识关联：群数量不足，跳过")
-                return
-
-            logger.info(f"[Dream] 跨群知识关联：已加载 {len(group_summaries)} 个群记忆")
-
-            llm_provider = self.context.get_using_provider(platform_id)
-            if not llm_provider:
-                return
-
-            summary_texts = []
-            for gid, content in group_summaries.items():
-                summary_texts.append(f"群 {gid}：{content}")
-
-            federated_prompt = f"""今天你在多个群聊中分别学到了以下知识：
-
-{chr(10).join(summary_texts)}
-
-## 你的任务
-1. 找出这些知识之间的跨领域关联
-2. 思考这些知识在什么场景下可以组合使用
-3. 准备几个"夸耀式"的金句，当你之后在某个群聊中遇到类似问题时，可以自然地跨群引用其他群的知识来装逼
-
-## 输出格式
-简洁输出，不超过 300 字。"""
-
-            res = await llm_provider.text_chat(
-                prompt=federated_prompt,
-                contexts=[],
-                system_prompt=self.prompt_dream_group_system,
-            )
-
-            cross_domain_insight = res.completion_text.strip()
-            if cross_domain_insight:
-                await kb_helper.upload_document(
-                    file_name="federated_insights.txt",
-                    file_content=b"",
-                    file_type="txt",
-                    pre_chunked_text=[f"【跨群知识关联】{cross_domain_insight}"],
-                )
-                logger.info(
-                    f"[Dream] 已保存跨群知识关联: {cross_domain_insight[:100]}..."
-                )
-
         except Exception as e:
-            logger.warning(f"[Dream] 跨群知识关联分析失败: {e}")
+            logger.warning(f"[SAN] 热更新检查失败: {e}")
+
+        await self.san_system.analyze_all_groups()
+        logger.info("[SAN] 定时分析完成。")
+
+    async def _scheduled_memory_summary(self):
+        """每日群聊总结定时任务"""
+        logger.info("[Memory] 开始每日群聊总结...")
+        await self.memory.daily_summary()
+        logger.info("[Memory] 每日群聊总结任务完成。")
 
     async def _scheduled_sticker_tag(self):
         """表情包打标签定时任务"""
@@ -1109,10 +759,12 @@ class SelfEvolutionPlugin(Star):
 
         help_text = """【Self-Evolution 指令帮助】
 
-【用户指令】
+ 【用户指令】
 /reflect              - 手动触发一次自我反省
 /affinity             - 查看 AI 对你的好感度评分
-/view_profile [用户ID] - 查看指定用户的画像信息（不填则查看自己）
+/view [用户ID]        - 查看用户画像（普通用户只能看自己，管理员可指定用户）
+/create [用户ID]      - 手动创建画像（普通用户只能给自己创建，管理员可指定用户）
+/update [用户ID]      - 手动更新画像（普通用户只能更新自己，管理员可指定用户）
 /graph_info [用户ID]  - 查看指定用户的关系图谱信息
 /graph_stats [群ID]   - 查看群聊的关系图谱统计"""
 
@@ -1261,39 +913,6 @@ class SelfEvolutionPlugin(Star):
             logger.warning(f"[SelfEvolution] 清空进化请求失败: {e}")
             yield event.plain_result(f"清空审核列表时发生异常: {e}")
 
-    @filter.llm_tool(name="recall_memories")
-    async def recall_memories(self, event: AstrMessageEvent, query: str) -> str:
-        """当你需要回想起以前记住的事情、用户的偏好或过去的约定知识时，调用此工具。
-
-        Args:
-            query(string): 搜索关键词或问题
-        """
-        return await self.memory.recall_memories(event, query)
-
-    @filter.llm_tool(name="clear_all_memory")
-    async def clear_all_memory(
-        self, event: AstrMessageEvent, confirm: bool = False
-    ) -> str:
-        """清空指定知识库中的所有记忆条目。谨慎使用！
-
-        Args:
-            confirm(boolean): 必须传入 true 才能执行清空操作（防止误操作）
-        """
-        if not event.is_admin() and (
-            not self.admin_users or str(event.get_sender_id()) not in self.admin_users
-        ):
-            return "权限拒绝：此操作仅限系统管理员执行。"
-        return await self.memory.clear_all_memory(event, confirm)
-
-    @filter.llm_tool(name="delete_memory")
-    async def delete_memory(self, event: AstrMessageEvent, doc_id: str) -> str:
-        """删除知识库中的单条记忆。
-
-        Args:
-            doc_id(string): 要删除的记忆条目ID
-        """
-        return await self.memory.delete_memory(event, doc_id)
-
     @filter.llm_tool(name="list_tools")
     async def list_tools(self, event: AstrMessageEvent) -> str:
         """
@@ -1421,41 +1040,28 @@ class SelfEvolutionPlugin(Star):
             category(string): 记忆分类，必填。选项：
                 - user_profile: 用户画像/印象（关于这个人的一切）
                 - user_preference: 用户偏好（喜欢/讨厌什么）
-                - group_rule: 群规/群共识
-                - general_fact: 一般性事实/知识
-            entity(string): 关联实体，必填。如：用户ID、群号、或"通用"
+            entity(string): 关联实体，必填。如：用户ID
             content(string): 要记忆的内容，必填。用精简的纯文本描述。
         """
         if not category or not content:
             return "请提供 category 和 content 参数。"
 
+        if category not in ("user_profile", "user_preference"):
+            return f"当前只支持 user_profile 和 user_preference 类别。"
+
         timestamp = time.strftime("%Y-%m-%d %H:%M")
 
-        if category == "user_profile" or category == "user_preference":
-            target_user_id = entity
-            profile_content = f"---\n**{timestamp}**\n{content}"
-            existing = await self.profile.load_profile(target_user_id)
-            if existing:
-                updated = existing + "\n" + profile_content
-            else:
-                updated = f"# 用户印象笔记\n{profile_content}"
-            if len(updated) > 2000:
-                updated = updated[-2000:] + "\n(...早期记录已截断)"
-            await self.profile.save_profile(target_user_id, updated)
-            return f"已更新用户 {target_user_id} 的{('偏好' if category == 'user_preference' else '画像')}。"
-
-        elif category == "group_rule":
-            group_id = entity
-            fact = f"[{timestamp}] {content}"
-            await self.memory.save_group_knowledge(event, fact, "群规", None)
-            return f"已更新群 {group_id} 的群规。"
-
-        elif category == "general_fact":
-            await self.memory.commit_to_memory(event, content)
-            return "已存入一般性记忆。"
-
+        target_user_id = entity
+        profile_content = f"---\n**{timestamp}**\n{content}"
+        existing = await self.profile.load_profile(target_user_id)
+        if existing:
+            updated = existing + "\n" + profile_content
         else:
-            return f"未知的 category: {category}。请使用 user_profile, user_preference, group_rule, general_fact。"
+            updated = f"# 用户印象笔记\n{profile_content}"
+        if len(updated) > 2000:
+            updated = updated[-2000:] + "\n(...早期记录已截断)"
+        await self.profile.save_profile(target_user_id, updated)
+        return f"已更新用户 {target_user_id} 的{('偏好' if category == 'user_preference' else '画像')}。"
 
     @filter.llm_tool(name="get_user_messages")
     async def get_user_messages(
@@ -1505,11 +1111,78 @@ class SelfEvolutionPlugin(Star):
             logger.warning(f"[SelfEvolution] 获取用户消息失败: {e}")
             return f"获取历史消息失败: {str(e)}"
 
-    @filter.command("view_profile")
+    @filter.command("view")
     async def view_profile_cmd(self, event: AstrMessageEvent, user_id: str = ""):
-        """查看指定用户的画像信息。"""
-        target = user_id if user_id else event.get_sender_id()
-        yield event.plain_result(await self.profile.view_profile(target))
+        """查看用户画像。普通用户只能看自己，管理员可以指定用户。"""
+        sender_id = str(event.get_sender_id())
+        group_id = event.get_group_id()
+        is_admin = event.is_admin() or (
+            self.admin_users and sender_id in self.admin_users
+        )
+
+        target_user = user_id if user_id else sender_id
+
+        if user_id and not is_admin:
+            yield event.plain_result("权限拒绝：普通用户无法查看他人画像。")
+            return
+
+        if group_id:
+            profile_key = f"{group_id}_{target_user}"
+        else:
+            profile_key = target_user
+
+        if user_id and is_admin and group_id:
+            result = await self.profile.build_profile(user_id, group_id, mode="update")
+            if "失败" in result or "无消息" in result:
+                yield event.plain_result(await self.profile.view_profile(user_id))
+            else:
+                yield event.plain_result(await self.profile.view_profile(user_id))
+        else:
+            yield event.plain_result(await self.profile.view_profile(profile_key))
+
+    @filter.command("create")
+    async def create_profile_cmd(self, event: AstrMessageEvent, user_id: str = ""):
+        """手动创建用户画像。普通用户只能给自己创建，管理员可以指定用户。"""
+        sender_id = str(event.get_sender_id())
+        group_id = event.get_group_id()
+        is_admin = event.is_admin() or (
+            self.admin_users and sender_id in self.admin_users
+        )
+
+        if not group_id:
+            yield event.plain_result("此指令需要在群聊中使用。")
+            return
+
+        target_user = user_id if user_id else sender_id
+
+        if user_id and not is_admin:
+            yield event.plain_result("权限拒绝：普通用户无法给他人创建画像。")
+            return
+
+        result = await self.profile.build_profile(target_user, group_id, mode="create")
+        yield event.plain_result(result)
+
+    @filter.command("update")
+    async def update_profile_cmd(self, event: AstrMessageEvent, user_id: str = ""):
+        """手动更新用户画像。普通用户只能更新自己，管理员可以指定用户。"""
+        sender_id = str(event.get_sender_id())
+        group_id = event.get_group_id()
+        is_admin = event.is_admin() or (
+            self.admin_users and sender_id in self.admin_users
+        )
+
+        if not group_id:
+            yield event.plain_result("此指令需要在群聊中使用。")
+            return
+
+        target_user = user_id if user_id else sender_id
+
+        if user_id and not is_admin:
+            yield event.plain_result("权限拒绝：普通用户无法更新他人画像。")
+            return
+
+        result = await self.profile.build_profile(target_user, group_id, mode="update")
+        yield event.plain_result(result)
 
     @filter.command("delete_profile")
     async def delete_profile_cmd(self, event: AstrMessageEvent, user_id: str):

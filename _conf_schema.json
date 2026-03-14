@@ -11,6 +11,19 @@
         "type": "string",
         "default": "self_evolution_memory"
     },
+    "memory_msg_count": {
+        "title": "每日总结消息数",
+        "description": "每日群聊总结时获取的消息数量。",
+        "type": "int",
+        "default": 500
+    },
+    "memory_summary_schedule": {
+        "title": "每日总结计划 (Cron)",
+        "description": "定时执行群聊总结的时间表。",
+        "hint": "Cron 表达式，默认每天凌晨 3 点：0 3 * * *",
+        "type": "string",
+        "default": "0 3 * * *"
+    },
     "reflection_schedule": {
         "title": "自我反省计划 (Cron)",
         "description": "Bot 自动自省的时间表。",
@@ -71,56 +84,18 @@
         "type": "int",
         "default": 100
     },
-    "enable_profile_update": {
-        "title": "启用画像更新",
-        "description": "是否启用用户画像更新功能。",
-        "type": "bool",
-        "default": true
-    },
-    "profile_group_whitelist": {
-        "title": "画像构建群白名单",
-        "description": "只对白名单中的群构建用户画像。空列表表示所有群。",
-        "hint": "多个群号用逗号分隔，如: 123456,789012",
-        "type": "string",
-        "default": ""
+    "profile_msg_count": {
+        "title": "画像构建消息数",
+        "description": "构建用户画像时获取的消息数量。",
+        "hint": "默认 500 条",
+        "type": "int",
+        "default": 500
     },
     "enable_context_recall": {
         "title": "启用上下文追踪",
         "description": "当用户引用 AI 之前的话时，是否自动注入上下文。",
         "type": "bool",
         "default": true
-    },
-    "profile_precision_mode": {
-        "title": "画像精度模式",
-        "description": "画像精度模式",
-        "hint": "simple: Markdown 文本摘要; detailed: 带权重的结构化标签(开发中)",
-        "type": "string",
-        "default": "simple"
-    },
-    "dream_enabled": {
-        "title": "启用做梦机制",
-        "description": "凌晨批量总结记忆和画像，取代实时 LLM 调用。",
-        "type": "bool",
-        "default": true
-    },
-    "dream_schedule": {
-        "title": "做梦计划 (Cron)",
-        "description": "批量处理用户画像的时间表。",
-        "hint": "默认每天凌晨 3 点：0 3 * * *",
-        "type": "string",
-        "default": "0 3 * * *"
-    },
-    "dream_max_users": {
-        "title": "做梦最大处理用户数",
-        "description": "凌晨批量处理时最多处理的用户数，防止任务耗时过长。",
-        "type": "int",
-        "default": 20
-    },
-    "dream_concurrency": {
-        "title": "做梦并发数",
-        "description": "同时处理的用户/群数量。",
-        "type": "int",
-        "default": 3
     },
     "dropout_enabled": {
         "title": "启用分层失活",
@@ -295,12 +270,6 @@
         "description": "低于此值时 AI 会表现出疲惫。",
         "type": "int",
         "default": 20
-    },
-    "group_vibe_enabled": {
-        "title": "启用群体情绪共染",
-        "description": "群氛围会影响 AI 的情绪和行为。",
-        "type": "bool",
-        "default": true
     },
     "eavesdrop_interval_minutes": {
         "title": "互动意愿检查间隔（分钟）",

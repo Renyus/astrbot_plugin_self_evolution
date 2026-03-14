@@ -940,17 +940,6 @@ class EavesdroppingEngine:
                 except Exception:
                     pass
 
-            # 补充群氛围
-            if group_id and hasattr(self.plugin, "vibe_system"):
-                try:
-                    vibe_prompt = self.plugin.vibe_system.get_prompt_injection(
-                        str(group_id)
-                    )
-                    if vibe_prompt:
-                        prompt_parts.append(vibe_prompt)
-                except Exception:
-                    pass
-
             # 补充表情包库
             if self.plugin.cfg.sticker_learning_enabled:
                 try:

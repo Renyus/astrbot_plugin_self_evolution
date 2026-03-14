@@ -50,6 +50,14 @@ class PluginConfig:
         return self._config.get("memory_kb_name", "self_evolution_memory")
 
     @property
+    def memory_msg_count(self):
+        return int(self._config.get("memory_msg_count", 500))
+
+    @property
+    def memory_summary_schedule(self):
+        return self._config.get("memory_summary_schedule", "0 3 * * *")
+
+    @property
     def reflection_schedule(self):
         return self._config.get("reflection_schedule", "0 2 * * *")
 
@@ -74,56 +82,15 @@ class PluginConfig:
         return int(self._config.get("max_memory_entries", 100))
 
     @property
-    def enable_profile_update(self):
-        return self._parse_bool(self._config.get("enable_profile_update"), True)
+    def profile_msg_count(self):
+        return int(self._config.get("profile_msg_count", 500))
 
     @property
-    def profile_group_whitelist(self):
-        """用户画像构建的群号白名单，空列表表示所有群"""
-        whitelist = self._config.get("profile_group_whitelist", [])
-        if isinstance(whitelist, str):
-            whitelist = [g.strip() for g in whitelist.split(",") if g.strip()]
-        return [str(g) for g in whitelist]
-
-    @property
-    def enable_context_recall(self):
-        return self._parse_bool(self._config.get("enable_context_recall"), True)
-
-    @property
-    def dream_enabled(self):
-        return self._parse_bool(self._config.get("dream_enabled"), True)
-
-    @property
-    def dream_schedule(self):
-        return self._config.get("dream_schedule", "0 3 * * *")
-
-    @property
-    def dream_max_users(self):
-        return int(self._config.get("dream_max_users", 10))
-
-    @property
-    def dream_concurrency(self):
-        return int(self._config.get("dream_concurrency", 3))
-
-    @property
-    def prompt_meltdown_message(self):
-        return "你是记忆助手。请根据今天的对话更新用户的印象笔记。旧笔记：{old_note}。今日对话：{messages}。每个结论必须标注置信度：90-100%为确定事实，50-89%为大概率正确，<50%为不确定。请输出一段精简纯文本，不超过200字。只输出文本，不要其他内容。"
-
-    @property
-    def prompt_dream_user_incremental(self):
-        return "你是记忆助手。旧笔记：{old_note}。今日对话：{messages}。请只输出【新增或修正的内容】，不超过100字。不要重复旧笔记中已有的信息。只输出纯文本。"
-
-    @property
-    def prompt_dream_user_system(self):
-        return "你是一个记忆助手，只输出精简的文本描述。每个结论必须标注置信度。"
-
-    @property
-    def prompt_dream_group_system(self):
-        return "你是一个群记忆助手，只输出精简的文本描述。"
-
-    @property
-    def prompt_dream_group_summary(self):
-        return "你是群记忆助手，请总结群的规则和文化。旧总结：{old_summary}。每个结论必须标注置信度：90-100%为确定事实，50-89%为大概率正确，<50%为不确定。请输出一段精简纯文本，不超过150字。只输出文本，不要其他内容。"
+    def core_info_keywords(self):
+        return self._config.get(
+            "core_info_keywords",
+            "我是谁,我的名字,我的身份,我的职责",
+        )
 
     @property
     def san_enabled(self):
@@ -146,8 +113,32 @@ class PluginConfig:
         return int(self._config.get("san_low_threshold", 20))
 
     @property
-    def group_vibe_enabled(self):
-        return self._parse_bool(self._config.get("group_vibe_enabled"), True)
+    def san_auto_analyze_enabled(self):
+        return self._parse_bool(self._config.get("san_auto_analyze_enabled"), True)
+
+    @property
+    def san_analyze_interval(self):
+        return int(self._config.get("san_analyze_interval", 30))
+
+    @property
+    def san_msg_count_per_group(self):
+        return int(self._config.get("san_msg_count_per_group", 50))
+
+    @property
+    def san_high_activity_boost(self):
+        return int(self._config.get("san_high_activity_boost", 5))
+
+    @property
+    def san_low_activity_drain(self):
+        return int(self._config.get("san_low_activity_drain", -3))
+
+    @property
+    def san_positive_vibe_bonus(self):
+        return int(self._config.get("san_positive_vibe_bonus", 3))
+
+    @property
+    def san_negative_vibe_penalty(self):
+        return int(self._config.get("san_negative_vibe_penalty", -5))
 
     @property
     def dropout_enabled(self):
@@ -184,13 +175,6 @@ class PluginConfig:
     @property
     def desire_cooldown_seconds(self):
         return int(self._config.get("desire_cooldown_seconds", 60))
-
-    @property
-    def core_info_keywords(self):
-        return self._config.get(
-            "core_info_keywords",
-            "我是谁,我的名字,我的身份,我的职责",
-        )
 
     @property
     def debate_enabled(self):
@@ -273,10 +257,6 @@ class PluginConfig:
     @property
     def eavesdrop_threshold_max(self):
         return int(self._config.get("eavesdrop_threshold_max", 50))
-
-    @property
-    def profile_precision_mode(self):
-        return self._config.get("profile_precision_mode", "simple")
 
     def get(self, key, default=None):
         """通用获取配置"""
