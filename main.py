@@ -193,23 +193,44 @@ class SelfEvolutionPlugin(Star):
             logger.warning(f"[SelfEvolution] 加载 prompts_injection.yaml 失败: {e}")
             self._prompts_injection = {}
 
-    def _get_interject_prompt(self) -> str:
+    async def _get_interject_prompt(self) -> str:
         """获取插嘴判断的 system prompt"""
+        # 先获取主人格设定
+        persona_prompt = ""
+        try:
+            personality = await self.context.persona_manager.get_default_persona_v3(
+                "qq"
+            )
+            if personality:
+                persona_prompt = personality.get("prompt", "")
+        except Exception as e:
+            logger.debug(f"[SelfEvolution] 获取主人格设定失败: {e}")
+
+        # 构建基础提示词
+        if persona_prompt:
+            base_prompt = f"你是 {self.persona_name}。\n\n{persona_prompt}\n\n"
+        else:
+            base_prompt = f"你是 {self.persona_name}。\n\n"
+
+        # 尝试从配置文件加载额外规则
+        try:
+            if self._prompts_injection:
+                extra_rules = self._prompts_injection.get("interject", {}).get(
+                    "judge_prompt", ""
+                )
+                if extra_rules:
+                    extra_rules = extra_rules.replace(
+                        "{persona_name}", self.persona_name
+                    )
+                    return base_prompt + extra_rules
+        except Exception as e:
+            logger.warning(f"[SelfEvolution] 获取插嘴提示词失败: {e}")
+
+        # 默认规则
         default_prompt = (
             f"你是 {self.persona_name}。根据群聊消息判断是否应该主动插嘴，只输出JSON。"
         )
-
-        try:
-            if self._prompts_injection:
-                prompt_template = self._prompts_injection.get("interject", {}).get(
-                    "judge_prompt", ""
-                )
-                if prompt_template:
-                    return prompt_template.replace("{persona_name}", self.persona_name)
-        except Exception as e:
-            logger.warning(f"[SelfEvolution] 获取插嘴提示词失败，使用默认: {e}")
-
-        return default_prompt
+        return base_prompt + default_prompt
 
     def _clean_message(self, message: str) -> str:
         """清洗消息中的括号、星号动作和空行"""
@@ -879,7 +900,7 @@ class SelfEvolutionPlugin(Star):
             res = await llm_provider.text_chat(
                 prompt=prompt,
                 contexts=[],
-                system_prompt=self._get_interject_prompt(),
+                system_prompt=await self._get_interject_prompt(),
             )
 
             if not res.completion_text:
