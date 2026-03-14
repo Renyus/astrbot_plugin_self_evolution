@@ -1715,7 +1715,7 @@ class SelfEvolutionPlugin(Star):
         # 设置当前群闭嘴时间
         target_time = time.time() + mins * 60
         self._shut_until_by_group[current_group] = target_time
-        yield event.plain_result(f"[OK] 已让当前群闭嘴，持续 {mins} 分钟")
+        yield event.plain_result(f"[OK] 已在当前群开启闭嘴模式，持续 {mins} 分钟")
 
     @filter.command("db")
     async def db_cmd(self, event: AstrMessageEvent, action: str = "", param: str = ""):
