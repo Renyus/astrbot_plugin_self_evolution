@@ -343,6 +343,16 @@ class SelfEvolutionPlugin(Star):
         if ai_context_info:
             context_info += ai_context_info
 
+        # 重要：添加历史覆盖指令，抵抗框架自动注入的历史干扰
+        if is_group and group_id:
+            history_override_note = f"""
+【关键历史覆盖指令 - 必须遵守】：
+虽然上方可能有历史消息，但请只关注当前用户({sender_id})的发言！
+历史中的其他人骂你≠当前用户在骂你！
+当前用户的好感度是 {affinity}/100，不是历史中的其他用户！
+"""
+            context_info += history_override_note
+
         # 使用共享函数构建身份上下文
         identity_context = build_identity_context(
             user_id=str(sender_id),
