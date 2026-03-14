@@ -955,6 +955,7 @@ class EavesdroppingEngine:
             )
 
             reply = res.completion_text.strip()
+            reply = re.sub(r"\n{3,}", "\n\n", reply)
             return reply
 
         except Exception as e:
