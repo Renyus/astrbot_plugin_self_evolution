@@ -24,7 +24,6 @@ from .engine.meta_infra import MetaInfra
 from .engine.memory import MemoryManager
 from .engine.persona import PersonaManager
 from .engine.profile import ProfileManager
-from .engine.graph import GraphRAG
 from .engine.context_injection import build_identity_context
 from .cognition import SANSystem
 from .config import PluginConfig
@@ -81,13 +80,12 @@ class SelfEvolutionPlugin(Star):
             self.memory = MemoryManager(self)
             self.persona = PersonaManager(self)
             self.profile = ProfileManager(self)
-            self.graph = GraphRAG(self)
             # 娱乐功能模块
             self.entertainment = EntertainmentEngine(self)
             # 认知系统模块
             self.san_system = SANSystem(self)
             logger.info(
-                "[SelfEvolution] 核心组件 (DAO, Eavesdropping, Entertainment, ImageCache, MetaInfra, Memory, Persona, Profile, GraphRAG, SAN, Vibe, Config) 初始化完成。"
+                "[SelfEvolution] 核心组件 (DAO, Eavesdropping, Entertainment, ImageCache, MetaInfra, Memory, Persona, Profile, SAN, Config) 初始化完成。"
             )
         except Exception as e:
             logger.error(f"[SelfEvolution] 核心组件初始化失败: {e}")
@@ -136,17 +134,6 @@ class SelfEvolutionPlugin(Star):
                 f"'{type(self).__name__}' object has no attribute '{name}'"
             )
         return getattr(self.cfg, name)
-
-    async def _check_social_bias(self, user_id: str) -> str:
-        if not self.graph_enabled:
-            return ""
-        try:
-            frequent = getattr(self.graph, "get_frequent_interactors", None)
-            if not frequent:
-                return ""
-        except Exception:
-            pass
-        return ""
 
     def _clean_messages(self, messages: list) -> list:
         """清洗消息：去重+长度过滤"""
@@ -229,7 +216,6 @@ class SelfEvolutionPlugin(Star):
 
         # 0. 动态上下文路由：轻量级消息分类，决定加载哪些模块
         needs_profile = False
-        needs_graph = False
         needs_preference = False
         needs_surprise = False
 
@@ -244,7 +230,6 @@ class SelfEvolutionPlugin(Star):
             "从现在起",
         ]
         surprise_triggers = ["我错了", "原来如此", "没想到", "居然", "震惊"]
-        graph_triggers = ["你经常", "他和", "她经常", "群里谁", "你们群"]
 
         if any(t in msg_lower for t in preference_triggers):
             needs_profile = True
@@ -252,15 +237,7 @@ class SelfEvolutionPlugin(Star):
         if any(t in msg_lower for t in surprise_triggers):
             needs_profile = True
             needs_surprise = True
-        if any(t in msg_lower for t in graph_triggers):
-            needs_graph = True
 
-        # 漏斗机制：活跃用户自动加载画像
-        group_id = event.get_group_id()
-        if group_id and hasattr(self, "eavesdropping"):
-            if self.eavesdropping.is_user_active(str(group_id), str(user_id)):
-                needs_profile = True
-                logger.debug(f"[漏斗] 用户 {user_id} 活跃，触发画像加载")
         # 打招呼类只加载基础人格
         is_greeting = len(msg_text) < 10 and any(
             g in msg_lower for g in ["早", "晚安", "你好", "hi", "hello", "在吗"]
@@ -356,16 +333,6 @@ class SelfEvolutionPlugin(Star):
                     '你可以用"我隐约记得"、"似乎"、"是不是"等语气来向用户确认。'
                     '例如："我隐约记得你上个月是不是提过你要重构数据库？那个搞完了没？"'
                 )
-
-        # 4.1 关系图谱增强 - 按需加载
-        if (
-            self.graph_enabled
-            and hasattr(self, "graph")
-            and (needs_graph or is_greeting)
-        ):
-            graph_enhancement = await self.graph.enhance_recall(user_id, msg_text)
-            if graph_enhancement:
-                req.system_prompt += graph_enhancement
 
         # 4.5 突发性偏好检测：弥补 Batch 模式的时效性空窗
         if self.enable_profile_update:
@@ -764,9 +731,7 @@ class SelfEvolutionPlugin(Star):
 /affinity             - 查看 AI 对你的好感度评分
 /view [用户ID]        - 查看用户画像（普通用户只能看自己，管理员可指定用户）
 /create [用户ID]      - 手动创建画像（普通用户只能给自己创建，管理员可指定用户）
-/update [用户ID]      - 手动更新画像（普通用户只能更新自己，管理员可指定用户）
-/graph_info [用户ID]  - 查看指定用户的关系图谱信息
-/graph_stats [群ID]   - 查看群聊的关系图谱统计"""
+/update [用户ID]      - 手动更新画像（普通用户只能更新自己，管理员可指定用户）"""
 
         if is_admin:
             help_text += """
@@ -1205,26 +1170,6 @@ class SelfEvolutionPlugin(Star):
         stats = await self.profile.list_profiles()
         yield event.plain_result(
             f"画像统计：\n- 用户数: {stats['total_users']}\n- 兴趣标签: {stats['total_tags']}\n- 性格特征: {stats['total_traits']}"
-        )
-
-    @filter.command("graph_info")
-    async def graph_info_cmd(self, event: AstrMessageEvent, user_id: str = ""):
-        """查看指定用户的关系图谱信息。"""
-        target = user_id if user_id else event.get_sender_id()
-        yield event.plain_result(await self.graph.get_user_info(target))
-
-    @filter.command("graph_stats")
-    async def graph_stats_cmd(self, event: AstrMessageEvent, group_id: str = ""):
-        """查看群聊的关系图谱统计信息。"""
-        target_group = group_id or event.get_group_id()
-        if not target_group:
-            yield event.plain_result("请提供群号，或在群聊中使用此命令。")
-            return
-        stats = await self.graph.get_group_stats(target_group)
-        yield event.plain_result(
-            f"群 {target_group} 关系图谱统计：\n"
-            f"- 已知成员数: {stats['member_count']}\n"
-            f"- 总互动次数: {stats['total_interactions']}"
         )
 
     # ========== 表情包相关 LLM 工具 ==========

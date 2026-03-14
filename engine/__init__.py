@@ -8,7 +8,6 @@ from .meta_infra import MetaInfra
 from .memory import MemoryManager
 from .persona import PersonaManager
 from .profile import ProfileManager
-from .graph import GraphRAG
 
 __all__ = [
     "EavesdroppingEngine",
@@ -17,5 +16,4 @@ __all__ = [
     "MemoryManager",
     "PersonaManager",
     "ProfileManager",
-    "GraphRAG",
 ]

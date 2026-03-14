@@ -96,19 +96,6 @@ class SelfEvolutionDAO:
                 status TEXT NOT NULL
             )
         """)
-        # 用户互动关系表（用于关系图谱）
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS user_interactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                source_user_id TEXT NOT NULL,
-                target_user_id TEXT,
-                group_id TEXT NOT NULL,
-                interaction_count INTEGER NOT NULL DEFAULT 1,
-                last_seen TEXT NOT NULL,
-                traits TEXT,
-                UNIQUE(source_user_id, target_user_id, group_id)
-            )
-        """)
         # 表情包表
         await db.execute("""
             CREATE TABLE IF NOT EXISTS stickers (
@@ -379,30 +366,6 @@ class SelfEvolutionDAO:
                 ),
             )
             await db.commit()
-
-    @with_db_retry()
-    async def get_user_groups(self, user_id: str) -> List[str]:
-        """获取用户所在的所有群"""
-        db = await self.get_conn()
-        async with db.execute(
-            "SELECT DISTINCT group_id FROM user_interactions WHERE source_user_id = ?",
-            (user_id,),
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return [row[0] for row in rows]
-
-    @with_db_retry()
-    async def get_frequent_interactors(
-        self, user_id: str, limit: int = 5
-    ) -> List[Tuple[str, int]]:
-        """获取与用户互动最频繁的用户列表"""
-        db = await self.get_conn()
-        async with db.execute(
-            "SELECT target_user_id, interaction_count FROM user_interactions WHERE source_user_id = ? AND target_user_id IS NOT NULL ORDER BY interaction_count DESC LIMIT ?",
-            (user_id, limit),
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return [(row[0], row[1]) for row in rows]
 
     @with_db_retry()
     async def get_pending_evolutions(self, limit: int, offset: int):

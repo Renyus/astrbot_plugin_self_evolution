@@ -209,12 +209,6 @@
         "type": "string",
         "default": "我错了|原来如此|没想到|居然|竟然|震惊|原来是这样|我去|牛逼|绝了|笑死|笑到|服了|长见识了|原来是这个意思"
     },
-    "graph_enabled": {
-        "title": "启用关系图谱 RAG",
-        "description": "启用用户关系图谱存储和检索增强。",
-        "type": "bool",
-        "default": true
-    },
     "inner_monologue_enabled": {
         "title": "启用内心独白",
         "description": "启用内心独白",

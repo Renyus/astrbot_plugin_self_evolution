@@ -220,10 +220,6 @@ class PluginConfig:
         )
 
     @property
-    def graph_enabled(self):
-        return self._parse_bool(self._config.get("graph_enabled"), True)
-
-    @property
     def inner_monologue_enabled(self):
         return self._parse_bool(self._config.get("inner_monologue_enabled"), True)
 
