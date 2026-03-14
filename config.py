@@ -251,10 +251,6 @@ class PluginConfig:
         return int(self._config.get("interject_msg_count", 100))
 
     @property
-    def eavesdrop_interval_minutes(self):
-        return int(self._config.get("eavesdrop_interval_minutes", 10))
-
-    @property
     def eavesdrop_message_threshold(self):
         return int(self._config.get("eavesdrop_message_threshold", 20))
 

@@ -285,13 +285,6 @@
         "type": "int",
         "default": 20
     },
-    "eavesdrop_interval_minutes": {
-        "title": "互动意愿检查间隔（分钟）",
-        "description": "每隔多久检查一次是否需要互动意愿。",
-        "hint": "每10分钟检查一次，建议 5-15",
-        "type": "int",
-        "default": 10
-    },
     "eavesdrop_message_threshold": {
         "title": "互动意愿消息数阈值",
         "description": "滑动窗口消息数超过此值时触发互动意愿检查。",
