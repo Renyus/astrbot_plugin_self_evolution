@@ -856,6 +856,17 @@ class SelfEvolutionPlugin(Star):
                 logger.debug(f"[Interject] 群 {group_id}: 无法获取 bot 实例")
                 return
 
+            # 检查该群是否处于闭嘴状态
+            if group_id in self._shut_until_by_group:
+                if time.time() < self._shut_until_by_group[group_id]:
+                    remaining = int(self._shut_until_by_group[group_id] - time.time())
+                    logger.debug(
+                        f"[Interject] 群 {group_id} 闭嘴中，跳过，剩余 {remaining} 秒"
+                    )
+                    return
+                else:
+                    del self._shut_until_by_group[group_id]
+
             msg_count = self.cfg.interject_analyze_count
             result = await bot.call_action(
                 "get_group_msg_history", group_id=int(group_id), count=msg_count
