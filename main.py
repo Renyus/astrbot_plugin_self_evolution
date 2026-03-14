@@ -696,9 +696,16 @@ class SelfEvolutionPlugin(Star):
                                 asyncio.create_task(self._fetch_groups_async())
                             else:
                                 result = asyncio.run(bot.call_action("get_group_list"))
+                                if isinstance(result, list):
+                                    groups_data = result
+                                elif isinstance(result, dict):
+                                    groups_data = result.get("data", [])
+                                else:
+                                    groups_data = []
                                 groups = [
                                     str(g.get("group_id", ""))
-                                    for g in result.get("data", [])
+                                    for g in groups_data
+                                    if g.get("group_id")
                                 ]
                                 if groups:
                                     logger.info(
@@ -719,7 +726,15 @@ class SelfEvolutionPlugin(Star):
             platform = platform_insts[0]
             bot = platform.get_client()
             result = await bot.call_action("get_group_list")
-            groups = [str(g.get("group_id", "")) for g in result.get("data", [])]
+            if isinstance(result, list):
+                groups_data = result
+            elif isinstance(result, dict):
+                groups_data = result.get("data", [])
+            else:
+                groups_data = []
+            groups = [
+                str(g.get("group_id", "")) for g in groups_data if g.get("group_id")
+            ]
             if groups:
                 logger.info(f"[Interject] 异步获取到群列表: {groups}")
         except Exception as e:
