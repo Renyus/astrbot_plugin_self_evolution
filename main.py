@@ -70,6 +70,9 @@ class SelfEvolutionPlugin(Star):
         # 配置系统（提前初始化，以便后续使用）
         self.cfg = PluginConfig(self)
 
+        # 提示词注入配置
+        self._prompts_injection = {}
+
         # 设置 Debug 日志模式
         self._setup_debug_logging()
 
