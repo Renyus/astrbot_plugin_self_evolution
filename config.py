@@ -71,7 +71,10 @@ class PluginConfig:
 
     @property
     def prompt_meltdown_message(self):
-        return self._config.get("prompt_meltdown_message", "远程人偶自动应答模式：你好，你好，大家好，祝你拥有愉快的一天，再见。")
+        return self._config.get(
+            "prompt_meltdown_message",
+            "远程人偶自动应答模式：你好，你好，大家好，祝你拥有愉快的一天，再见。",
+        )
 
     @property
     def enable_context_recall(self):
@@ -261,6 +264,13 @@ class PluginConfig:
     @property
     def interject_msg_count(self):
         return int(self._config.get("interject_msg_count", 100))
+
+    @property
+    def interject_whitelist(self):
+        whitelist = self._config.get("interject_whitelist", [])
+        if isinstance(whitelist, str):
+            whitelist = [g.strip() for g in whitelist.split(",") if g.strip()]
+        return whitelist
 
     @property
     def eavesdrop_message_threshold(self):

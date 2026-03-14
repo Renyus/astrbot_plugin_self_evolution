@@ -667,11 +667,63 @@ class SelfEvolutionPlugin(Star):
 
     def _get_target_groups(self):
         """获取需要检查的群列表"""
+        whitelist = self.cfg.interject_whitelist
+        if whitelist:
+            logger.info(f"[Interject] 使用白名单群列表: {whitelist}")
+            return whitelist
+
         if hasattr(self, "eavesdropping") and hasattr(
             self.eavesdropping, "active_users"
         ):
-            return list(self.eavesdropping.active_users.keys())
+            groups = list(self.eavesdropping.active_users.keys())
+            if groups:
+                logger.info(f"[Interject] 使用 eavesdropping 活跃群列表: {groups}")
+                return groups
+
+        logger.debug("[Interject] 尝试获取 bot 加入的群列表")
+        try:
+            platform_insts = getattr(self.context, "platform_manager", None)
+            if platform_insts and hasattr(platform_insts, "platform_insts"):
+                platform = platform_insts.platform_insts[0]
+                if hasattr(platform, "get_client"):
+                    bot = platform.get_client()
+                    if bot and hasattr(bot, "call_action"):
+                        import asyncio
+
+                        try:
+                            loop = asyncio.get_event_loop()
+                            if loop.is_running():
+                                asyncio.create_task(self._fetch_groups_async())
+                            else:
+                                result = asyncio.run(bot.call_action("get_group_list"))
+                                groups = [
+                                    str(g.get("group_id", ""))
+                                    for g in result.get("data", [])
+                                ]
+                                if groups:
+                                    logger.info(
+                                        f"[Interject] 获取到 bot 加入的群列表: {groups}"
+                                    )
+                                    return groups
+                        except Exception as e:
+                            logger.debug(f"[Interject] 异步获取群列表失败: {e}")
+        except Exception as e:
+            logger.debug(f"[Interject] 获取群列表失败: {e}")
+
         return []
+
+    async def _fetch_groups_async(self):
+        """异步获取群列表"""
+        try:
+            platform_insts = self.context.platform_manager.platform_insts
+            platform = platform_insts[0]
+            bot = platform.get_client()
+            result = await bot.call_action("get_group_list")
+            groups = [str(g.get("group_id", "")) for g in result.get("data", [])]
+            if groups:
+                logger.info(f"[Interject] 异步获取到群列表: {groups}")
+        except Exception as e:
+            logger.warning(f"[Interject] 异步获取群列表失败: {e}")
 
     async def _interject_check_group(self, group_id: str):
         """检查单个群是否需要插嘴"""
