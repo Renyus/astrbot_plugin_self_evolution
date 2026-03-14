@@ -211,6 +211,18 @@ class SelfEvolutionPlugin(Star):
 
         return default_prompt
 
+    def _clean_message(self, message: str) -> str:
+        """清洗消息中的括号、星号动作和空行"""
+        import re
+
+        # 移除中文括号内容
+        message = re.sub(r"[（(][^）)]*[）)]", "", message)
+        # 移除星号动作
+        message = re.sub(r"\*[^*]+\*", "", message)
+        # 移除多余空行
+        message = re.sub(r"\n\s*\n", "\n", message)
+        return message.strip()
+
     async def initialize(self) -> None:
         await self.dao.init_db()
 
@@ -429,6 +441,17 @@ class SelfEvolutionPlugin(Star):
         # 4.9 表情包库注入
         if self.cfg.sticker_learning_enabled:
             req.system_prompt += await self.entertainment.get_prompt_injection()
+
+        # 5. 通用回复格式规则注入
+        try:
+            if self._prompts_injection:
+                reply_format_rules = self._prompts_injection.get(
+                    "reply_format", {}
+                ).get("rules", "")
+                if reply_format_rules:
+                    req.system_prompt += f"\n\n{reply_format_rules}"
+        except Exception as e:
+            logger.debug(f"[SelfEvolution] 注入回复格式规则失败: {e}")
 
         # 6. 内心独白注入
         if self.cfg.inner_monologue_enabled:
@@ -905,6 +928,12 @@ class SelfEvolutionPlugin(Star):
 
             bot = platform.get_client()
             if not bot:
+                return
+
+            # 清洗消息中的括号、星号动作和空行
+            message = self._clean_message(message)
+            if not message:
+                logger.debug(f"[Interject] 群 {group_id}: 消息清洗后为空")
                 return
 
             full_message = message
