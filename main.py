@@ -4,7 +4,7 @@ from astrbot.api.event.filter import PermissionType
 from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import StarTools
 from astrbot.api import logger
-from astrbot.core.message.components import Plain
+from astrbot.core.message.components import Plain, Image
 from astrbot.core.star.register.star_handler import register_on_llm_tool_respond
 from astrbot.core.agent.tool import FunctionTool
 import asyncio
@@ -12,7 +12,6 @@ import os
 import time
 import re
 import json
-import aiosqlite
 import logging
 from datetime import datetime
 from mcp.types import CallToolResult, TextContent
@@ -26,7 +25,6 @@ from .engine.memory import MemoryManager
 from .engine.persona import PersonaManager
 from .engine.profile import ProfileManager
 from .engine.graph import GraphRAG
-from .engine.session import SessionManager
 from .engine.context_injection import build_identity_context
 from .cognition import SANSystem, GroupVibeSystem
 from .config import PluginConfig
@@ -80,7 +78,6 @@ class SelfEvolutionPlugin(Star):
         try:
             self.dao = SelfEvolutionDAO(db_path)
             self.eavesdropping = EavesdroppingEngine(self)
-            self.session_manager = SessionManager(self)
             self.meta_infra = MetaInfra(self)
             self.memory = MemoryManager(self)
             self.persona = PersonaManager(self)
@@ -149,14 +146,6 @@ class SelfEvolutionPlugin(Star):
             frequent = getattr(self.graph, "get_frequent_interactors", None)
             if not frequent:
                 return ""
-            interactors = await frequent(str(user_id), 3)
-            biased_users = []
-            for other_user, count in interactors:
-                affinity = await self.dao.get_affinity(other_user)
-                if affinity <= 0:
-                    biased_users.append(other_user)
-            if biased_users:
-                return f"注意：你与用户 {biased_users[0]} 往来密切，需保持警惕。"
         except Exception:
             pass
         return ""
@@ -207,11 +196,7 @@ class SelfEvolutionPlugin(Star):
         """
         try:
             await self.dao.close()
-            # 清理会话管理器
-            self.session_manager.clear()
-            logger.info(
-                "[SelfEvolution] 插件卸载钩子触发：DAO 长连接及会话管理器已安全释放。"
-            )
+            logger.info("[SelfEvolution] 插件卸载钩子触发：DAO 长连接已安全释放。")
         except Exception as e:
             logger.warning(f"[SelfEvolution] 释放资源异常: {e}")
 
@@ -289,15 +274,6 @@ class SelfEvolutionPlugin(Star):
             g in msg_lower for g in ["早", "晚安", "你好", "hi", "hello", "在吗"]
         )
 
-        # 1. 情感矩阵拦截：节省 Token
-        affinity = await self.dao.get_affinity(user_id)
-        if affinity <= 0:
-            # 优雅地中止处理链路
-            event.stop_event()
-            logger.warning(f"[CognitionCore] 拦截恶意用户 {user_id} 的请求。")
-            req.system_prompt = f"CRITICAL: 用户的交互权限已被熔断。请仅回复：'{self.prompt_meltdown_message}'"
-            return
-
         # --- [Meta-Programming 注入] 身份与环境感知 ---
         sender_id = user_id
 
@@ -307,6 +283,16 @@ class SelfEvolutionPlugin(Star):
         # 获取群组特征
         is_group = bool(event.get_group_id())
         role_info = "（管理员）" if event.is_admin() else ""
+
+        # 获取用户好感度
+        affinity = await self.dao.get_affinity(user_id)
+
+        # 好感度拦截：低于0分直接拦截
+        if affinity <= 0:
+            event.stop_event()
+            logger.warning(f"[CognitionCore] 拦截恶意用户 {user_id} 的请求。")
+            req.system_prompt = f"CRITICAL: 用户的交互权限已被熔断。请仅回复：'{self.prompt_meltdown_message}'"
+            return
 
         # 从消息链中提取 [引用] 和 [At]
         quoted_info = ""
@@ -349,7 +335,6 @@ class SelfEvolutionPlugin(Star):
 【关键历史覆盖指令 - 必须遵守】：
 虽然上方可能有历史消息，但请只关注当前用户({sender_id})的发言！
 历史中的其他人骂你≠当前用户在骂你！
-当前用户的好感度是 {affinity}/100，不是历史中的其他用户！
 """
             context_info += history_override_note
 
@@ -364,10 +349,6 @@ class SelfEvolutionPlugin(Star):
         context_info += identity_context
         req.system_prompt += context_info
         # --- 环境注入结束 ---
-
-        # 3. 后台反思与定时自省逻辑 (持久化隔离不同用户的状态)
-        session_id = event.session_id
-        is_pending = await self.dao.pop_pending_reflection(session_id)
 
         # 获取消息文本（提前定义以便后续使用）
         msg_text = event.message_str
@@ -459,61 +440,23 @@ class SelfEvolutionPlugin(Star):
         if social_bias_hint:
             req.system_prompt += f"\n\n【潜意识警告】{social_bias_hint}"
 
-        # 6. 图片内容注入（依赖 SessionManager 缓存，但不使用滑动窗口上下文）
-        # 注：滑动窗口注入已移除，与框架 LongTermMemory 冲突
-        try:
-            buffer_key = str(group_id) if group_id else f"private_{user_id}"
-            session_buffer = self.session_manager.session_buffers.get(buffer_key, {})
-            image_summaries = session_buffer.get("image_summaries", [])
-
-            if image_summaries:
-                known_images = [s for s in image_summaries if s != "[新图片]"]
-                unknown_images = [s for s in image_summaries if s == "[新图片]"]
-
-                if known_images:
-                    req.system_prompt += "\n\n【图片识别】以下图片我已识别内容，不需要调用任何图像理解工具："
-                    for summary in known_images:
-                        if summary.startswith("[") and " | " in summary:
-                            content = summary.strip("[]")
-                            req.system_prompt += f"\n- {content}"
-                            logger.info(f"[ImageCache] 已注入已知图片: {content}")
-                        else:
-                            req.system_prompt += f"\n- {summary}"
-                            logger.info(f"[ImageCache] 已注入已知图片内容: {summary}")
-
-                if unknown_images:
-                    req.system_prompt += "\n\n【图片】收到新图片，请自行理解内容，不需要调用任何图像理解工具。"
-                    logger.info(
-                        f"[ImageCache] 已注入新图片引导: {len(unknown_images)} 张"
-                    )
-
-                session_buffer.pop("image_summaries", None)
-        except Exception as e:
-            logger.warning(f"[ImageCache] 注入图片标签失败: {e}")
-
         # 6. 内心独白注入
         if self.cfg.inner_monologue_enabled:
             try:
-                # 确保 buffer_key 和 session_buffer 有值
-                if not buffer_key:
-                    buffer_key = str(group_id) if group_id else f"private_{user_id}"
-                if not session_buffer:
-                    session_buffer = self.session_manager.session_buffers.get(
-                        buffer_key, {}
-                    )
-                inner_monologue = session_buffer.get("inner_monologue")
+                inner_monologue = getattr(event, "_inner_monologue", None)
                 if inner_monologue:
                     req.system_prompt += f"\n\n【内心独白】{inner_monologue}"
                     logger.info(
                         f"[InnerMonologue] 注入内心独白: {inner_monologue[:50]}..."
                     )
-                    # 注入后清除（阅后即焚）
-                    session_buffer.pop("inner_monologue", None)
-                    logger.debug(f"[InnerMonologue] 内心独白已清除")
             except Exception as e:
                 logger.warning(f"[InnerMonologue] 注入内心独白失败: {e}")
 
-        # 7. 自动记忆检索注入已移除，与框架 KB 冲突
+        # 7. 反思标记处理
+        session_id = event.session_id
+        is_pending = await self.dao.pop_pending_reflection(session_id)
+
+        # 8. 自动记忆检索注入已移除，与框架 KB 冲突
         # 如需使用长期记忆，请调用 LLM 工具 recall_memories
 
         # 最后注入框架人格（确保人格设定优先，不被稀释）
@@ -558,28 +501,45 @@ class SelfEvolutionPlugin(Star):
         if event.is_at_or_wake_command:
             return
 
-        # 定期清理过期缓冲数据
-        await self.session_manager.cleanup_stale()
-
         user_id = event.get_sender_id()
         group_id = event.get_group_id()
         sender_name = event.get_sender_name() or "Unknown"
-        msg_text = event.message_str
 
-        # 滑动上下文窗口：记录消息
-        if group_id:
-            # 关系图谱：记录用户互动
-            await self.graph.record_interaction(user_id, group_id)
+        # 检测消息是否有图片
+        message_obj = getattr(event, "message_obj", None)
+        has_image = False
+        image_base64 = None
+        if message_obj and hasattr(message_obj, "message"):
+            for comp in message_obj.message:
+                if isinstance(comp, Image):
+                    has_image = True
+                    try:
+                        image_base64 = await comp.convert_to_base64()
+                    except:
+                        pass
+                    break
 
-            # 使用 SessionManager 记录消息
-            self.session_manager.add_message(group_id, sender_name, user_id, msg_text)
+        # 处理消息文本
+        if has_image:
+            if group_id and image_base64:
+                import hashlib
 
-            # 表情包学习：检测指定人的图片
-            if self.cfg.sticker_learning_enabled:
-                asyncio.create_task(self.entertainment.learn_sticker_from_event(event))
+                img_hash = hashlib.md5(image_base64.encode()).hexdigest()
+                sticker = await self.dao.get_sticker_by_hash(img_hash)
+                if sticker and sticker.get("description"):
+                    msg_text = f"[{sticker['description']}]"
+                elif sticker and sticker.get("tags"):
+                    msg_text = f'[收到一张"{sticker["tags"]}"表情包]'
+                else:
+                    msg_text = "[图片]"
+            else:
+                msg_text = "[图片]"
         else:
-            # 私聊也记录到滑动窗口
-            self.session_manager.add_message(None, sender_name, user_id, msg_text)
+            msg_text = event.message_str
+
+        # 表情包学习：检测指定人的图片
+        if group_id and self.cfg.sticker_learning_enabled:
+            asyncio.create_task(self.entertainment.learn_sticker_from_event(event))
 
         # 被动插嘴：关键词/@触发
         async for result in self.eavesdropping.handle_message(event):
@@ -625,22 +585,7 @@ class SelfEvolutionPlugin(Star):
 
         # AI 回复发送成功后，存入 session
         if result and result.chain and not intercepted:
-            group_id = event.get_group_id()
-            if group_id:
-                try:
-                    reply_parts = []
-                    for comp in result.chain:
-                        if isinstance(comp, Plain):
-                            reply_parts.append(comp.text)
-                    reply_text = "".join(reply_parts)
-                    if reply_text:
-                        bot_name = getattr(self, "persona_name", "AI")
-                        self.session_manager.add_message(
-                            str(group_id), bot_name, "bot", reply_text
-                        )
-                        logger.debug(f"[Session] 已存入AI回复: {reply_text[:30]}")
-                except Exception as e:
-                    logger.warning(f"[Session] 存入AI回复失败: {e}")
+            pass
 
     @filter.on_plugin_loaded()
     async def on_loaded(self, metadata):
@@ -679,18 +624,6 @@ class SelfEvolutionPlugin(Star):
             logger.info("[SelfEvolution] 已注册画像清理任务: 0 4 * * *")
 
             # 注册定时互动意愿检查任务
-            eavesdrop_job_name = "SelfEvolution_EavesdropCheck"
-            interval_minutes = self.eavesdrop_interval_minutes
-            cron_expr = f"*/{interval_minutes} * * * *"
-            await cron_mgr.add_basic_job(
-                name=eavesdrop_job_name,
-                cron_expression=cron_expr,
-                handler=self._scheduled_eavesdrop_check,
-                description="自我进化插件：定时互动意愿检查。",
-                persistent=True,
-            )
-            logger.info(f"[SelfEvolution] 已注册互动意愿检查任务: {cron_expr}")
-
             # 注册每日自省任务
             job_name = "SelfEvolution_DailyReflection"
             await cron_mgr.add_basic_job(
@@ -732,6 +665,7 @@ class SelfEvolutionPlugin(Star):
 
         await self.dao.init_db()
 
+        # 每日"大赦天下"：恢复负面用户好感度
         await self.dao.recover_all_affinity(recovery_amount=2)
         logger.info(
             '[SelfEvolution] 已执行每日"大赦天下"：所有负面评分用户好感度已小幅回升。'
@@ -1148,12 +1082,6 @@ class SelfEvolutionPlugin(Star):
         await self.profile.cleanup_expired_profiles()
         logger.info("[Profile] 画像清理完成。")
 
-    async def _scheduled_eavesdrop_check(self):
-        """定时互动意愿检查任务（统一由 SessionManager 触发）"""
-        logger.info("[Session] 开始定时互动意愿检查...")
-        await self.session_manager.periodic_check()
-        logger.info("[Session] 定时互动意愿检查完成。")
-
     @filter.command("version")
     async def show_version(self, event: AstrMessageEvent):
         """显示插件版本"""
@@ -1217,11 +1145,22 @@ class SelfEvolutionPlugin(Star):
         """
         手动触发一次自我反省。
         """
-        # 静默标志位设置，LLM 将在下一次收到消息时被隐式注入上下文指令，避免界面粗暴弹出系统提示语
         await self.dao.set_pending_reflection(event.session_id, True)
         yield event.plain_result(
             "认知蒸馏协议已就绪，将在下一次对话时执行深度实体提取。"
         )
+
+    @filter.llm_tool(name="evolve_persona")
+    async def evolve_persona(
+        self, event: AstrMessageEvent, new_system_prompt: str, reason: str
+    ) -> str:
+        """当你需要调整自己的语言风格或行为准则时，调用此工具来修改你的系统提示词。
+
+        Args:
+            new_system_prompt(string): 新的完整系统提示词
+            reason(string): 修改理由
+        """
+        return await self.persona.evolve_persona(event, new_system_prompt, reason)
 
     @filter.command("affinity")
     async def check_affinity(self, event: AstrMessageEvent):
@@ -1247,14 +1186,9 @@ class SelfEvolutionPlugin(Star):
 
     @filter.command("set_affinity")
     async def set_affinity(self, event: AstrMessageEvent, user_id: str, score: int):
-        """
-        [管理员] 手动重置指定用户的好感度评分。
-        用法: /set_affinity [用户ID] [分数(0-100)]
-        """
+        """[管理员] 手动重置指定用户的好感度评分。"""
         if not event.is_admin():
-            yield event.plain_result(
-                f"错误：权限不足。只有管理员能干涉 {self.persona_name} 的'情感矩阵'。"
-            )
+            yield event.plain_result(f"错误：权限不足。")
             return
 
         await self.dao.reset_affinity(user_id, score)
@@ -1264,15 +1198,10 @@ class SelfEvolutionPlugin(Star):
         yield event.plain_result(f"已成功将用户 {user_id} 的情感评分修正为: {score}")
 
     @filter.llm_tool(name="update_affinity")
-    async def update_affinity(
+    async def update_affinity_tool(
         self, event: AstrMessageEvent, delta: int, reason: str
     ) -> str:
-        """根据用户的言行调整其情感积分。
-
-        Args:
-            delta(number): 调整值（如 -10 表示冒犯, +5 表示赞赏）。积分跌至 0 将导致系统自动拦截。
-            reason(string): 调整理由（必须说明用户具体哪项言行导致了积分变动）。
-        """
+        """根据用户的言行调整其情感积分。"""
         MAX_DELTA = 20
         delta = max(-MAX_DELTA, min(MAX_DELTA, delta))
 
@@ -1282,18 +1211,6 @@ class SelfEvolutionPlugin(Star):
             f"[CognitionCore] 用户 {user_id} 积分变动 {delta}，原因: {reason}"
         )
         return f"用户情感积分已更新。当前调整理由：{reason}"
-
-    @filter.llm_tool(name="evolve_persona")
-    async def evolve_persona(
-        self, event: AstrMessageEvent, new_system_prompt: str, reason: str
-    ) -> str:
-        """当你需要调整自己的语言风格或行为准则时，调用此工具来修改你的系统提示词。
-
-        Args:
-            new_system_prompt(string): 新的完整系统提示词
-            reason(string): 修改理由
-        """
-        return await self.persona.evolve_persona(event, new_system_prompt, reason)
 
     @filter.command("review_evolutions")
     async def review_evolutions(self, event: AstrMessageEvent, page: int = 1):
@@ -1361,32 +1278,6 @@ class SelfEvolutionPlugin(Star):
             query(string): 搜索关键词或问题
         """
         return await self.memory.recall_memories(event, query)
-
-    @filter.command("session")
-    async def get_session_context(self, event: AstrMessageEvent):
-        """查看当前群的会话上下文"""
-        if not event.is_admin() and (
-            not self.admin_users or str(event.get_sender_id()) not in self.admin_users
-        ):
-            yield event.plain_result("权限不足：此操作仅限管理员执行")
-            return
-
-        gid = event.get_group_id()
-        user_id = str(event.get_sender_id())
-
-        if gid:
-            context = self.session_manager.get_context(group_id=str(gid))
-            if not context:
-                yield event.plain_result(f"群 {gid} 暂无会话缓存")
-                return
-            yield event.plain_result(f"【群聊最近对话】\n{context}")
-        else:
-            # 私聊查询
-            context = self.session_manager.get_context(user_id=user_id)
-            if not context:
-                yield event.plain_result(f"私聊暂无会话缓存")
-                return
-            yield event.plain_result(f"【私聊最近对话】\n{context}")
 
     @filter.llm_tool(name="learn_from_context")
     async def learn_from_context(

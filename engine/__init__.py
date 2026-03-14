@@ -9,7 +9,6 @@ from .memory import MemoryManager
 from .persona import PersonaManager
 from .profile import ProfileManager
 from .graph import GraphRAG
-from .session import SessionManager
 
 __all__ = [
     "EavesdroppingEngine",
@@ -19,5 +18,4 @@ __all__ = [
     "PersonaManager",
     "ProfileManager",
     "GraphRAG",
-    "SessionManager",
 ]

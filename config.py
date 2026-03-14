@@ -287,26 +287,6 @@ class PluginConfig:
         return int(self._config.get("eavesdrop_threshold_max", 50))
 
     @property
-    def session_cleanup_timeout(self):
-        return int(self._config.get("session_cleanup_timeout", 600))
-
-    @property
-    def private_session_enabled(self):
-        return self._parse_bool(self._config.get("private_session_enabled"), True)
-
-    @property
-    def session_commit_threshold(self):
-        return int(self._config.get("session_commit_threshold", 5))
-
-    @property
-    def session_max_tokens(self):
-        return int(self._config.get("session_max_tokens", 4000))
-
-    @property
-    def session_whitelist(self):
-        return self._config.get("session_whitelist", [])
-
-    @property
     def profile_precision_mode(self):
         return self._config.get("profile_precision_mode", "simple")
 

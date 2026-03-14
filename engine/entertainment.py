@@ -109,8 +109,10 @@ class EntertainmentEngine:
                         await self.dao.delete_oldest_sticker()
                         logger.info(f"[Sticker] 已达总上限，删除最旧的")
 
-                    success = await self.dao.add_sticker(group_id, user_id, base64_data)
-                    if success:
+                    sticker_uuid = await self.dao.add_sticker(
+                        group_id, user_id, base64_data, "", sticker_hash
+                    )
+                    if sticker_uuid:
                         logger.info(
                             f"[Sticker] 成功学习表情包: user={user_id}, group={group_id}"
                         )
@@ -216,8 +218,26 @@ class EntertainmentEngine:
                                 f"[Sticker] MCP 工具响应: {response_text[:100]}"
                             )
 
-                            # 解析标签
+                            # 解析描述和标签
+                            description = ""
                             tags = ""
+                            if "描述：" in response_text:
+                                desc_part = response_text.split("描述：")[1].strip()
+                                if "标签：" in desc_part:
+                                    description = desc_part.split("标签：")[0].strip()
+                                elif "标签:" in desc_part:
+                                    description = desc_part.split("标签:")[0].strip()
+                                else:
+                                    description = desc_part.split("\n")[0].strip()
+                            elif "描述:" in response_text:
+                                desc_part = response_text.split("描述:")[1].strip()
+                                if "标签：" in desc_part:
+                                    description = desc_part.split("标签：")[0].strip()
+                                elif "标签:" in desc_part:
+                                    description = desc_part.split("标签:")[0].strip()
+                                else:
+                                    description = desc_part.split("\n")[0].strip()
+
                             if "标签：" in response_text:
                                 tags = response_text.split("标签：")[1].strip()
                             elif "标签:" in response_text:
@@ -227,11 +247,11 @@ class EntertainmentEngine:
                                 tags = response_text.split("\n")[0][:50]
 
                             await self.dao.update_sticker_tags_by_uuid(
-                                sticker["uuid"], tags
+                                sticker["uuid"], tags, description
                             )
                             self._last_tag_time = time.time()
                             logger.info(
-                                f"[Sticker] 打标签成功: uuid={sticker['uuid']}, tags={tags}"
+                                f"[Sticker] 打标签成功: uuid={sticker['uuid']}, tags={tags}, description={description[:30]}"
                             )
                             return True
                     except Exception as e:

@@ -36,6 +36,11 @@ class EavesdroppingEngine:
         # 唤醒词列表
         self.wake_names = ["黑塔", "belta", "Bot", "机器人", "小塔"]
 
+        # 简化的会话状态管理（原session_manager核心功能）
+        self.session_buffers = {}  # {buffer_key: {"messages": [], "eavesdrop_count": 0, "threshold": int}}
+        self.processing_sessions = set()
+        self._session_lock = asyncio.Lock()
+
         # 中间消息模式 - 这些消息会在工具调用期间被拦截
         self.intermediate_message_patterns = [
             r"^让我",
@@ -513,10 +518,8 @@ class EavesdroppingEngine:
                 f"[CognitionCore] 欲望已触发，观察中 {consecutive_replies}/{cooldown_messages} ({label})"
             )
         else:
-            if session_id not in self.plugin.session_manager.processing_sessions:
-                session_buffer = self.plugin.session_manager.session_buffers.get(
-                    buffer_key, {}
-                )
+            if session_id not in self.processing_sessions:
+                session_buffer = self.session_buffers.get(buffer_key, {})
                 msg_count = len(session_buffer.get("messages", []))
                 dynamic_threshold = session_buffer.get(
                     "threshold", self.plugin.cfg.eavesdrop_message_threshold
@@ -539,10 +542,10 @@ class EavesdroppingEngine:
         self, event: AstrMessageEvent, session_id: str, force_immediate: bool = False
     ):
         """插嘴评估层：使用 session_buffers 作为上下文"""
-        if session_id in self.plugin.session_manager.processing_sessions:
+        if session_id in self.processing_sessions:
             return
 
-        self.plugin.session_manager.processing_sessions.add(session_id)
+        self.processing_sessions.add(session_id)
         try:
             group_id = event.get_group_id()
             user_id = str(event.get_sender_id())
@@ -550,7 +553,7 @@ class EavesdroppingEngine:
                 lookup_key = str(group_id)
             else:
                 lookup_key = f"private_{user_id}"
-            session_buffer = self.plugin.session_manager.session_buffers.get(lookup_key)
+            session_buffer = self.session_buffers.get(lookup_key)
             if not session_buffer:
                 session_buffer = {"messages": [], "token_count": 0}
 
@@ -624,9 +627,7 @@ class EavesdroppingEngine:
             logger.info(f"[CognitionCore] LLM 决策原始响应:\n{reply_text}")
 
             # 解析有趣/无聊判定并调整阈值和SAN
-            session_buffer = self.plugin.session_manager.session_buffers.get(
-                lookup_key, {}
-            )
+            session_buffer = self.session_buffers.get(lookup_key, {})
             threshold_min = self.plugin.cfg.eavesdrop_threshold_min
             threshold_max = self.plugin.cfg.eavesdrop_threshold_max
 
@@ -794,8 +795,8 @@ class EavesdroppingEngine:
             logger.warning(f"[CognitionCore] 插嘴评估过程发生异常: {e}")
         finally:
             try:
-                self.plugin.session_manager.reset_eavesdrop_count(str(session_id))
-                self.plugin.session_manager.processing_sessions.discard(str(session_id))
+                self.reset_eavesdrop_count(str(session_id))
+                self.processing_sessions.discard(str(session_id))
             except Exception as e:
                 logger.warning(f"[CognitionCore] 清理 processing_sessions 失败: {e}")
 
@@ -821,9 +822,7 @@ class EavesdroppingEngine:
             buffer_key = str(group_id) if group_id else f"private_{user_id}"
 
             # 检查是否已有缓存的内心独白
-            session_buffer = self.plugin.session_manager.session_buffers.get(
-                buffer_key, {}
-            )
+            session_buffer = self.session_buffers.get(buffer_key, {})
             if session_buffer.get("inner_monologue"):
                 logger.debug(f"[CognitionCore] 已有缓存的内心独白，跳过生成")
                 return
@@ -858,11 +857,9 @@ class EavesdroppingEngine:
 
             if monologue:
                 # 存入 session_buffer
-                if buffer_key not in self.plugin.session_manager.session_buffers:
-                    self.plugin.session_manager.session_buffers[buffer_key] = {}
-                self.plugin.session_manager.session_buffers[buffer_key][
-                    "inner_monologue"
-                ] = monologue
+                if buffer_key not in self.session_buffers:
+                    self.session_buffers[buffer_key] = {}
+                self.session_buffers[buffer_key]["inner_monologue"] = monologue
 
                 logger.info(
                     f"[CognitionCore] 内心独白已缓存(内存): {monologue[:50]}..."
@@ -929,7 +926,6 @@ class EavesdroppingEngine:
             identity_context = build_identity_context(
                 user_id=user_id,
                 user_name=user_name,
-                affinity=affinity,
                 role_info=role_info,
                 is_group=bool(group_id),
             )
@@ -993,3 +989,8 @@ class EavesdroppingEngine:
         except Exception as e:
             logger.warning(f"[CognitionCore] 生成正式回复失败: {e}")
             return ""
+
+    def reset_eavesdrop_count(self, group_id: str):
+        """重置互动意愿触发计数器"""
+        if group_id in self.session_buffers:
+            self.session_buffers[group_id]["eavesdrop_count"] = 0

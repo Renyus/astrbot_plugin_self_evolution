@@ -302,20 +302,6 @@
         "type": "bool",
         "default": true
     },
-    "session_whitelist": {
-        "title": "滑动上下文白名单群ID",
-        "description": "只为白名单中的群维护滑动上下文。空列表表示所有群。",
-        "hint": "多个群号用逗号分隔，如: 123456,789012",
-        "type": "string",
-        "default": ""
-    },
-    "session_max_tokens": {
-        "title": "滑动上下文最大Token数",
-        "description": "每个群维护的最大Token数，用于上下文记忆。",
-        "hint": "建议 2000-4000，默认 4000",
-        "type": "int",
-        "default": 4000
-    },
     "eavesdrop_interval_minutes": {
         "title": "互动意愿检查间隔（分钟）",
         "description": "每隔多久检查一次是否需要互动意愿。",
@@ -343,20 +329,6 @@
         "hint": "无聊判定后阈值升至此值，建议 30-50",
         "type": "int",
         "default": 50
-    },
-    "session_cleanup_timeout": {
-        "title": "会话缓冲超时时间",
-        "description": "会话缓冲超时时间",
-        "hint": "滑动窗口会话多久无新消息后被清理，单位秒，默认600秒（10分钟）",
-        "type": "int",
-        "default": 600
-    },
-    "private_session_enabled": {
-        "title": "私聊滑动窗口",
-        "description": "是否在私聊中启用滑动窗口记录上下文",
-        "hint": "开启后私聊也会记录对话历史，AI不会忘记上下文",
-        "type": "bool",
-        "default": true
     },
     "debug_log_enabled": {
         "title": "Debug 日志模式",

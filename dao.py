@@ -3,6 +3,7 @@ import asyncio
 import aiosqlite
 import time
 import uuid
+import hashlib
 from datetime import datetime
 from functools import wraps
 
@@ -94,44 +95,34 @@ class SelfEvolutionDAO:
                 status TEXT NOT NULL
             )
         """)
+        # 表情包表
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS stickers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                uuid TEXT UNIQUE NOT NULL,
+                hash TEXT UNIQUE NOT NULL,
+                group_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                base64_data TEXT NOT NULL,
+                tags TEXT DEFAULT '',
+                description TEXT DEFAULT '',
+                created_at TEXT NOT NULL,
+                UNIQUE(group_id, user_id, base64_data)
+            )
+        """)
+        # 反思标记表
         await db.execute("""
             CREATE TABLE IF NOT EXISTS pending_reflections (
                 session_id TEXT PRIMARY KEY,
                 is_pending INTEGER NOT NULL DEFAULT 1
             )
         """)
-        # CognitionCore 2.0: 情感关系矩阵表
+        # 好感度关系表
         await db.execute("""
             CREATE TABLE IF NOT EXISTS user_relationships (
                 user_id TEXT PRIMARY KEY,
                 affinity_score INTEGER NOT NULL DEFAULT 50,
                 last_interaction TEXT NOT NULL
-            )
-        """)
-        # GraphRAG: 用户互动关系表（替代 JSON 文件）
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS user_interactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                source_user_id TEXT NOT NULL,
-                target_user_id TEXT,
-                group_id TEXT NOT NULL,
-                interaction_count INTEGER NOT NULL DEFAULT 1,
-                last_seen TEXT NOT NULL,
-                traits TEXT,
-                UNIQUE(source_user_id, target_user_id, group_id)
-            )
-        """)
-        # 表情包表
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS stickers (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                uuid TEXT UNIQUE NOT NULL,
-                group_id TEXT NOT NULL,
-                user_id TEXT NOT NULL,
-                base64_data TEXT NOT NULL,
-                tags TEXT DEFAULT '',
-                created_at TEXT NOT NULL,
-                UNIQUE(group_id, user_id, base64_data)
             )
         """)
         # 迁移旧表：添加 uuid 列（如果不存在）
@@ -140,16 +131,36 @@ class SelfEvolutionDAO:
         except:
             pass  # 列已存在忽略错误
 
-        # 迁移旧数据：给已有记录生成 uuid
+        # 迁移旧表：添加 hash 列（如果不存在）
+        try:
+            await db.execute("ALTER TABLE stickers ADD COLUMN hash TEXT")
+        except:
+            pass  # 列已存在忽略错误
+
+        # 迁移旧表：添加 description 列（如果不存在）
+        try:
+            await db.execute("ALTER TABLE stickers ADD COLUMN description TEXT")
+        except:
+            pass  # 列已存在忽略错误
+
+        # 迁移旧数据：给已有记录生成 uuid 和 hash（基于 base64_data 计算）
         cursor = await db.execute(
-            "SELECT COUNT(*) as cnt FROM stickers WHERE uuid IS NULL"
+            "SELECT id, uuid, base64_data FROM stickers WHERE uuid IS NULL OR hash IS NULL"
         )
-        row = await cursor.fetchone()
-        if row and row["cnt"] > 0:
+        rows = await cursor.fetchall()
+        for row in rows:
+            row_id = row["id"]
+            base64_data = row["base64_data"]
+            if base64_data:
+                new_hash = hashlib.md5(base64_data.encode()).hexdigest()
+            else:
+                new_hash = uuid.uuid4().hex
+            new_uuid = row["uuid"] if row["uuid"] else uuid.uuid4().hex
             await db.execute(
-                "UPDATE stickers SET uuid = ? WHERE uuid IS NULL",
-                (uuid.uuid4().hex,),
+                "UPDATE stickers SET uuid = ?, hash = ? WHERE id = ?",
+                (new_uuid, new_hash, row_id),
             )
+        if rows:
             await db.commit()
 
     async def get_conn(self):
@@ -268,6 +279,94 @@ class SelfEvolutionDAO:
             await db.commit()
 
     @with_db_retry()
+    async def set_pending_reflection(self, session_id: str, is_pending: bool):
+        db = await self.get_conn()
+        async with self._write_lock:
+            await db.execute(
+                "INSERT INTO pending_reflections (session_id, is_pending) VALUES (?, ?) ON CONFLICT(session_id) DO UPDATE SET is_pending=?",
+                (session_id, int(is_pending), int(is_pending)),
+            )
+            await db.commit()
+
+    @with_db_retry()
+    async def pop_pending_reflection(self, session_id: str) -> bool:
+        db = await self.get_conn()
+        async with self._write_lock:
+            cursor = await db.execute(
+                "UPDATE pending_reflections SET is_pending = 0 WHERE session_id = ? AND is_pending = 1",
+                (session_id,),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
+    @with_db_retry()
+    async def get_affinity(self, user_id: str) -> int:
+        user_id = str(user_id)
+        cached = await self._get_cached_affinity(user_id)
+        if cached is not None:
+            return cached
+        db = await self.get_conn()
+        async with db.execute(
+            "SELECT affinity_score FROM user_relationships WHERE user_id = ?",
+            (user_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            score = row["affinity_score"] if row else 50
+            await self._set_cached_affinity(user_id, score)
+            return score
+
+    @with_db_retry()
+    async def update_affinity(self, user_id: str, delta: int):
+        user_id = str(user_id)
+        db = await self.get_conn()
+        async with self._write_lock:
+            cursor = await db.execute(
+                "SELECT affinity_score FROM user_relationships WHERE user_id = ?",
+                (user_id,),
+            )
+            row = await cursor.fetchone()
+            if row:
+                new_score = max(0, min(100, row["affinity_score"] + delta))
+                await db.execute(
+                    "UPDATE user_relationships SET affinity_score = ?, last_interaction = ? WHERE user_id = ?",
+                    (new_score, datetime.now().isoformat(), user_id),
+                )
+            else:
+                new_score = max(0, min(100, 50 + delta))
+                await db.execute(
+                    "INSERT INTO user_relationships (user_id, affinity_score, last_interaction) VALUES (?, ?, ?)",
+                    (user_id, new_score, datetime.now().isoformat()),
+                )
+            await db.commit()
+            await self._set_cached_affinity(user_id, new_score)
+
+    @with_db_retry()
+    async def recover_all_affinity(self, recovery_amount: int = 1):
+        db = await self.get_conn()
+        async with self._write_lock:
+            await db.execute(
+                "UPDATE user_relationships SET affinity_score = MIN(50, affinity_score + ?) WHERE affinity_score < 50",
+                (recovery_amount,),
+            )
+            await db.commit()
+
+    @with_db_retry()
+    async def reset_affinity(self, user_id: str, score: int = 50):
+        db = await self.get_conn()
+        async with self._write_lock:
+            await db.execute(
+                "INSERT INTO user_relationships (user_id, affinity_score, last_interaction) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET affinity_score = ?, last_interaction = ?",
+                (
+                    user_id,
+                    score,
+                    datetime.now().isoformat(),
+                    score,
+                    datetime.now().isoformat(),
+                ),
+            )
+            await db.commit()
+
+    @with_db_retry()
     async def get_pending_evolutions(self, limit: int, offset: int):
         db = await self.get_conn()
         async with db.execute(
@@ -305,199 +404,41 @@ class SelfEvolutionDAO:
             )
             await db.commit()
 
-    @with_db_retry()
-    async def set_pending_reflection(self, session_id: str, is_pending: bool):
-        db = await self.get_conn()
-        async with self._write_lock:
-            await db.execute(
-                "INSERT INTO pending_reflections (session_id, is_pending) VALUES (?, ?) ON CONFLICT(session_id) DO UPDATE SET is_pending=?",
-                (session_id, int(is_pending), int(is_pending)),
-            )
-            await db.commit()
-
-    @with_db_retry()
-    async def pop_pending_reflection(self, session_id: str) -> bool:
-        db = await self.get_conn()
-        async with self._write_lock:
-            cursor = await db.execute(
-                "UPDATE pending_reflections SET is_pending = 0 WHERE session_id = ? AND is_pending = 1",
-                (session_id,),
-            )
-            await db.commit()
-            return cursor.rowcount > 0
-
-    # --- CognitionCore 2.0: 情感矩阵 DAO ---
-    @with_db_retry()
-    async def get_affinity(self, user_id: str) -> int:
-        user_id = str(user_id)  # 确保类型一致
-        # 优先从缓存获取
-        cached = await self._get_cached_affinity(user_id)
-        if cached is not None:
-            return cached
-        # 缓存未命中，查询数据库
-        db = await self.get_conn()
-        async with db.execute(
-            "SELECT affinity_score FROM user_relationships WHERE user_id = ?",
-            (user_id,),
-        ) as cursor:
-            row = await cursor.fetchone()
-            score = row["affinity_score"] if row else 50
-            # 写入缓存
-            await self._set_cached_affinity(user_id, score)
-            return score
-
-    @with_db_retry()
-    async def update_affinity(self, user_id: str, delta: int):
-        user_id = str(user_id)  # 确保类型一致
-        db = await self.get_conn()
-        async with self._write_lock:
-            cursor = await db.execute(
-                "SELECT affinity_score FROM user_relationships WHERE user_id = ?",
-                (user_id,),
-            )
-            row = await cursor.fetchone()
-            if row:
-                new_score = max(0, min(100, row["affinity_score"] + delta))
-                await db.execute(
-                    "UPDATE user_relationships SET affinity_score = ?, last_interaction = ? WHERE user_id = ?",
-                    (new_score, datetime.now().isoformat(), user_id),
-                )
-            else:
-                new_score = max(0, min(100, 50 + delta))
-                await db.execute(
-                    "INSERT INTO user_relationships (user_id, affinity_score, last_interaction) VALUES (?, ?, ?)",
-                    (user_id, new_score, datetime.now().isoformat()),
-                )
-            await db.commit()
-            # 更新缓存
-            await self._set_cached_affinity(user_id, new_score)
-
-    @with_db_retry()
-    async def recover_all_affinity(self, recovery_amount: int = 1):
-        """
-        [大赦天下]: 统一恢复所有人的好感度（用于定时任务）。
-        通常用于缓解长期黑名单导致的死局。
-        """
-        db = await self.get_conn()
-        async with self._write_lock:
-            # 仅给积分小于 50 的人慢慢恢复，上限 50
-            await db.execute(
-                """
-                UPDATE user_relationships 
-                SET affinity_score = MIN(50, affinity_score + ?)
-                WHERE affinity_score < 50
-            """,
-                (recovery_amount,),
-            )
-            await db.commit()
-
-    @with_db_retry()
-    async def reset_affinity(self, user_id: str, score: int = 50):
-        """管理员强制重置好感度"""
-        db = await self.get_conn()
-        async with self._write_lock:
-            await db.execute(
-                """
-                INSERT INTO user_relationships (user_id, affinity_score, last_interaction)
-                VALUES (?, ?, ?)
-                ON CONFLICT(user_id) DO UPDATE SET 
-                    affinity_score = ?,
-                    last_interaction = ?
-            """,
-                (
-                    user_id,
-                    score,
-                    datetime.now().isoformat(),
-                    score,
-                    datetime.now().isoformat(),
-                ),
-            )
-            await db.commit()
-
-    @with_db_retry()
-    async def record_interaction(
-        self, source_user_id: str, target_user_id: str, group_id: str
-    ):
-        """记录用户互动"""
-        db = await self.get_conn()
-        async with self._write_lock:
-            await db.execute(
-                """
-                INSERT INTO user_interactions (source_user_id, target_user_id, group_id, interaction_count, last_seen)
-                VALUES (?, ?, ?, 1, ?)
-                ON CONFLICT(source_user_id, target_user_id, group_id) DO UPDATE SET
-                    interaction_count = interaction_count + 1,
-                    last_seen = excluded.last_seen
-                """,
-                (source_user_id, target_user_id, group_id, datetime.now().isoformat()),
-            )
-            await db.commit()
-
-    @with_db_retry()
-    async def get_frequent_interactors(self, user_id: str, limit: int = 5):
-        """获取与用户互动最频繁的用户列表"""
-        db = await self.get_conn()
-        async with db.execute(
-            """
-            SELECT target_user_id, interaction_count 
-            FROM user_interactions 
-            WHERE source_user_id = ? AND target_user_id IS NOT NULL
-            ORDER BY interaction_count DESC 
-            LIMIT ?
-        """,
-            (user_id, limit),
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return [(row[0], row[1]) for row in rows]
-
-    @with_db_retry()
-    async def get_user_groups(self, user_id: str):
-        """获取用户所在的所有群"""
-        db = await self.get_conn()
-        async with db.execute(
-            "SELECT DISTINCT group_id FROM user_interactions WHERE source_user_id = ?",
-            (user_id,),
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return [row[0] for row in rows]
-
-    # --- 图片描述缓存 ---
-    @with_db_retry()
-    async def add_image_cache(self, image_hash: str, caption: str, summary: str):
-        """存入图片描述缓存（完整描述 + 简短标签）"""
-        db = await self.get_conn()
-        async with self._write_lock:
-            await db.execute(
-                "INSERT OR REPLACE INTO user_interactions (source_user_id, target_user_id, group_id, interaction_type, created_at) VALUES (?, ?, ?, ?, ?)",
-                (
-                    source_user_id,
-                    target_user_id,
-                    group_id,
-                    interaction_type,
-                    datetime.now().isoformat(),
-                ),
-            )
-            await db.commit()
-
     # ========== 表情包相关方法 ==========
 
     @with_db_retry()
     async def add_sticker(
-        self, group_id: str, user_id: str, base64_data: str, tags: str = ""
-    ) -> bool:
-        """添加表情包到数据库"""
+        self,
+        group_id: str,
+        user_id: str,
+        base64_data: str,
+        tags: str = "",
+        sticker_hash: str = None,
+        description: str = "",
+    ) -> str | None:
+        """添加表情包到数据库，返回uuid或None"""
         db = await self.get_conn()
         async with self._write_lock:
             try:
                 sticker_uuid = uuid.uuid4().hex
+                if sticker_hash is None:
+                    sticker_hash = hashlib.md5(base64_data.encode()).hexdigest()
                 await db.execute(
-                    "INSERT INTO stickers (uuid, group_id, user_id, base64_data, tags, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
-                    (sticker_uuid, group_id, user_id, base64_data, tags),
+                    "INSERT INTO stickers (uuid, hash, group_id, user_id, base64_data, tags, description, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+                    (
+                        sticker_uuid,
+                        sticker_hash,
+                        group_id,
+                        user_id,
+                        base64_data,
+                        tags,
+                        description,
+                    ),
                 )
                 await db.commit()
-                return True
+                return sticker_uuid
             except aiosqlite.IntegrityError:
-                return False
+                return None
 
     @with_db_retry()
     async def get_sticker_count(self) -> int:
@@ -541,12 +482,15 @@ class SelfEvolutionDAO:
             ]
 
     @with_db_retry()
-    async def update_sticker_tags_by_uuid(self, sticker_uuid: str, tags: str) -> bool:
-        """根据UUID更新表情包标签"""
+    async def update_sticker_tags_by_uuid(
+        self, sticker_uuid: str, tags: str, description: str = ""
+    ) -> bool:
+        """根据UUID更新表情包标签和描述"""
         db = await self.get_conn()
         async with self._write_lock:
             cursor = await db.execute(
-                "UPDATE stickers SET tags = ? WHERE uuid = ?", (tags, sticker_uuid)
+                "UPDATE stickers SET tags = ?, description = ? WHERE uuid = ?",
+                (tags, description, sticker_uuid),
             )
             await db.commit()
             return cursor.rowcount > 0
@@ -560,12 +504,12 @@ class SelfEvolutionDAO:
         async with self._db_lock:
             if tags:
                 cursor = await db.execute(
-                    "SELECT id, uuid, group_id, user_id, base64_data, tags, created_at FROM stickers WHERE tags LIKE ? ORDER BY id DESC LIMIT ? OFFSET ?",
+                    "SELECT id, uuid, group_id, user_id, base64_data, tags, description, created_at FROM stickers WHERE tags LIKE ? ORDER BY id DESC LIMIT ? OFFSET ?",
                     (f"%{tags}%", limit, offset),
                 )
             else:
                 cursor = await db.execute(
-                    "SELECT id, uuid, group_id, user_id, base64_data, tags, created_at FROM stickers ORDER BY id DESC LIMIT ? OFFSET ?",
+                    "SELECT id, uuid, group_id, user_id, base64_data, tags, description, created_at FROM stickers ORDER BY id DESC LIMIT ? OFFSET ?",
                     (limit, offset),
                 )
             rows = await cursor.fetchall()
@@ -577,6 +521,7 @@ class SelfEvolutionDAO:
                     "user_id": row["user_id"],
                     "base64_data": row["base64_data"],
                     "tags": row["tags"],
+                    "description": row["description"] or "",
                     "created_at": row["created_at"],
                 }
                 for row in rows
@@ -588,7 +533,7 @@ class SelfEvolutionDAO:
         db = await self.get_conn()
         async with self._db_lock:
             cursor = await db.execute(
-                "SELECT id, group_id, user_id, base64_data, tags, created_at FROM stickers WHERE tags != '' ORDER BY RANDOM() LIMIT 1"
+                "SELECT id, group_id, user_id, base64_data, tags, description, created_at FROM stickers WHERE tags != '' ORDER BY RANDOM() LIMIT 1"
             )
             row = await cursor.fetchone()
             if row:
@@ -598,6 +543,7 @@ class SelfEvolutionDAO:
                     "user_id": row["user_id"],
                     "base64_data": row["base64_data"],
                     "tags": row["tags"],
+                    "description": row["description"] or "",
                     "created_at": row["created_at"],
                 }
             return None
@@ -641,6 +587,30 @@ class SelfEvolutionDAO:
                 "today": today_row["cnt"] if today_row else 0,
             }
 
+    @with_db_retry()
+    async def get_sticker_by_hash(self, sticker_hash: str) -> dict | None:
+        """根据hash获取表情包信息"""
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute(
+                "SELECT id, uuid, hash, group_id, user_id, base64_data, tags, description, created_at FROM stickers WHERE hash = ?",
+                (sticker_hash,),
+            )
+            row = await cursor.fetchone()
+            if row:
+                return {
+                    "id": row["id"],
+                    "uuid": row["uuid"],
+                    "hash": row["hash"],
+                    "group_id": row["group_id"],
+                    "user_id": row["user_id"],
+                    "base64_data": row["base64_data"],
+                    "tags": row["tags"],
+                    "description": row["description"] or "",
+                    "created_at": row["created_at"],
+                }
+            return None
+
     # ========== 内心独白相关方法 ==========
 
     @with_db_retry()
@@ -653,7 +623,6 @@ class SelfEvolutionDAO:
             "pending_evolutions",
             "pending_reflections",
             "user_relationships",
-            "user_interactions",
             "stickers",
         ]
 
@@ -678,7 +647,6 @@ class SelfEvolutionDAO:
             "pending_evolutions",
             "pending_reflections",
             "user_relationships",
-            "user_interactions",
             "stickers",
         ]
 
