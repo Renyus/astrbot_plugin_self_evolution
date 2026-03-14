@@ -204,7 +204,7 @@ class PluginConfig:
     def debate_system_prompt(self):
         return self._config.get(
             "debate_system_prompt",
-            "你是一个严格的代码审查员。",
+            "你是一个代码审查助手，负责审查代码提案。",
         )
 
     @property

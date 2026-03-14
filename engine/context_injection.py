@@ -69,5 +69,5 @@ def build_core_cognition_instructions(affinity: int = 50) -> str:
     """
     return f"""
 [当前用户] ID:xxx | 好感度:{affinity}/100
-请严格区分当前用户与群里其他人的发言，不要误伤好人。
+请严格区分当前用户与群里其他人的发言。
 """

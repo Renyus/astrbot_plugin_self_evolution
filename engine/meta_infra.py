@@ -314,7 +314,7 @@ class MetaInfra:
                     res = await provider.text_chat(
                         prompt=response_prompt,
                         contexts=[],
-                        system_prompt="你是一个理性、专业的 AI，负责提出代码修改提案。",
+                        system_prompt="你是一个代码审查助手，负责提出代码修改提案。",
                     )
                     response_text = res.completion_text.strip()
                     logger.info(f"[SelfEvolution] 提案方回应: {response_text[:200]}...")

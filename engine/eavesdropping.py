@@ -834,7 +834,7 @@ class EavesdroppingEngine:
 
             prompt = f"""你正在群聊/私聊中听到一段对话，但你选择不直接回复。
 原因：{reason}
-请用简短的几句话表达你内心的想法或反应（可以是腹诽、思考、吐槽等）。
+请用简短的几句话表达你内心的想法或反应。
 请直接输出，不要有任何格式前缀。
 输出格式：<inner_monologue>你的内心独白</inner_monologue>"""
 
@@ -963,10 +963,7 @@ class EavesdroppingEngine:
                     pass
 
             prompt_parts.append(f"\n对话：\n{chat_history}\n")
-            prompt_parts.append(
-                "你觉得这个对话很有趣，决定参与。现在该你参与互动了。"
-                "请严格遵照自己的人格回复。"
-            )
+            prompt_parts.append("你觉得这个对话很有趣，决定参与。现在该你参与互动了。")
             formal_prompt = "".join(prompt_parts)
 
             llm_provider = self.plugin.context.get_using_provider(
