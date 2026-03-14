@@ -612,6 +612,30 @@ class SelfEvolutionDAO:
                 }
             return None
 
+    @with_db_retry()
+    async def get_sticker_by_uuid(self, sticker_uuid: str) -> dict | None:
+        """根据uuid获取表情包信息"""
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute(
+                "SELECT id, uuid, hash, group_id, user_id, base64_data, tags, description, created_at FROM stickers WHERE uuid = ?",
+                (sticker_uuid,),
+            )
+            row = await cursor.fetchone()
+            if row:
+                return {
+                    "id": row["id"],
+                    "uuid": row["uuid"],
+                    "hash": row["hash"],
+                    "group_id": row["group_id"],
+                    "user_id": row["user_id"],
+                    "base64_data": row["base64_data"],
+                    "tags": row["tags"],
+                    "description": row["description"] or "",
+                    "created_at": row["created_at"],
+                }
+            return None
+
     # ========== 内心独白相关方法 ==========
 
     @with_db_retry()

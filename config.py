@@ -70,6 +70,18 @@ class PluginConfig:
         return self._config.get("admin_users", [])
 
     @property
+    def prompt_meltdown_message(self):
+        return self._config.get("prompt_meltdown_message", "远程人偶自动应答模式：你好，你好，大家好，祝你拥有愉快的一天，再见。")
+
+    @property
+    def enable_context_recall(self):
+        return self._parse_bool(self._config.get("enable_context_recall"), True)
+
+    @property
+    def enable_profile_update(self):
+        return self._parse_bool(self._config.get("enable_profile_update"), True)
+
+    @property
     def timeout_memory_commit(self):
         return float(self._config.get("timeout_memory_commit", 10.0))
 

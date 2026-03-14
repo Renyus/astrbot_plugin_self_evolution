@@ -211,10 +211,7 @@ class SelfEvolutionPlugin(Star):
                     f"[SAN] 精力过低: {self.san_system.value}/{self.san_system.max_value}"
                 )
 
-        # 社交偏见检查：好友的好友警惕
-        social_bias_hint = await self._check_social_bias(user_id)
-
-        # 0. 动态上下文路由：轻量级消息分类，决定加载哪些模块
+        # 动态上下文路由：轻量级消息分类，决定加载哪些模块
         needs_profile = False
         needs_preference = False
         needs_surprise = False
@@ -251,6 +248,7 @@ class SelfEvolutionPlugin(Star):
 
         # 获取群组特征
         is_group = bool(event.get_group_id())
+        group_id = event.get_group_id()
         role_info = "（管理员）" if event.is_admin() else ""
 
         # 获取用户好感度
@@ -390,10 +388,6 @@ class SelfEvolutionPlugin(Star):
         # 4.9 表情包库注入
         if self.cfg.sticker_learning_enabled:
             req.system_prompt += await self.entertainment.get_prompt_injection()
-
-        # 4.11 社交偏见注入
-        if social_bias_hint:
-            req.system_prompt += f"\n\n【潜意识警告】{social_bias_hint}"
 
         # 6. 内心独白注入
         if self.cfg.inner_monologue_enabled:
