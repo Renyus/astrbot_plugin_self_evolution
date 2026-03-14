@@ -346,12 +346,6 @@ class EavesdroppingEngine:
             boost += image_boost
             trigger_reason += "+图片"
 
-        if len(msg_text) < 6 and not is_at and not has_image:
-            logger.info(
-                f"[CognitionCore] 消息过短跳过: {msg_text[:10] if msg_text else '(空)'} ({label})"
-            )
-            return
-
         # 信息质量多维度检查
         char_diversity = len(set(msg_text)) / len(msg_text) if msg_text else 0
 
