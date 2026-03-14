@@ -1,6 +1,6 @@
-# Self-Evolution -- AstrBot 认知增强插件
+# 自我进化 -- AstrBot 认知增强插件
 
-**版本**: Release Ver1.0.1 | **内核**: CognitionCore 6.0 | **协议**: CC BY-NC 4.0
+**版本**: Release Ver2.0.0 | **内核**: CognitionCore 7.0 | **协议**: CC BY-NC 4.0
 
 交流群: 1087272376
 
@@ -8,27 +8,25 @@
 
 ## 概述
 
-Self-Evolution 是一个面向 AstrBot 平台的认知增强插件。它赋予 AI 主动环境感知、长期记忆、用户画像、情感建模和自主互动意愿等能力，让 AI 从被动的问答工具升级为具备持续"生命感"的智能体。
+自我进化是一个面向 AstrBot 平台的认知增强插件。它赋予 AI 主动环境感知、长期记忆、用户画像、情感建模和自主互动意愿等能力，让 AI 从被动的问答工具升级为具备持续"生命感"的智能体。
 
-插件的核心设计思想是"白天快速响应，夜间批量整理"：实时交互只做轻量级的关键词匹配和画像读取，LLM 密集型的画像构建和群记忆总结等工作推迟到凌晨的"做梦"任务中完成。
+插件的核心设计思想是"定时批量处理 + NapCat API 深度整合"：利用 NapCat API 直接获取群消息进行画像构建、群聊总结、SAN 分析等工作，实时交互保持轻量级响应。
 
 ---
 
 ## 功能模块
 
-| 模块 | 说明 | 默认 |
+| 模块 | 说明 | 状态 |
 |------|------|------|
-| 主动互动意愿引擎 | 基于泄漏积分器的自然互动节奏，支持有趣/无聊动态调节 | 启用 |
-| 用户画像系统 | Markdown 文本存储，支持分层失活、记忆模糊化、情绪依存记忆 | 启用 |
-| 长期记忆 | 基于知识库的向量存储/检索，支持去重和自动清理 | 启用 |
-| 做梦机制 | 凌晨批量构建画像、总结群记忆、跨群知识关联 | 启用 |
-| 情感矩阵 | 0-100 好感度评分，低分熔断拦截 | 启用 |
-| SAN 精力值 | 心智疲劳模拟，精力耗尽时拒绝服务 | 启用 |
-| 群体情绪共染 | 感知群氛围，影响回复风格 | 启用 |
-| 关系图谱 | 记录用户互动关系 | 启用 |
-| 人格进化 | LLM 自主修改系统提示词，支持管理员审核 | 启用 |
+| SAN 精力值系统 | 定时分析群状态，动态调整 AI 精力值 | 启用 |
+| 用户画像 | 基于 NapCat API 获取消息，手动指令创建/更新 | 启用 |
+| 每日群聊总结 | 定时获取群消息，LLM 总结后存入知识库 | 启用 |
+| 好感度系统 | 用户情感评分与熔断机制 | 启用 |
+| 欲望积分器 | 模拟人类情绪波动，触发主动插嘴 | 启用 |
+| 主动插嘴 | 定时检查群氛围，AI 自主决定是否插嘴 | 关闭（默认） |
+| 人格进化 | AI 自主修改系统提示词，支持管理员审核 | 启用 |
 | 元编程 | AI 读取/修改自身源码，多智能体对抗审查 | 关闭 |
-| 表情包学习 | 自动学习指定群友表情包，AI 主动发送活跃气氛 | 关闭 |
+| 表情包学习 | 自动学习群友表情包，AI 主动发送活跃气氛 | 关闭 |
 | 今日老婆 | 随机抽取群友作为今日老婆 | 启用 |
 
 ---
@@ -38,6 +36,7 @@ Self-Evolution 是一个面向 AstrBot 平台的认知增强插件。它赋予 A
 - AstrBot v4.19.2 或更高版本
 - 至少一个已配置的 LLM Provider
 - 一个名为 `self_evolution_memory` 的知识库（需在 AstrBot 后台手动创建）
+- NapCat / go-cqhttp 作为消息协议后端
 
 ---
 
@@ -53,132 +52,50 @@ Self-Evolution 是一个面向 AstrBot 平台的认知增强插件。它赋予 A
 ## 项目结构
 
 ```
- astrbot_plugin_self_evolution/
- |-- main.py                 入口文件，生命周期管理，LLM 工具注册
- |-- config.py               配置属性代理，所有配置项集中定义
- |-- dao.py                  SQLite 数据访问层（WAL 模式，长连接池，读写锁分离）
- |-- _conf_schema.json       AstrBot 配置面板 Schema
- |-- metadata.yaml           插件元信息
- |-- cognition/
- |   |-- __init__.py
- |   |-- san.py              SAN 精力值系统
- |   +-- vibe.py             群体情绪共染系统
- +-- engine/
-     |-- __init__.py          模块导出
-     |-- session.py           滑动上下文窗口管理（漏斗机制依赖）
-     |-- eavesdropping.py     主动互动意愿引擎（漏斗机制 + 泄漏积分器）
-     |-- memory.py            长期记忆管理（存储 / 检索 / 去重 / 清理）
-     |-- profile.py           用户画像管理（Markdown 格式，支持缓存）
-     |-- persona.py           人格进化管理（审核队列）
-     |-- meta_infra.py        元编程基础设施（AST 校验 + 多智能体对抗辩论）
-     +-- graph.py             关系图谱 RAG
+astrbot_plugin_self_evolution/
+|-- main.py                      # 入口文件，生命周期管理，LLM 工具注册
+|-- config.py                   # 配置属性代理，所有配置项集中定义
+|-- dao.py                     # SQLite 数据访问层（好感度、进化审核等）
+|-- _conf_schema.json          # AstrBot 配置面板 Schema
+|-- metadata.yaml               # 插件元信息
+|-- cognition/
+|   |-- __init__.py
+|   +-- san.py                 # SAN 精力值系统
++-- engine/
+    |-- __init__.py            # 模块导出
+    |-- eavesdropping.py        # 欲望积分器、主动插嘴
+    |-- memory.py               # 每日群聊总结
+    |-- profile.py              # 用户画像管理
+    |-- persona.py              # 人格进化管理
+    |-- meta_infra.py           # 元编程基础设施
+    |-- entertainment.py        # 娱乐功能（表情包、今日老婆）
+    +-- context_injection.py    # 上下文注入
 ```
-
----
-
-## 消息处理流程
-
-### 被动监听流程 (on_message_listener)
-
-每条群聊消息到达时依次执行：
-
-1. 写入滑动窗口 -- SessionManager 按 Token 预算维护消息队列（仅用于漏斗判断，不注入 prompt）
-2. 记录关系图谱 -- GraphRAG 记录用户在群中的互动
-3. 互动意愿评估 -- EavesdroppingEngine 进行多级过滤和决策
-
-### 主动拦截流程 (on_llm_request)
-
-当用户直接与 AI 交互（@、命令、私聊）时：
-
-1. SAN 精力值检查 -- 精力耗尽则拒绝服务
-2. 好感度检查 -- 好感度为零则物理熔断，拒绝处理
-3. 动态上下文路由 -- 根据消息内容按需加载画像、图谱、偏好检测等模块
-4. System Prompt 注入 -- 依次注入人格设定、身份信息、画像、关系图谱、SAN 状态、群氛围、核心准则
-5. 图片处理 -- 区分已知图片（已缓存描述）和未知图片，注入不同引导语
-
-### 中间消息过滤 (on_decorating_result)
-
-拦截工具调用期间 LLM 产生的过渡性消息（如"让我查查..."），避免向用户发送无意义的中间回复。
 
 ---
 
 ## 核心功能详解
 
-### 主动互动意愿引擎
+### 1. SAN 精力值系统
 
-核心机制是一个指数衰减积分器（Leaky Integrator），模拟人类"越来越想说话"的冲动：
+模拟 AI 的心智疲劳，通过定时分析群状态动态调整精力值。
 
-```
-S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
-```
+**工作流程**：
+1. 定时任务触发（默认每 30 分钟）
+2. 通过 NapCat API 获取各群最近消息
+3. 调用 LLM 分析群活跃度和情绪倾向
+4. 根据分析结果调整 SAN 值
 
-其中 `lambda` 为衰减系数（默认 0.9），`w` 为当前消息权重（关键词命中为 2.0，日常闲聊为 1.0，图片为 0.1）。当积分值超过触发阈值（默认 4.0）时，引擎调用 LLM 进行"是否值得回应"的二次决策。
+**SAN 调整规则**：
 
-**漏斗机制**用于判定用户活跃状态：
+| 群状态 | SAN 变化 |
+|--------|---------|
+| 高活跃 + 正面情绪 | +5 |
+| 中活跃 + 中性情绪 | 0 |
+| 低活跃 | -3 |
+| 负面情绪/有节奏 | -5 |
 
-| 级别 | 触发条件 | 效果 |
-|------|----------|------|
-| L1 | @机器人、命令前缀、引用回复 Bot 消息 | 标记为活跃，触发互动意愿评估 |
-| L2 | 唤醒词命中，强 AI 意图句式（"帮我"、"翻译"等） | 标记为活跃，触发互动意愿评估 |
-| 活跃窗口 | 用户在 30 秒内有过 L1/L2 触发 | 加载画像信息 |
-
-**有趣/无聊动态阈值**：LLM 在评估互动意愿时会判断当前对话"有趣"还是"无聊"
-
-- 有趣判定：降低触发阈值至 `eavesdrop_threshold_min`，增加积分器欲望值
-- 无聊判定：提高触发阈值至 `eavesdrop_threshold_max`，降低 SAN 精力值
-
-**信息熵检测**：基于香农熵检测消息的信息量。当群聊持续出现低信息量内容时，AI 进入"无聊状态"，拒绝回复或以傲慢语气应对。
-
-检测维度：
-1. 熵值过低（< 0.3）-- 重复字符（如"哈哈哈"）
-2. 字符多样性过低（< 0.15）-- 大量重复字符
-3. 熵值过高（> 0.95）且多样性异常（> 0.9）-- 疑似乱码
-
-### 滑动上下文窗口
-
-按 Token 预算（默认 4000）为每个群维护消息滑动窗口。Token 超限时自动淘汰最旧消息。
-
-**重要说明**：由于 AstrBot 框架本身已内置 LongTermMemory（LTM）功能，包含滑动窗口和知识库存储，为了避免功能冲突，本插件的滑动窗口**不再注入 prompt**，仅用于：
-- 漏斗机制判断消息数量阈值
-- 图片缓存（存储 `image_summaries`）
-
-会话缓冲超时后（默认 10 分钟无新消息）自动清理。
-
-### 用户画像系统
-
-画像以 Markdown 文本存储在 `data/profiles/user_{id}.md`。主要特性：
-
-- **分层失活 (Stratified Dropout)**：核心信息（身份、职业等关键词匹配的行）永远保留，边缘信息以 15% 概率随机丢弃，让 AI 的记忆更接近真人
-- **记忆模糊化**：画像生成时标注置信度，低置信度的记忆在回复时使用"我隐约记得"、"似乎"等不确定语气
-- **情绪依存记忆**：好感度高的用户，AI 偏向回忆愉快经历；好感度低的用户，偏向回忆负面事件
-- **惊奇驱动学习**：检测到用户表达认知颠覆（"原来如此"、"没想到"等）时，触发即时画像更新，弥补批量模式的时效空窗
-
-### 做梦机制
-
-每日凌晨（默认 3:00）触发的批量处理任务，包含以下步骤：
-
-1. **用户画像更新** -- 读取活跃用户的历史消息，调用 LLM 生成增量画像。对于已有 50 字以上画像的用户使用增量更新模板，否则使用全量生成
-2. **群记忆总结** -- 对每个群的公共知识进行总结整理并存入知识库
-3. **跨群知识关联** -- 分析多个群的知识总结，寻找跨领域关联，生成可在后续对话中引用的洞察
-4. **好感度恢复** -- 所有低于 50 分的用户好感度小幅回升（"大赦天下"机制，每次恢复 2 分）
-
-做梦任务使用信号量控制并发（默认 3），避免瞬间发起过多 LLM 请求。优先处理漏斗机制标记的活跃用户，剩余名额分配给已有画像文件。
-
-### 情感矩阵
-
-每个用户有一个 0-100 的好感度评分（初始 50）。好感度由 LLM 通过 `update_affinity` 工具自主调整，每次变动上限为 20 分。
-
-| 区间 | 状态 | 行为 |
-|------|------|------|
-| 80-100 | 信任 | 优待，回忆愉快经历 |
-| 60-79 | 友好 | 正常交流 |
-| 40-59 | 中立 | 标准响应 |
-| 1-39 | 敌对 | 注意负面行为 |
-| 0 | 熔断 | 物理拦截所有请求，零 Token 消耗 |
-
-### SAN 精力值
-
-模拟 AI 的心智疲劳。每处理一条消息消耗精力值（默认 2.0），每小时恢复一定量（默认 10）。精力值存储在内存中，插件重启后重置为满值。
+**SAN 值状态**：
 
 | 精力比例 | 状态 | 表现 |
 |----------|------|------|
@@ -187,30 +104,110 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 | < 20% | 疲惫不堪 | 明确表现出不耐烦 |
 | 0 | 耗尽 | 拒绝服务 |
 
-### 群体情绪共染
+### 2. 用户画像系统
 
-通过正/负面关键词匹配维护每个群的氛围分数（-10 到 +10），氛围状态注入 LLM 上下文。
+基于 NapCat API 获取用户在群里的消息记录，手动指令触发画像构建。
 
-| 分值 | 氛围 |
-|------|------|
-| < -5 | 紧张 |
-| -5 到 0 | 低沉 |
-| 0 | 平静 |
-| 0 到 5 | 轻松 |
-| > 5 | 热烈 |
+**触发方式**：
+- `/create` - 手动创建画像（获取最近 500 条消息）
+- `/update` - 手动更新画像（增量更新）
+- `/view` - 查看画像
 
-### 元编程与多智能体对抗
+**权限规则**：
+- 普通用户：只能操作自己的画像
+- 管理员：可以指定用户操作
 
-元编程功能默认关闭。开启后 AI 可以读取自身源码并提出修改提案。提案的处理流程：
+**画像格式**：Markdown 文本，存储在 `data/plugin_data/self_evolution/profiles/user_{id}.md`
 
-1. **AST 安全校验** -- 拦截 `subprocess`、`socket`、`eval`、`exec` 等危险导入和函数调用
-2. **多智能体对抗辩论** -- 可配置多个审查 Agent（默认包含"螺丝咕姆"和"阮梅"），进行多轮代码审查
-3. **沙盒隔离** -- 代码提案写入独立目录 `code_proposals/`，不直接修改源码
-4. **人工审核** -- 最终由管理员审查后手动应用
+### 3. 每日群聊总结
 
-元编程工具仅管理员可触发（通过框架级 `PermissionType.ADMIN` 装饰器限制）。
+定时获取群消息，LLM 总结后存入知识库。
 
-> 注意：AST 安全校验不能防御所有绕过手段。开启元编程后请务必保持管理员审核模式。
+**触发时间**：每天凌晨 3 点（可配置）
+
+**工作流程**：
+1. 获取所有监听群的消息（默认 500 条）
+2. 调用 LLM 生成群聊总结
+3. 存入知识库
+
+**配置项**：
+- `memory_summary_schedule` - Cron 表达式
+- `memory_msg_count` - 获取消息数
+
+### 4. 好感度系统
+
+每个用户有一个 0-100 的好感度评分（初始 50）。
+
+**好感度区间**：
+
+| 区间 | 状态 | 行为 |
+|------|------|------|
+| 80-100 | 信任 | 优待，回忆愉快经历 |
+| 60-79 | 友好 | 正常交流 |
+| 40-59 | 中立 | 标准响应 |
+| 1-39 | 敌对 | 注意负面行为 |
+| 0 | 熔断 | 物理拦截所有请求 |
+
+**调整方式**：
+- LLM 通过 `update_affinity` 工具自主调整（单次上限 20 分）
+- 管理员通过 `/set_affinity` 指令手动设置
+- 每天凌晨"大赦天下"：低于 50 分的用户好感度 +2
+
+### 5. 欲望积分器
+
+模拟人类"越来越想说话"的冲动，通过指数衰减积分器实现。
+
+**积分公式**：
+```
+S(t) = S(t-1) * exp(-λ * Δt / 60) + w
+```
+
+- `λ` (leaky_decay_factor): 衰减系数，默认 0.9
+- `w` (interest_boost): 消息权重，默认 2.0（关键词命中）
+
+**触发条件**：
+- @机器人
+- 命令前缀
+- 引用回复
+- 唤醒词命中
+- 强 AI 意图句式
+
+### 6. 主动插嘴（可选）
+
+定时检查群氛围，AI 自主决定是否插嘴。
+
+**默认状态**：关闭
+
+**工作流程**：
+1. 定时任务触发（默认每 30 分钟）
+2. 通过 NapCat API 获取群消息（默认 100 条）
+3. 调用 LLM 判断是否应该插嘴
+4. 如果应该插嘴，发送消息
+
+**配置项**：
+- `interject_enabled` - 是否启用（默认 false）
+- `interject_interval` - 检查间隔（默认 30 分钟）
+- `interject_msg_count` - 获取消息数（默认 100）
+
+### 7. 人格进化
+
+AI 自主修改系统提示词，支持管理员审核。
+
+**工作流程**：
+1. AI 调用 `evolve_persona` 工具提出修改
+2. 生成进化提案，存入待审核队列
+3. 管理员通过 `/review_evolutions` 查看
+4. 管理员通过 `/approve_evolution` 批准或 `/reject_evolution` 拒绝
+
+### 8. 元编程（危险功能）
+
+默认关闭。开启后 AI 可以读取并修改自身源码。
+
+**安全措施**：
+1. AST 安全校验 - 拦截危险导入和函数调用
+2. 多智能体对抗辩论 - 可配置多个审查 Agent
+3. 沙盒隔离 - 提案写入独立目录
+4. 人工审核 - 最终由管理员手动应用
 
 ---
 
@@ -220,28 +217,29 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 
 | 指令 | 说明 |
 |------|------|
-| `/sehelp` | 显示 Self-Evolution 插件指令帮助 |
-| `/reflect` | 手动触发一次自我反省，在下一次对话时执行深度实体提取 |
-| `/affinity` | 查看 AI 对你的当前好感度评分和分类状态 |
-| `/view_profile [用户ID]` | 查看指定用户的画像信息（不填则查看自己） |
-| `/graph_info [用户ID]` | 查看指定用户的关系图谱信息 |
-| `/graph_stats [群ID]` | 查看群聊的关系图谱统计 |
-| `/session` | 查看当前群的滑动窗口缓存内容 |
-| `/今日老婆` | 随机抽取一名群友作为今日老婆 |
+| `/sehelp` | 显示插件帮助信息 |
+| `/version` | 显示插件版本 |
+| `/reflect` | 手动触发自我反省 |
+| `/affinity` | 查看当前好感度 |
+| `/今日老婆` | 随机抽取今日老婆 |
+| `/view [用户ID]` | 查看画像（普通用户只能看自己） |
+| `/create [用户ID]` | 创建画像（普通用户只能给自己创建） |
+| `/update [用户ID]` | 更新画像（普通用户只能更新自己） |
+| `/shut` | 让 AI 停止回复 |
 
 ### 管理员指令
 
 | 指令 | 说明 |
 |------|------|
-| `/set_affinity <用户ID> <分数>` | 强制重置指定用户的好感度（0-100） |
-| `/delete_profile <用户ID>` | 删除指定用户的画像 |
-| `/profile_stats` | 查看画像系统统计信息 |
-| `/review_evolutions [页码]` | 列出待审核的人格进化请求（每页 10 条） |
-| `/approve_evolution <ID>` | 批准指定的进化请求 |
-| `/reject_evolution <ID>` | 拒绝指定的进化请求 |
-| `/clear_evolutions` | 清空所有待审核的进化请求 |
-| `/sticker [操作]` | 表情包管理（list: 列出 / untagged: 未打标签 / delete <ID>: 删除 / clear: 清空 / stats: 统计） |
-| `/db reset` | 重置插件数据库（30秒确认，需管理员） |
+| `/set_affinity <用户ID> <分数>` | 强制设置好感度（0-100） |
+| `/delete_profile <用户ID>` | 删除用户画像 |
+| `/profile_stats` | 查看画像统计 |
+| `/review_evolutions [页码]` | 查看待审核进化 |
+| `/approve_evolution <ID>` | 批准进化 |
+| `/reject_evolution <ID>` | 拒绝进化 |
+| `/clear_evolutions` | 清空进化队列 |
+| `/sticker <操作>` | 表情包管理 |
+| `/db <操作>` | 数据库操作 |
 
 ---
 
@@ -249,167 +247,151 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 
 以下工具通过 Function Calling 注册，AI 在对话过程中自主判断是否调用。
 
-### 记忆管理
+### 画像与记忆
 
 | 工具 | 说明 |
 |------|------|
-| `commit_to_memory` | 将重要事实存入长期记忆库 |
-| `recall_memories` | 按关键词检索长期记忆 |
-| `learn_from_context` | 从当前对话中提取关键信息存入记忆 |
-| `upsert_cognitive_memory` | 统一认知记忆接口，按 category 自动分发到对应存储系统 |
-| `save_group_knowledge` | 保存群公共知识（群规、约定活动、群共识） |
-| `list_memories` | 列出记忆库条目 |
-| `delete_memory` | 删除单条记忆 |
-| `clear_all_memory` | 清空全部记忆（需管理员权限和 confirm=true） |
+| `get_user_profile` | 获取用户画像 |
+| `upsert_cognitive_memory` | 存储记忆（仅支持用户画像类别） |
+| `get_user_messages` | 获取用户在群里的历史消息 |
 
-### 画像与社交
+### 情感系统
 
 | 工具 | 说明 |
 |------|------|
-| `get_user_profile` | 获取当前用户的画像信息 |
-| `update_user_profile` | 更新指定用户的画像 |
-| `get_user_messages` | 获取用户在当前群的历史消息（最多 1000 条） |
-| `update_affinity` | 根据用户言行调整好感度（单次上限 20 分） |
+| `update_affinity` | 调整用户好感度 |
 
-### 上下文
+### 人格进化
 
 | 工具 | 说明 |
 |------|------|
-| `get_session_context` | 获取指定群的滑动窗口缓存内容 |
+| `evolve_persona` | 修改系统提示词（需审核） |
 
 ### 系统管理
 
 | 工具 | 说明 |
 |------|------|
-| `evolve_persona` | 修改系统提示词（人格进化） |
-| `list_tools` | 列出当前所有已注册工具及激活状态 |
-| `toggle_tool` | 动态激活或停用某个工具 |
+| `list_tools` | 列出所有工具 |
+| `toggle_tool` | 开关工具 |
 
-### 元编程（需管理员权限）
+### 元编程（需管理员）
 
 | 工具 | 说明 |
 |------|------|
-| `get_plugin_source` | 读取插件指定模块的源码 |
+| `get_plugin_source` | 读取插件源码 |
 | `update_plugin_source` | 提交代码修改提案 |
 
-### 表情包管理
+### 娱乐功能
 
 | 工具 | 说明 |
 |------|------|
-| `list_stickers` | 列出表情包（支持按标签筛选） |
-| `send_sticker` | 发送表情包（支持按ID或随机发送） |
+| `list_stickers` | 列出表情包 |
+| `send_sticker` | 发送表情包 |
 
 ---
 
 ## 配置参考
 
-所有配置项可通过 AstrBot 后台面板修改，即时生效无需重启。完整定义见 `_conf_schema.json`。
+所有配置项可通过 AstrBot 后台面板修改，即时生效。
 
-### 基础设定
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `persona_name` | string | 黑塔 | 机器人名称 |
-| `core_principles` | string | (见配置) | 核心价值观/安全锚点 |
-| `admin_users` | list | [] | 管理员 ID 列表 |
-| `debug_log_enabled` | bool | false | Debug 日志模式 |
-| `max_prompt_injection_length` | int | 2000 | Prompt 注入最大长度 |
-
-### 互动意愿引擎
+### SAN 系统
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `critical_keywords` | string | 黑塔\|空间站\|... | 强制触发互动意愿的正则关键词 |
-| `leaky_integrator_enabled` | bool | true | 启用泄漏积分器 |
-| `leaky_decay_factor` | float | 0.9 | 衰减系数（0-1，越小衰减越快） |
-| `leaky_trigger_threshold` | float | 4.0 | 积分器触发阈值 |
-| `interest_boost` | float | 2.0 | 关键词命中时的权重增益 |
-| `daily_chat_boost` | float | 1.0 | 日常消息的权重增益 |
-| `desire_cooldown_messages` | int | 5 | 欲望冷却消息数 |
-| `desire_cooldown_seconds` | int | 60 | 贤者时间冷却时长(秒) |
-| `boredom_enabled` | bool | true | 启用信息熵无聊检测 |
-| `boredom_consecutive_count` | int | 5 | 连续低信息量消息达到此数量后触发无聊状态 |
-| `boredom_sarcastic_reply` | bool | true | 无聊时被@是否输出傲慢回复 |
-
-### 记忆系统
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `memory_kb_name` | string | self_evolution_memory | 记忆知识库名称 |
-| `max_memory_entries` | int | 100 | 知识库最大条目数（超出自动清理最旧条目） |
-| `timeout_memory_commit` | float | 10.0 | 写入知识库超时时间（秒） |
-| `timeout_memory_recall` | float | 12.0 | 检索知识库超时时间（秒） |
-| `enable_context_recall` | bool | true | 启用上下文追踪（用户引用 AI 发言时自动注入） |
-
-### 画像与做梦
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `enable_profile_update` | bool | true | 启用用户画像更新 |
-| `profile_group_whitelist` | string | "" | 画像构建群白名单（逗号分隔，空表示所有群） |
-| `profile_precision_mode` | string | simple | 画像精度模式（simple: Markdown 摘要） |
-| `dropout_enabled` | bool | true | 启用分层失活 |
-| `dropout_edge_rate` | float | 0.15 | 边缘信息随机丢弃概率 |
-| `dream_enabled` | bool | true | 启用凌晨做梦机制 |
-| `dream_schedule` | string | 0 3 * * * | 做梦计划（Cron 表达式） |
-| `dream_max_users` | int | 20 | 做梦最大处理用户数 |
-| `dream_concurrency` | int | 3 | 做梦并发数 |
-| `surprise_enabled` | bool | true | 启用惊奇驱动学习 |
-| `surprise_boost_keywords` | string | 我错了\|原来如此\|... | 惊奇关键词（\| 分隔） |
-
-### 精力值与情绪
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `san_enabled` | bool | true | 启用 SAN 精力值系统 |
+| `san_enabled` | bool | true | 启用 SAN 系统 |
 | `san_max` | int | 100 | 最大精力值 |
 | `san_cost_per_message` | float | 2.0 | 每条消息消耗精力 |
 | `san_recovery_per_hour` | int | 10 | 每小时恢复精力 |
-| `san_low_threshold` | int | 20 | 低精力阈值（低于此值表现疲态） |
-| `group_vibe_enabled` | bool | true | 启用群体情绪共染 |
-| `inner_monologue_enabled` | bool | true | 启用内心独白 |
+| `san_low_threshold` | int | 20 | 低精力阈值 |
+| `san_auto_analyze_enabled` | bool | true | 启用自动分析 |
+| `san_analyze_interval` | int | 30 | 分析间隔（分钟） |
+| `san_msg_count_per_group` | int | 50 | 每群获取消息数 |
+| `san_high_activity_boost` | int | 5 | 高活跃加成 |
+| `san_low_activity_drain` | int | -3 | 低活跃消耗 |
+| `san_positive_vibe_bonus` | int | 3 | 正面情绪加成 |
+| `san_negative_vibe_penalty` | int | -5 | 负面情绪惩罚 |
 
-**内心独白**：当 AI 判定"忽略"或"无聊"不直接回复时，会生成内心独白缓存。在下一轮对话中，这些内心独白会注入 prompt，让 AI 的回复更具内在动机感。
-
-### 滑动窗口与会话
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `session_max_tokens` | int | 4000 | 每群滑动窗口最大 Token 数 |
-| `session_whitelist` | string | "" | 白名单群号（逗号分隔，空表示所有群） |
-| `private_session_enabled` | bool | true | 私聊滑动窗口 |
-| `eavesdrop_interval_minutes` | int | 10 | 定时互动意愿检查间隔（分钟） |
-| `eavesdrop_message_threshold` | int | 20 | 定时互动意愿触发的消息数阈值（基础值） |
-| `eavesdrop_threshold_min` | int | 10 | 有趣判定时的最低阈值 |
-| `eavesdrop_threshold_max` | int | 50 | 无聊判定时的最高阈值 |
-| `session_cleanup_timeout` | int | 600 | 会话缓冲超时时间（秒） |
-
-### 元编程与对抗
+### 用户画像
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `allow_meta_programming` | bool | false | 启用元编程（危险功能） |
+| `profile_msg_count` | int | 500 | 构建画像消息数 |
+
+### 每日总结
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `memory_kb_name` | string | self_evolution_memory | 知识库名称 |
+| `memory_msg_count` | int | 500 | 总结消息数 |
+| `memory_summary_schedule` | string | 0 3 * * * | 总结计划 |
+
+### 欲望积分器
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `leaky_integrator_enabled` | bool | true | 启用欲望积分器 |
+| `leaky_decay_factor` | float | 0.9 | 衰减系数 |
+| `leaky_trigger_threshold` | float | 5 | 触发阈值 |
+| `interest_boost` | float | 2.0 | 兴趣增益 |
+| `desire_cooldown_messages` | int | 5 | 冷却消息数 |
+| `desire_cooldown_seconds` | int | 60 | 冷却时长（秒） |
+
+### 主动插嘴
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `interject_enabled` | bool | false | 启用主动插嘴 |
+| `interject_interval` | int | 30 | 检查间隔（分钟） |
+| `interject_msg_count` | int | 100 | 获取消息数 |
+
+### 分层失活
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `dropout_enabled` | bool | true | 启用分层失活 |
+| `dropout_edge_rate` | float | 0.2 | 边缘信息丢弃概率 |
+| `core_info_keywords` | string | 我是谁,我的名字... | 核心信息关键词 |
+
+### 元编程
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `allow_meta_programming` | bool | false | 启用元编程（危险） |
 | `review_mode` | bool | true | 管理员审核模式 |
-| `debate_enabled` | bool | true | 启用多智能体对抗审查 |
-| `debate_rounds` | int | 3 | 对抗辩论轮数 |
-| `debate_system_prompt` | string | 你是一个无情的安全审查员... | 审查 Agent 的系统提示词 |
-| `debate_criteria` | string | 安全漏洞\|逻辑错误\|... | 审查标准（\| 分隔） |
-| `debate_agents` | string | JSON 数组 | 审查智能体列表 |
-| `graph_enabled` | bool | true | 启用关系图谱 RAG |
+| `debate_enabled` | bool | true | 启用对抗审查 |
 
-### 表情包学习
-
-> **注意**：表情包库是**全局共享**的，所有群使用同一个表情包库。
+### 表情包
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `sticker_learning_enabled` | bool | false | 启用表情包学习 |
-| `sticker_target_qq` | string | "" | 学习对象QQ号（逗号分隔） |
-| `sticker_fetch_interval` | int | 5 | 偷图检查间隔（分钟） |
-| `sticker_tag_cooldown` | int | 5 | 打标签冷却（分钟） |
-| `sticker_daily_limit` | int | 50 | 每日存储上限 |
-| `sticker_total_limit` | int | 100 | 总存储上限 |
-| `sticker_send_cooldown` | int | 30 | 发送冷却（分钟） |
+| `sticker_target_qq` | string | "" | 学习对象 QQ 号 |
+| `sticker_fetch_interval` | int | 5 | 获取间隔（分钟） |
+| `sticker_tag_cooldown` | int | 5 | 打标签间隔（分钟） |
+
+### 基础配置
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `persona_name` | string | 黑塔 | 机器人名称 |
+| `admin_users` | list | [] | 管理员列表 |
+| `reflection_schedule` | string | 0 2 * * * | 自省计划 |
+| `max_prompt_injection_length` | int | 2000 | Prompt 注入最大长度 |
+
+---
+
+## 定时任务
+
+插件加载后自动注册以下定时任务：
+
+| 任务名 | 默认时间 | 说明 |
+|--------|----------|------|
+| SelfEvolution_DailyReflection | 0 2 * * * | 每日自省标记 |
+| SelfEvolution_MemorySummary | 0 3 * * * | 每日群聊总结 |
+| SelfEvolution_ProfileCleanup | 0 4 * * * | 清理过期画像 |
+| SelfEvolution_SANAnalyze | */30 * * * | SAN 精力分析 |
+| SelfEvolution_StickerTag | 每 N 分钟 | 表情包打标签 |
+| SelfEvolution_Interject | 每 N 分钟 | 主动插嘴（需启用） |
 
 ---
 
@@ -417,67 +399,52 @@ S(t) = S(t-1) * exp(-lambda * delta_t / 60) + w
 
 | 数据类型 | 存储位置 | 格式 |
 |----------|----------|------|
-| 好感度、进化请求、互动关系 | `data/self_evolution/self_evolution.db` | SQLite (WAL 模式) |
-| 用户画像 | `data/self_evolution/profiles/user_{id}.md` | Markdown 文本 |
-| 长期记忆 | AstrBot 知识库 (`self_evolution_memory`) | 向量检索 |
-| 代码修改提案 | `data/self_evolution/code_proposals/` | .proposal 文件 |
-| 滑动窗口、SAN 值、群氛围 | 内存 | 重启后重置 |
+| 好感度、进化审核 | `data/plugin_data/self_evolution/*.db` | SQLite |
+| 用户画像 | `data/plugin_data/self_evolution/profiles/*.md` | Markdown |
+| 长期记忆 | AstrBot 知识库 | 向量检索 |
+| 代码提案 | `data/plugin_data/self_evolution/code_proposals/` | 文件 |
+| SAN 值、欲望积分 | 内存 | 重启后重置 |
 
-### 数据库表结构
+### 数据库表
 
 | 表名 | 用途 |
 |------|------|
 | `pending_evolutions` | 人格进化审核队列 |
-| `pending_reflections` | 反思标记 |
-| `user_relationships` | 用户好感度评分 |
-| `user_interactions` | 用户互动关系图谱 |
-| `stickers` | 表情包存储（Base64编码） |
-| `inner_monologues` | 内心独白缓存 |
+| `user_relationships` | 用户好感度 |
+| `stickers` | 表情包存储 |
 
 ---
 
-## 定时任务
+## NapCat API 整合
 
-插件加载后自动注册以下定时任务（通过 AstrBot Cron Manager）：
+本插件深度整合 NapCat API 实现以下功能：
 
-| 任务名 | 默认时间 | 说明 |
-|--------|----------|------|
-| SelfEvolution_DailyReflection | 0 3 * * * (每天凌晨 3 点) | 做梦 + 好感度恢复 |
-| SelfEvolution_ProfileCleanup | 0 4 * * * (每天凌晨 4 点) | 清理 90 天未更新的画像 |
-| SelfEvolution_EavesdropCheck | 每 10 分钟 | 定时互动意愿检查 |
-| SelfEvolution_StickerTag | 每 N 分钟 | 自动给表情包打标签（取决于 sticker_tag_cooldown） |
+| 功能 | API |
+|------|-----|
+| 获取群消息历史 | `get_group_msg_history` |
+| 发送群消息 | `send_group_msg` |
+| 获取群信息 | `get_group_info` |
+| 获取群成员列表 | `get_group_member_list` |
+| 获取成员信息 | `get_group_member_info` |
 
 ---
 
 ## 与 AstrBot 框架的关系
 
-本插件与 AstrBot 框架功能的关系说明：
-
 | 框架功能 | 插件处理方式 |
 |----------|-------------|
-| LongTermMemory (滑动窗口) | 插件不使用框架的滑动窗口注入，仅用于漏斗判断 |
-| 知识库 (KB) | 插件使用框架的 kb_manager 存储长期记忆 |
-| 图片理解 MCP | 插件优化：区分已知/未知图片，减少重复调用 |
-| Persona 人格管理 | 插件通过框架的 persona_manager 进行人格进化 |
-
----
-
-## 线程安全
-
-插件采用 asyncio 锁保护关键数据结构：
-
-- `SessionManager`: 使用 `_buffer_lock` 保护 `session_buffers`
-- `EavesdroppingEngine`: 使用多个锁保护 `leaky_bucket`、`boredom_cache`、`active_users`、`intercepted_messages`
-- `DAO`: 使用 `_db_lock` 和 `_write_lock` 保护数据库操作
+| LongTermMemory (LTM) | 插件不使用，仅用于漏斗判断 |
+| 知识库 (KB) | 插件使用 kb_manager 存储长期记忆 |
+| Persona 人格 | 通过 persona_manager 进行人格管理 |
+| 图片理解 MCP | 区分已知/未知图片，减少重复调用 |
 
 ---
 
 ## 已知限制
 
-- SAN 精力值仅存储在内存中，插件重启后重置为满值
-- 关系图谱的 `get_group_stats` 和 `get_group_members` 尚未完整实现，目前返回空数据
-- 元编程的 AST 安全校验无法防御所有攻击手段（如 `importlib`、`getattr` 反射等）
-- 图片 MCP 工具调用受框架限制，无法完全阻止，但可通过 prompt 引导减少调用
+- SAN 精力值仅存储在内存中，插件重启后重置
+- 元编程的 AST 安全校验无法防御所有攻击手段
+- 主动插嘴功能需要谨慎使用，避免过度打扰用户
 
 ---
 
