@@ -77,7 +77,7 @@ async def scheduled_sticker_tag(plugin):
     logger.info("[Sticker] 开始定时打标签...")
 
     try:
-        await plugin.entertainment.auto_tag_stickers()
+        await plugin.entertainment.tag_stickers()
         logger.info("[Sticker] 定时打标签完成")
     except Exception as e:
         logger.warning(f"[Sticker] 定时打标签失败: {e}")
