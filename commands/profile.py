@@ -20,19 +20,17 @@ async def handle_view(event, plugin):
     if user_id and not is_admin:
         return "权限拒绝：普通用户无法查看他人画像。"
 
-    if group_id:
-        profile_key = f"{group_id}_{target_user}"
-    else:
-        profile_key = target_user
+    if not group_id:
+        return "此指令需要在群聊中使用。"
 
     if user_id and is_admin and group_id:
         result = await plugin.profile.build_profile(user_id, group_id, mode="update")
         if "失败" in result or "无消息" in result:
-            return await plugin.profile.view_profile(user_id)
+            return await plugin.profile.view_profile(group_id, user_id)
         else:
-            return await plugin.profile.view_profile(user_id)
+            return await plugin.profile.view_profile(group_id, user_id)
     else:
-        return await plugin.profile.view_profile(profile_key)
+        return await plugin.profile.view_profile(group_id, target_user)
 
 
 async def handle_create(event, plugin):
@@ -83,13 +81,19 @@ async def handle_update(event, plugin):
 
 async def handle_delete(event, plugin):
     """删除用户画像实现"""
+    sender_id = str(event.get_sender_id())
+    group_id = event.get_group_id()
+
     user_id = ""
     if hasattr(event, "message_str"):
         parts = event.message_str.split()
         if len(parts) > 1:
             user_id = parts[1].strip()
 
-    return await plugin.profile.delete_profile(user_id)
+    if not group_id:
+        return "此指令需要在群聊中使用。"
+
+    return await plugin.profile.delete_profile(group_id, user_id)
 
 
 async def handle_stats(event, plugin):

@@ -91,15 +91,28 @@
         "type": "int",
         "default": 500
     },
+    "profile_cooldown_minutes": {
+        "title": "画像冷却时间",
+        "description": "创建/更新用户画像的冷却时间。",
+        "hint": "默认 10 分钟",
+        "type": "int",
+        "default": 10
+    },
+    "enable_profile_update": {
+        "title": "AI回复时注入画像",
+        "description": "@或引用时注入用户画像",
+        "type": "bool",
+        "default": true
+    },
     "enable_context_recall": {
         "title": "启用上下文追踪",
-        "description": "当用户引用 AI 之前的话时，是否自动注入上下文。",
+        "description": "用户引用AI话时注入上下文",
         "type": "bool",
         "default": true
     },
     "dropout_enabled": {
         "title": "启用分层失活",
-        "description": "启用分层失活机制，增加回复真实感。",
+        "description": "启用分层失活机制",
         "hint": "关闭则每次精确注入，开启则随机丢失部分边缘信息",
         "type": "bool",
         "default": true
@@ -113,14 +126,14 @@
     },
     "leaky_integrator_enabled": {
         "title": "启用欲望积分器",
-        "description": "启用欲望积分器（模拟人类情绪波动）。",
+        "description": "启用欲望积分器",
         "hint": "替代传统计数器的动态触发机制",
         "type": "bool",
         "default": true
     },
     "interject_enabled": {
         "title": "启用主动插嘴",
-        "description": "定时检查群聊氛围，自主决定是否插嘴。",
+        "description": "定时检查是否插嘴",
         "type": "bool",
         "default": false
     },
@@ -154,7 +167,7 @@
     },
     "interject_whitelist": {
         "title": "插嘴白名单群",
-        "description": "指定要检查的群号，不填则检查 bot 加入的所有群。",
+        "description": "指定要检查的群号",
         "hint": "多个群号用逗号分隔，如: 123456789,987654321",
         "type": "string",
         "default": ""
@@ -203,7 +216,7 @@
     },
     "debate_enabled": {
         "title": "启用多智能体对抗",
-        "description": "启用代码审查的双 Agent 对抗机制。",
+        "description": "启用代码审查机制",
         "hint": "主控 Agent 提案后，审查 Agent 进行对抗辩论",
         "type": "bool",
         "default": true
@@ -238,7 +251,7 @@
     },
     "surprise_enabled": {
         "title": "启用惊奇驱动学习",
-        "description": "启用预测编码，只记忆出乎意料的事情。",
+        "description": "记忆出乎意料的事",
         "hint": "关闭则处理所有对话，开启则只处理高惊奇度对话",
         "type": "bool",
         "default": true
@@ -278,7 +291,7 @@
     },
     "san_enabled": {
         "title": "启用SAN值系统",
-        "description": "启用心智疲劳系统，AI 精力耗尽时会拒绝服务或敷衍回复。",
+        "description": "启用精力系统",
         "type": "bool",
         "default": true
     },
@@ -329,7 +342,7 @@
     },
     "debug_log_enabled": {
         "title": "Debug 日志模式",
-        "description": "开启后输出详细调试日志，方便排查问题",
+        "description": "输出调试日志",
         "hint": "生产环境建议关闭，否则日志量较大",
         "type": "bool",
         "default": false
@@ -343,7 +356,7 @@
     },
     "sticker_learning_enabled": {
         "title": "启用表情包学习",
-        "description": "开启后会自动学习指定群友的表情包",
+        "description": "自动学习表情包",
         "hint": "需要配置学习对象 QQ 号",
         "type": "bool",
         "default": false

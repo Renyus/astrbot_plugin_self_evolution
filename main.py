@@ -285,10 +285,10 @@ class SelfEvolutionPlugin(Star):
 
                 # 检测是否引用了 AI 的消息
                 if self.enable_context_recall and (reply_sender == self.persona_name or str(reply_sender_id) == "AI"):
-                    quoted_info = f"，你在之前说：{reply_content[:30]}..."
+                    quoted_info = f"，你在之前说：{reply_content}..."
                     ai_context_info = "\n【重要】用户正在引用你之前的发言进行追问，请针对你之前的发言回答。"
                 else:
-                    quoted_info = f"，你正在回复用户 {reply_sender} 的消息：{reply_content[:30]}..."
+                    quoted_info = f"，你正在回复用户 {reply_sender} 的消息：{reply_content}..."
             elif type(comp).__name__ == "At":
                 at_targets.append(str(getattr(comp, "qq", "")))
 
@@ -330,8 +330,10 @@ class SelfEvolutionPlugin(Star):
         msg_text = event.message_str
 
         # 4. 用户画像注入 - 按需加载（动态上下文路由）
-        if self.enable_profile_update and (needs_profile or is_greeting):
-            profile_summary = await self.profile.get_profile_summary(user_id)
+        has_reply = bool(quoted_info)
+        has_at = bool(at_targets)
+        if self.enable_profile_update and (has_reply or has_at) and group_id:
+            profile_summary = await self.profile.get_profile_summary(group_id, user_id)
             if profile_summary:
                 req.system_prompt += f"\n\n[用户印象笔记]\n{profile_summary}\n"
                 req.system_prompt += (

@@ -98,6 +98,10 @@ class PluginConfig:
         return int(self._config.get("profile_msg_count", 500))
 
     @property
+    def profile_cooldown_minutes(self):
+        return int(self._config.get("profile_cooldown_minutes", 10))
+
+    @property
     def core_info_keywords(self):
         return self._config.get(
             "core_info_keywords",

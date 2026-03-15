@@ -21,6 +21,8 @@ class ProfileManager:
         self._cache_ttl = 300  # 缓存5分钟
         self._cache_access_time = {}  # 记录缓存访问时间
         self._last_cache_cleanup = 0
+        # 画像构建冷却时间 {group_id_user_id: timestamp}
+        self._profile_build_cooldown = {}
 
     @property
     def precision_mode(self):
@@ -39,8 +41,8 @@ class ProfileManager:
         keywords = self.plugin.cfg.core_info_keywords
         return [k.strip() for k in keywords.split(",")]
 
-    def _get_profile_path(self, user_id: str) -> Path:
-        return self.profile_dir / f"user_{user_id}.md"
+    def _get_profile_path(self, group_id: str, user_id: str) -> Path:
+        return self.profile_dir / f"user_{group_id}_{user_id}.md"
 
     def _is_core_info(self, line: str) -> bool:
         """判断是否为核心信息（永不丢失）"""
@@ -69,47 +71,50 @@ class ProfileManager:
         if expired_users:
             logger.debug(f"[Profile] 已清理 {len(expired_users)} 个过期缓存")
 
-    async def load_profile(self, user_id: str) -> str:
+    async def load_profile(self, group_id: str, user_id: str) -> str:
         """读取用户画像（Markdown 文本），无则返回空"""
+        profile_key = f"{group_id}_{user_id}"
         # 定期清理过期缓存
         self._cleanup_expired_cache()
 
         # 先从缓存读取
-        if user_id in self._profile_cache:
-            self._cache_access_time[user_id] = time.time()
-            logger.debug(f"[Profile] 从缓存加载画像: {user_id}")
-            return self._profile_cache[user_id]
+        if profile_key in self._profile_cache:
+            self._cache_access_time[profile_key] = time.time()
+            logger.debug(f"[Profile] 从缓存加载画像: {profile_key}")
+            return self._profile_cache[profile_key]
 
-        path = self._get_profile_path(user_id)
+        path = self._get_profile_path(group_id, user_id)
         if path.exists():
             try:
                 content = path.read_text(encoding="utf-8").strip()
                 # 存入缓存
-                self._profile_cache[user_id] = content
-                self._cache_access_time[user_id] = time.time()
-                logger.info(f"[Profile] 从磁盘加载画像: {user_id} ({len(content)} 字符)")
+                self._profile_cache[profile_key] = content
+                self._cache_access_time[profile_key] = time.time()
+                logger.info(f"[Profile] 从磁盘加载画像: {profile_key} ({len(content)} 字符)")
                 return content
             except OSError as e:
-                logger.warning(f"[Profile] 读取画像失败 {user_id}: {e}")
-        logger.debug(f"[Profile] 用户无画像: {user_id}")
+                logger.warning(f"[Profile] 读取画像失败 {profile_key}: {e}")
+        logger.debug(f"[Profile] 用户无画像: {profile_key}")
         return ""
 
-    async def save_profile(self, user_id: str, content: str):
+    async def save_profile(self, group_id: str, user_id: str, content: str):
         """保存用户画像（Markdown 文本）"""
+        profile_key = f"{group_id}_{user_id}"
         # 定期清理过期缓存
         self._cleanup_expired_cache()
 
-        path = self._get_profile_path(user_id)
+        path = self._get_profile_path(group_id, user_id)
         path.write_text(content, encoding="utf-8")
         # 更新缓存
-        self._profile_cache[user_id] = content
-        self._cache_access_time[user_id] = time.time()
-        logger.info(f"[Profile] 已保存用户画像: {user_id} ({len(content)} 字符)")
+        self._profile_cache[profile_key] = content
+        self._cache_access_time[profile_key] = time.time()
+        logger.info(f"[Profile] 已保存用户画像: {profile_key} ({len(content)} 字符)")
 
-    async def get_profile_summary(self, user_id: str) -> str:
+    async def get_profile_summary(self, group_id: str, user_id: str) -> str:
         """获取画像摘要（用于注入 LLM）- 支持分层失活"""
-        logger.debug(f"[Profile] 获取画像摘要: {user_id}")
-        content = await self.load_profile(user_id)
+        profile_key = f"{group_id}_{user_id}"
+        logger.debug(f"[Profile] 获取画像摘要: {profile_key}")
+        content = await self.load_profile(group_id, user_id)
         if not content:
             logger.debug(f"[Profile] 用户无画像，返回空: {user_id}")
             return ""
@@ -174,20 +179,25 @@ class ProfileManager:
             logger.warning(f"[Profile] 清理过期画像失败: {e}")
             return 0
 
-    async def view_profile(self, user_id: str) -> str:
+    async def view_profile(self, group_id: str, user_id: str) -> str:
         """查看用户画像"""
-        logger.info(f"[Profile] 查看用户画像: {user_id}")
-        content = await self.load_profile(user_id)
+        profile_key = f"{group_id}_{user_id}"
+        logger.info(f"[Profile] 查看用户画像: {profile_key}")
+        content = await self.load_profile(group_id, user_id)
         if not content:
             return f"用户 {user_id} 暂无画像记录。"
         return f"用户ID: {user_id}\n\n{content}"
 
-    async def delete_profile(self, user_id: str) -> str:
+    async def delete_profile(self, group_id: str, user_id: str) -> str:
         """删除用户画像"""
-        path = self._get_profile_path(user_id)
+        path = self._get_profile_path(group_id, user_id)
+        profile_key = f"{group_id}_{user_id}"
         if path.exists():
             path.unlink()
-            logger.info(f"[Profile] 已删除用户画像: {user_id}")
+            # 清理缓存
+            self._profile_cache.pop(profile_key, None)
+            self._cache_access_time.pop(profile_key, None)
+            logger.info(f"[Profile] 已删除用户画像: {profile_key}")
             return f"已删除用户 {user_id} 的画像。"
         return f"用户 {user_id} 不存在画像记录。"
 
@@ -213,6 +223,16 @@ class ProfileManager:
 
         logger.info(f"[Profile] 构建画像: 用户={user_id}, 群={group_id}, 模式={mode}")
 
+        # 冷却时间检查
+        cooldown_key = f"{group_id}_{user_id}"
+        last_build = self._profile_build_cooldown.get(cooldown_key, 0)
+        cooldown_seconds = self.plugin.cfg.profile_cooldown_minutes * 60
+        if time.time() - last_build < cooldown_seconds:
+            remaining = int(cooldown_seconds - (time.time() - last_build))
+            minutes = remaining // 60
+            seconds = remaining % 60
+            return f"画像操作冷却中，请 {minutes} 分 {seconds} 秒后再试"
+
         try:
             platform_insts = self.plugin.context.platform_manager.platform_insts
             if not platform_insts:
@@ -225,6 +245,15 @@ class ProfileManager:
             bot = platform.get_client()
             if not bot:
                 return "无法获取 bot 实例"
+
+            # 获取用户昵称
+            try:
+                member_info = await bot.call_action(
+                    "get_group_member_info", group_id=int(group_id), user_id=int(user_id)
+                )
+                nickname = member_info.get("card") or member_info.get("nickname", "未知")
+            except Exception:
+                nickname = "未知"
 
             msg_count = self.plugin.cfg.profile_msg_count
             result = await bot.call_action("get_group_msg_history", group_id=int(group_id), count=msg_count)
@@ -249,11 +278,12 @@ class ProfileManager:
 
             existing_note = ""
             if mode == "update":
-                existing_note = await self.load_profile(user_id)
+                existing_note = await self.load_profile(group_id, user_id)
                 existing_note = existing_note[:500] if existing_note else "(暂无)"
 
             prompt = (
                 f"你是记忆助手。请根据对话分析用户特征。\n"
+                f"目标用户：{nickname} (QQ: {user_id})\n"
                 f"{'旧笔记：' + existing_note + '\n' if mode == 'update' else ''}"
                 f"用户消息：\n" + "\n".join(user_messages) + "\n"
                 "请根据以上消息输出一段详细用户画像描述。使用Markdown格式输出，不少于500字。"
@@ -274,7 +304,9 @@ class ProfileManager:
             if not new_note:
                 return "生成画像失败，请重试"
 
-            await self.save_profile(user_id, new_note)
+            await self.save_profile(group_id, user_id, new_note)
+            # 更新冷却时间
+            self._profile_build_cooldown[cooldown_key] = time.time()
             logger.info(f"[Profile] 已保存用户画像: {user_id}")
             return f"画像已{'创建' if mode == 'create' else '更新'}"
 
