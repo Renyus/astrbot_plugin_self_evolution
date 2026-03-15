@@ -9,9 +9,7 @@ async def handle_shut(event, plugin, minutes: str = ""):
     """闭嘴命令实现"""
     user_id = str(event.get_sender_id())
     current_group = event.get_group_id()
-    is_admin = event.is_admin() or (
-        plugin.admin_users and user_id in plugin.admin_users
-    )
+    is_admin = event.is_admin() or (plugin.admin_users and user_id in plugin.admin_users)
 
     if current_group and current_group in plugin._shut_until_by_group:
         if time.time() < plugin._shut_until_by_group[current_group]:
@@ -27,9 +25,7 @@ async def handle_shut(event, plugin, minutes: str = ""):
     if not minutes:
         if current_group in plugin._shut_until_by_group:
             if time.time() < plugin._shut_until_by_group[current_group]:
-                remaining = int(
-                    plugin._shut_until_by_group[current_group] - time.time()
-                )
+                remaining = int(plugin._shut_until_by_group[current_group] - time.time())
                 return f"[!] 当前群闭嘴模式，剩余 {remaining} 秒"
         return "[OK] 当前群正常模式，未闭嘴"
 
@@ -54,9 +50,7 @@ async def handle_shut(event, plugin, minutes: str = ""):
 async def handle_db(event, plugin, action: str = "", param: str = ""):
     """数据库管理命令实现"""
     user_id = str(event.get_sender_id())
-    is_admin = event.is_admin() or (
-        plugin.admin_users and user_id in plugin.admin_users
-    )
+    is_admin = event.is_admin() or (plugin.admin_users and user_id in plugin.admin_users)
 
     if not is_admin:
         return "权限拒绝：此操作仅限管理员执行。"
@@ -81,11 +75,7 @@ async def handle_db(event, plugin, action: str = "", param: str = ""):
 
     elif action == "reset":
         plugin._pending_db_reset[user_id] = time.time() + 30
-        return (
-            "[!] 确认清空所有数据？\n"
-            "此操作不可恢复！\n"
-            "请在 30 秒内输入 /db confirm 确认执行。"
-        )
+        return "[!] 确认清空所有数据？\n此操作不可恢复！\n请在 30 秒内输入 /db confirm 确认执行。"
 
     elif action == "confirm":
         pending_time = plugin._pending_db_reset.get(user_id, 0)
@@ -114,6 +104,4 @@ async def handle_db(event, plugin, action: str = "", param: str = ""):
 
 def check_admin(event, plugin):
     """检查是否有管理员权限"""
-    return event.is_admin() or (
-        plugin.admin_users and str(event.get_sender_id()) in plugin.admin_users
-    )
+    return event.is_admin() or (plugin.admin_users and str(event.get_sender_id()) in plugin.admin_users)

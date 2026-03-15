@@ -2,16 +2,12 @@
 Profile Commands - 用户画像相关命令实现
 """
 
-from astrbot.api.event import filter
-
 
 async def handle_view(event, plugin):
     """查看用户画像实现"""
     sender_id = str(event.get_sender_id())
     group_id = event.get_group_id()
-    is_admin = event.is_admin() or (
-        plugin.admin_users and sender_id in plugin.admin_users
-    )
+    is_admin = event.is_admin() or (plugin.admin_users and sender_id in plugin.admin_users)
 
     user_id = ""
     if hasattr(event, "message_str"):
@@ -43,9 +39,7 @@ async def handle_create(event, plugin):
     """创建用户画像实现"""
     sender_id = str(event.get_sender_id())
     group_id = event.get_group_id()
-    is_admin = event.is_admin() or (
-        plugin.admin_users and sender_id in plugin.admin_users
-    )
+    is_admin = event.is_admin() or (plugin.admin_users and sender_id in plugin.admin_users)
 
     if not group_id:
         return "此指令需要在群聊中使用。"
@@ -68,9 +62,7 @@ async def handle_update(event, plugin):
     """更新用户画像实现"""
     sender_id = str(event.get_sender_id())
     group_id = event.get_group_id()
-    is_admin = event.is_admin() or (
-        plugin.admin_users and sender_id in plugin.admin_users
-    )
+    is_admin = event.is_admin() or (plugin.admin_users and sender_id in plugin.admin_users)
 
     if not group_id:
         return "此指令需要在群聊中使用。"
@@ -108,6 +100,4 @@ async def handle_stats(event, plugin):
 
 def check_admin(event, plugin):
     """检查是否有管理员权限"""
-    return event.is_admin() or (
-        plugin.admin_users and str(event.get_sender_id()) in plugin.admin_users
-    )
+    return event.is_admin() or (plugin.admin_users and str(event.get_sender_id()) in plugin.admin_users)

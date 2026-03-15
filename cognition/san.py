@@ -3,10 +3,9 @@ SAN 值系统 - 心智疲劳与精力管理
 定时获取群消息，分析群状态，动态调整 SAN 值
 """
 
-import time
-import logging
-import asyncio
 import json
+import logging
+import time
 
 logger = logging.getLogger("astrbot")
 
@@ -106,12 +105,10 @@ class SANSystem:
             recovered = int(elapsed / 3600) * self.recovery_per_hour
             self._san_value = min(self.max_value, self._san_value + recovered)
             self._san_last_recovery = current_time
-            logger.info(
-                f"[SAN] 精力恢复 +{recovered}: {self._san_value}/{self.max_value}"
-            )
+            logger.info(f"[SAN] 精力恢复 +{recovered}: {self._san_value}/{self.max_value}")
 
         if self._san_value <= 0:
-            logger.warning(f"[SAN] 精力耗尽，拒绝服务")
+            logger.warning("[SAN] 精力耗尽，拒绝服务")
             return False
 
         consumed = self.cost_per_message
@@ -156,7 +153,7 @@ class SANSystem:
             return
 
         self._last_analyze_time = current_time
-        logger.info(f"[SAN] 开始分析群状态...")
+        logger.info("[SAN] 开始分析群状态...")
 
         try:
             listened_groups = self._get_listened_groups()
@@ -172,9 +169,7 @@ class SANSystem:
                     logger.info(f"[SAN] 群 {group_id} 分析完成，SAN 变化: {change:+d}")
 
             if total_change != 0:
-                self._san_value = max(
-                    0, min(self.max_value, self._san_value + total_change)
-                )
+                self._san_value = max(0, min(self.max_value, self._san_value + total_change))
                 logger.info(
                     f"[SAN] 群分析完成，总 SAN 变化: {total_change:+d}, 当前值: {self._san_value}/{self.max_value}"
                 )
@@ -184,9 +179,7 @@ class SANSystem:
 
     def _get_listened_groups(self):
         """获取需要监听的群列表"""
-        if hasattr(self.plugin, "eavesdropping") and hasattr(
-            self.plugin.eavesdropping, "active_users"
-        ):
+        if hasattr(self.plugin, "eavesdropping") and hasattr(self.plugin.eavesdropping, "active_users"):
             return list(self.plugin.eavesdropping.active_users.keys())
         whitelist = getattr(self.plugin.cfg, "profile_group_whitelist", [])
         return whitelist if whitelist else []

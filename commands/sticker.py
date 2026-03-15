@@ -2,8 +2,6 @@
 Sticker Commands - 表情包管理命令实现
 """
 
-import time
-
 
 async def handle_sticker(event, plugin, action: str = "list", param: str = ""):
     """表情包管理命令实现"""
@@ -21,13 +19,11 @@ async def handle_sticker(event, plugin, action: str = "list", param: str = ""):
         if not stickers:
             return "暂无表情包。"
 
-        result = [
-            f"【表情包列表】（第 {page} 页，共 {total} 张，今日新增 {today} 张）\n"
-        ]
+        result = [f"【表情包列表】（第 {page} 页，共 {total} 张，今日新增 {today} 张）\n"]
         for s in stickers:
             tags = s["tags"][:30] if s["tags"] else "无标签"
             result.append(f"UUID:{s['uuid']} | 用户:{s['user_id']} | 标签:{tags}")
-        result.append(f"\n【管理指令】")
+        result.append("\n【管理指令】")
         result.append("/sticker delete <UUID>  # 删除指定UUID")
         result.append("/sticker clear           # 清空所有表情包")
         return "\n".join(result)
@@ -39,10 +35,8 @@ async def handle_sticker(event, plugin, action: str = "list", param: str = ""):
 
         result = [f"【未打标签表情包】（共 {len(untagged)} 张）\n"]
         for s in untagged:
-            result.append(
-                f"UUID:{s['uuid']} | 用户:{s['user_id']} | 时间:{s['created_at'][:19]}"
-            )
-        result.append(f"\n删除指令：/sticker delete <UUID>")
+            result.append(f"UUID:{s['uuid']} | 用户:{s['user_id']} | 时间:{s['created_at'][:19]}")
+        result.append("\n删除指令：/sticker delete <UUID>")
         return "\n".join(result)
 
     elif action == "delete":
@@ -70,9 +64,7 @@ async def handle_sticker(event, plugin, action: str = "list", param: str = ""):
 
     elif action == "stats":
         stats = await dao.get_sticker_stats()
-        return (
-            f"【表情包统计】\n总计: {stats['total']} 张\n今日新增: {stats['today']} 张"
-        )
+        return f"【表情包统计】\n总计: {stats['total']} 张\n今日新增: {stats['today']} 张"
 
     else:
         return (
@@ -87,6 +79,4 @@ async def handle_sticker(event, plugin, action: str = "list", param: str = ""):
 
 def check_admin(event, plugin):
     """检查是否有管理员权限"""
-    return event.is_admin() or (
-        plugin.admin_users and str(event.get_sender_id()) in plugin.admin_users
-    )
+    return event.is_admin() or (plugin.admin_users and str(event.get_sender_id()) in plugin.admin_users)

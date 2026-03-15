@@ -10,15 +10,11 @@ logger = logging.getLogger("astrbot")
 async def scheduled_reflection(plugin):
     """定时任务回调函数 - 做梦机制"""
     plugin.daily_reflection_pending = True
-    logger.info(
-        "[SelfEvolution] 每日反思定时任务已触发，将在下一次对话时顺带执行深层内省。"
-    )
+    logger.info("[SelfEvolution] 每日反思定时任务已触发，将在下一次对话时顺带执行深层内省。")
 
     await plugin.dao.init_db()
     await plugin.dao.recover_all_affinity(recovery_amount=2)
-    logger.info(
-        '[SelfEvolution] 已执行每日"大赦天下"：所有负面评分用户好感度已小幅回升。'
-    )
+    logger.info('[SelfEvolution] 已执行每日"大赦天下"：所有负面评分用户好感度已小幅回升。')
 
 
 async def scheduled_san_analyze(plugin):
@@ -34,9 +30,7 @@ async def scheduled_san_analyze(plugin):
             if job.name == "SelfEvolution_SANAnalyze":
                 if job.cron_expression != new_cron:
                     await cron_mgr.update_job(job.job_id, cron_expression=new_cron)
-                    logger.info(
-                        f"[SAN] 热更新 cron 表达式: {job.cron_expression} -> {new_cron}"
-                    )
+                    logger.info(f"[SAN] 热更新 cron 表达式: {job.cron_expression} -> {new_cron}")
                 break
     except Exception as e:
         logger.warning(f"[SAN] 热更新检查失败: {e}")

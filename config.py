@@ -3,7 +3,6 @@
 """
 
 import logging
-import os
 
 logger = logging.getLogger("astrbot")
 
@@ -25,9 +24,7 @@ class PluginConfig:
     def __getattr__(self, name):
         """代理所有配置访问"""
         if name.startswith("_") or name in ("plugin", "config"):
-            raise AttributeError(
-                f"'{type(self).__name__}' object has no attribute '{name}'"
-            )
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
         return self._config.get(name)
 
     @property

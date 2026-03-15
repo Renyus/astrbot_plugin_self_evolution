@@ -1,12 +1,9 @@
-import json
 import asyncio
 import logging
 import random
 import time
-from pathlib import Path
-from datetime import datetime, timedelta
 from collections import defaultdict
-from typing import Optional
+from pathlib import Path
 
 logger = logging.getLogger("astrbot")
 
@@ -90,11 +87,9 @@ class ProfileManager:
                 # 存入缓存
                 self._profile_cache[user_id] = content
                 self._cache_access_time[user_id] = time.time()
-                logger.info(
-                    f"[Profile] 从磁盘加载画像: {user_id} ({len(content)} 字符)"
-                )
+                logger.info(f"[Profile] 从磁盘加载画像: {user_id} ({len(content)} 字符)")
                 return content
-            except IOError as e:
+            except OSError as e:
                 logger.warning(f"[Profile] 读取画像失败 {user_id}: {e}")
         logger.debug(f"[Profile] 用户无画像: {user_id}")
         return ""
@@ -159,8 +154,6 @@ class ProfileManager:
     async def cleanup_expired_profiles(self, days: int = 90):
         """清理过期画像 - 根据文件修改时间删除长时间未更新的画像"""
         try:
-            from datetime import timedelta
-
             cutoff_time = time.time() - (days * 86400)
             deleted_count = 0
 
@@ -208,9 +201,7 @@ class ProfileManager:
             "total_traits": 0,
         }
 
-    async def build_profile(
-        self, user_id: str, group_id: str, mode: str = "update"
-    ) -> str:
+    async def build_profile(self, user_id: str, group_id: str, mode: str = "update") -> str:
         """
         从 NapCat 获取用户在群里的消息，构建/更新画像
 
@@ -219,7 +210,6 @@ class ProfileManager:
             group_id: 群ID
             mode: "create" 覆盖创建, "update" 增量更新
         """
-        import json
 
         logger.info(f"[Profile] 构建画像: 用户={user_id}, 群={group_id}, 模式={mode}")
 
@@ -237,9 +227,7 @@ class ProfileManager:
                 return "无法获取 bot 实例"
 
             msg_count = self.plugin.cfg.profile_msg_count
-            result = await bot.call_action(
-                "get_group_msg_history", group_id=int(group_id), count=msg_count
-            )
+            result = await bot.call_action("get_group_msg_history", group_id=int(group_id), count=msg_count)
 
             messages = result.get("messages", [])
             if not messages:
@@ -268,7 +256,7 @@ class ProfileManager:
                 f"你是记忆助手。请根据对话分析用户特征。\n"
                 f"{'旧笔记：' + existing_note + '\n' if mode == 'update' else ''}"
                 f"用户消息：\n" + "\n".join(user_messages[:50]) + "\n"
-                f"请输出一段精简的用户画像描述，不超过200字。只输出文本，不要其他内容。"
+                "请输出一段精简的用户画像描述，不超过200字。只输出文本，不要其他内容。"
             )
 
             llm_provider = self.plugin.context.get_using_provider("qq")

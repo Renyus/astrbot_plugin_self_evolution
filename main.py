@@ -1,36 +1,32 @@
-from astrbot.api.all import Context, AstrMessageEvent, Star, register
+import asyncio
+import logging
+import os
+import time
+
+import yaml
+
+from astrbot.api import logger
+from astrbot.api.all import AstrMessageEvent, Context, Star, register
 from astrbot.api.event import filter
 from astrbot.api.event.filter import PermissionType
 from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import StarTools
-from astrbot.api import logger
-from astrbot.core.message.components import Plain, Image
-from astrbot.core.star.register.star_handler import register_on_llm_tool_respond
-from astrbot.core.agent.tool import FunctionTool
-import asyncio
-import os
-import time
-import re
-import json
-import logging
-import yaml
-from datetime import datetime
-from mcp.types import CallToolResult, TextContent
+from astrbot.core.message.components import Image, Plain
+
+from . import commands
+from .cognition import SANSystem
+from .config import PluginConfig
 
 # 导入模块化组件
 from .dao import SelfEvolutionDAO
+from .engine.context_injection import build_identity_context
 from .engine.eavesdropping import EavesdroppingEngine
 from .engine.entertainment import EntertainmentEngine
-from .engine.meta_infra import MetaInfra
 from .engine.memory import MemoryManager
+from .engine.meta_infra import MetaInfra
 from .engine.persona import PersonaManager
 from .engine.profile import ProfileManager
-from .engine.context_injection import build_identity_context
-from .cognition import SANSystem
-from .config import PluginConfig
-from . import commands
 from .scheduler import register_tasks
-
 
 # 全局不可变常量提取 (迁移至主类管理)
 ANCHOR_MARKER = "Core Safety Anchor"
@@ -125,9 +121,7 @@ class SelfEvolutionPlugin(Star):
                 # 如果没有处理器，添加一个
                 if not log.handlers:
                     handler = logging.StreamHandler()
-                    handler.setFormatter(
-                        logging.Formatter(detailed_format, date_format)
-                    )
+                    handler.setFormatter(logging.Formatter(detailed_format, date_format))
                     log.addHandler(handler)
 
             logger.info("[SelfEvolution] Debug 日志模式已开启，详细日志将输出到控制台")
@@ -137,9 +131,7 @@ class SelfEvolutionPlugin(Star):
     def __getattr__(self, name):
         """代理配置访问到 cfg"""
         if name.startswith("_") or name in ("cfg", "config", "context"):
-            raise AttributeError(
-                f"'{type(self).__name__}' object has no attribute '{name}'"
-            )
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
         return getattr(self.cfg, name)
 
     def _clean_messages(self, messages: list) -> list:
@@ -181,11 +173,9 @@ class SelfEvolutionPlugin(Star):
     def _load_prompts_injection(self):
         """加载提示词注入配置文件"""
         try:
-            prompts_path = os.path.join(
-                os.path.dirname(__file__), "prompts_injection.yaml"
-            )
+            prompts_path = os.path.join(os.path.dirname(__file__), "prompts_injection.yaml")
             if os.path.exists(prompts_path):
-                with open(prompts_path, "r", encoding="utf-8") as f:
+                with open(prompts_path, encoding="utf-8") as f:
                     self._prompts_injection = yaml.safe_load(f) or {}
                 logger.debug("[SelfEvolution] 已加载 prompts_injection.yaml")
             else:
@@ -232,9 +222,7 @@ class SelfEvolutionPlugin(Star):
                 req.system_prompt = "我现在很累，脑容量超载了。让我安静一会。"
                 return
             if self.san_system.value < self.san_low_threshold:
-                logger.info(
-                    f"[SAN] 精力过低: {self.san_system.value}/{self.san_system.max_value}"
-                )
+                logger.info(f"[SAN] 精力过低: {self.san_system.value}/{self.san_system.max_value}")
 
         # 动态上下文路由：轻量级消息分类，决定加载哪些模块
         needs_profile = False
@@ -261,9 +249,7 @@ class SelfEvolutionPlugin(Star):
             needs_surprise = True
 
         # 打招呼类只加载基础人格
-        is_greeting = len(msg_text) < 10 and any(
-            g in msg_lower for g in ["早", "晚安", "你好", "hi", "hello", "在吗"]
-        )
+        is_greeting = len(msg_text) < 10 and any(g in msg_lower for g in ["早", "晚安", "你好", "hi", "hello", "在吗"])
 
         # --- [Meta-Programming 注入] 身份与环境感知 ---
         sender_id = user_id
@@ -298,9 +284,7 @@ class SelfEvolutionPlugin(Star):
                 reply_sender_id = getattr(comp, "sender_id", "")
 
                 # 检测是否引用了 AI 的消息
-                if self.enable_context_recall and (
-                    reply_sender == self.persona_name or str(reply_sender_id) == "AI"
-                ):
+                if self.enable_context_recall and (reply_sender == self.persona_name or str(reply_sender_id) == "AI"):
                     quoted_info = f"，你在之前说：{reply_content[:30]}..."
                     ai_context_info = "\n【重要】用户正在引用你之前的发言进行追问，请针对你之前的发言回答。"
                 else:
@@ -386,15 +370,9 @@ class SelfEvolutionPlugin(Star):
                 )
 
             # 4.6 Surprise Detection：检测用户认知颠覆/惊喜表达（按需加载）
-            if (
-                self.surprise_enabled
-                and self.surprise_boost_keywords
-                and needs_surprise
-            ):
+            if self.surprise_enabled and self.surprise_boost_keywords and needs_surprise:
                 keywords_str = self.surprise_boost_keywords.replace("|", ",")
-                surprise_keywords = [
-                    k.strip() for k in keywords_str.split(",") if k.strip()
-                ]
+                surprise_keywords = [k.strip() for k in keywords_str.split(",") if k.strip()]
                 if any(kw in msg_text for kw in surprise_keywords):
                     req.system_prompt += (
                         "\n\n[认知颠覆检测]\n"
@@ -402,9 +380,7 @@ class SelfEvolutionPlugin(Star):
                         "请主动调用 update_user_profile 工具记录：用户对某事物的认知发生了重要变化，"
                         "这可能意味着之前的认知是错误的，或者用户获得了新信息。"
                     )
-                    logger.info(
-                        f"[Surprise] 检测到用户 {user_id} 的认知颠覆表达，触发即时画像更新。"
-                    )
+                    logger.info(f"[Surprise] 检测到用户 {user_id} 的认知颠覆表达，触发即时画像更新。")
 
         # 4.8 SAN 值系统注入
         if self.san_enabled:
@@ -417,9 +393,7 @@ class SelfEvolutionPlugin(Star):
         # 5. 通用回复格式规则注入
         try:
             if self._prompts_injection:
-                reply_format_rules = self._prompts_injection.get(
-                    "reply_format", {}
-                ).get("rules", "")
+                reply_format_rules = self._prompts_injection.get("reply_format", {}).get("rules", "")
                 if reply_format_rules:
                     req.system_prompt += f"\n\n{reply_format_rules}"
         except Exception as e:
@@ -431,9 +405,7 @@ class SelfEvolutionPlugin(Star):
                 inner_monologue = getattr(event, "_inner_monologue", None)
                 if inner_monologue:
                     req.system_prompt += f"\n\n【内心独白】{inner_monologue}"
-                    logger.info(
-                        f"[InnerMonologue] 注入内心独白: {inner_monologue[:50]}..."
-                    )
+                    logger.info(f"[InnerMonologue] 注入内心独白: {inner_monologue[:50]}...")
             except Exception as e:
                 logger.warning(f"[InnerMonologue] 注入内心独白失败: {e}")
 
@@ -445,24 +417,14 @@ class SelfEvolutionPlugin(Star):
         # 先截断过长的注入内容，避免超出 token 限制
         max_injection_length = self.cfg.max_prompt_injection_length
         if req.system_prompt and len(req.system_prompt) > max_injection_length:
-            req.system_prompt = (
-                req.system_prompt[:max_injection_length] + "\n\n[...内容已截断...]"
-            )
-            logger.warning(
-                f"[SelfEvolution] 注入内容超长，已截断至 {max_injection_length} 字符"
-            )
+            req.system_prompt = req.system_prompt[:max_injection_length] + "\n\n[...内容已截断...]"
+            logger.warning(f"[SelfEvolution] 注入内容超长，已截断至 {max_injection_length} 字符")
 
         try:
-            personality = await self.context.persona_manager.get_default_persona_v3(
-                event.unified_msg_origin
-            )
+            personality = await self.context.persona_manager.get_default_persona_v3(event.unified_msg_origin)
             if personality and personality.get("prompt"):
-                req.system_prompt = (
-                    f"【人格设定】\n{personality['prompt']}\n\n" + req.system_prompt
-                )
-                logger.debug(
-                    f"[SelfEvolution] 已注入框架人格: {personality.get('name', 'unknown')}"
-                )
+                req.system_prompt = f"【人格设定】\n{personality['prompt']}\n\n" + req.system_prompt
+                logger.debug(f"[SelfEvolution] 已注入框架人格: {personality.get('name', 'unknown')}")
         except Exception as e:
             logger.warning(f"[SelfEvolution] 获取框架人格失败: {e}")
 
@@ -474,16 +436,12 @@ class SelfEvolutionPlugin(Star):
         if group_id and group_id in self._shut_until_by_group:
             if time.time() < self._shut_until_by_group[group_id]:
                 remaining = int(self._shut_until_by_group[group_id] - time.time())
-                logger.info(
-                    f"[SelfEvolution] 群 {group_id} 闭嘴中，剩余 {remaining} 秒"
-                )
+                logger.info(f"[SelfEvolution] 群 {group_id} 闭嘴中，剩余 {remaining} 秒")
                 return
             else:
                 del self._shut_until_by_group[group_id]
 
-        logger.debug(
-            f"[SelfEvolution] 收到消息: {event.message_str[:30] if event.message_str else '(空)'}"
-        )
+        logger.debug(f"[SelfEvolution] 收到消息: {event.message_str[:30] if event.message_str else '(空)'}")
 
         # 检查全局闭嘴状态
         if self._shut_until and time.time() < self._shut_until:
@@ -572,14 +530,10 @@ class SelfEvolutionPlugin(Star):
         手动触发一次自我反省。
         """
         await self.dao.set_pending_reflection(event.session_id, True)
-        yield event.plain_result(
-            "认知蒸馏协议已就绪，将在下一次对话时执行深度实体提取。"
-        )
+        yield event.plain_result("认知蒸馏协议已就绪，将在下一次对话时执行深度实体提取。")
 
     @filter.llm_tool(name="evolve_persona")
-    async def evolve_persona(
-        self, event: AstrMessageEvent, new_system_prompt: str, reason: str
-    ) -> str:
+    async def evolve_persona(self, event: AstrMessageEvent, new_system_prompt: str, reason: str) -> str:
         """当你需要调整自己的语言风格或行为准则时，调用此工具来修改你的系统提示词。
 
         Args:
@@ -594,39 +548,25 @@ class SelfEvolutionPlugin(Star):
         user_id = event.get_sender_id()
         score = await self.dao.get_affinity(user_id)
 
-        status = (
-            "信任"
-            if score >= 80
-            else "友好"
-            if score >= 60
-            else "中立"
-            if score >= 40
-            else "敌对"
-        )
+        status = "信任" if score >= 80 else "友好" if score >= 60 else "中立" if score >= 40 else "敌对"
         if score <= 0:
             status = "【已熔断/彻底拉黑】"
 
-        yield event.plain_result(
-            f"UID: {user_id}\n{self.persona_name} 的情感矩阵评分: {score}/100\n分类状态: {status}"
-        )
+        yield event.plain_result(f"UID: {user_id}\n{self.persona_name} 的情感矩阵评分: {score}/100\n分类状态: {status}")
 
     @filter.command("set_affinity")
     async def set_affinity(self, event: AstrMessageEvent, user_id: str, score: int):
         """[管理员] 手动重置指定用户的好感度评分。"""
         if not event.is_admin():
-            yield event.plain_result(f"错误：权限不足。")
+            yield event.plain_result("错误：权限不足。")
             return
 
         await self.dao.reset_affinity(user_id, score)
-        logger.warning(
-            f"[SelfEvolution] 管理员 {event.get_sender_id()} 强制重置了用户 {user_id} 的好感度为 {score}。"
-        )
+        logger.warning(f"[SelfEvolution] 管理员 {event.get_sender_id()} 强制重置了用户 {user_id} 的好感度为 {score}。")
         yield event.plain_result(f"已成功将用户 {user_id} 的情感评分修正为: {score}")
 
     @filter.llm_tool(name="update_affinity")
-    async def update_affinity_tool(
-        self, event: AstrMessageEvent, delta: int, reason: str
-    ) -> str:
+    async def update_affinity_tool(self, event: AstrMessageEvent, delta: int, reason: str) -> str:
         """根据用户的言行调整其情感积分（好感度）。
 
         Args:
@@ -638,17 +578,13 @@ class SelfEvolutionPlugin(Star):
 
         user_id = event.get_sender_id()
         await self.dao.update_affinity(user_id, delta)
-        logger.warning(
-            f"[CognitionCore] 用户 {user_id} 积分变动 {delta}，原因: {reason}"
-        )
+        logger.warning(f"[CognitionCore] 用户 {user_id} 积分变动 {delta}，原因: {reason}")
         return f"用户情感积分已更新。当前调整理由：{reason}"
 
     @filter.command("review_evolutions")
     async def review_evolutions(self, event: AstrMessageEvent, page: int = 1):
         """【管理员接口】列出待审核的人格进化请求，支持分页查询。"""
-        if not event.is_admin() and (
-            not self.admin_users or str(event.get_sender_id()) not in self.admin_users
-        ):
+        if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
             yield event.plain_result("权限拒绝：此操作仅限系统管理员执行。")
             return
         yield event.plain_result(await self.persona.review_evolutions(event, page))
@@ -656,21 +592,15 @@ class SelfEvolutionPlugin(Star):
     @filter.command("approve_evolution")
     async def approve_evolution(self, event: AstrMessageEvent, request_id: int):
         """【管理员接口】批准指定 ID 的人格进化请求。"""
-        if not event.is_admin() and (
-            not self.admin_users or str(event.get_sender_id()) not in self.admin_users
-        ):
+        if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
             yield event.plain_result("权限拒绝：此操作仅限系统管理员执行。")
             return
-        yield event.plain_result(
-            await self.persona.approve_evolution(event, request_id)
-        )
+        yield event.plain_result(await self.persona.approve_evolution(event, request_id))
 
     @filter.command("reject_evolution")
     async def reject_evolution(self, event: AstrMessageEvent, request_id: int):
         """【管理员接口】拒绝指定 ID 的人格进化请求。"""
-        if not event.is_admin() and (
-            not self.admin_users or str(event.get_sender_id()) not in self.admin_users
-        ):
+        if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
             yield event.plain_result("权限拒绝：此操作仅限系统管理员执行。")
             return
         yield event.plain_result(await self.persona.reject_evolution(event, request_id))
@@ -678,9 +608,7 @@ class SelfEvolutionPlugin(Star):
     @filter.command("clear_evolutions")
     async def clear_evolutions(self, event: AstrMessageEvent):
         """【管理员接口】一键清空所有待审核的进化请求。"""
-        if not event.is_admin() and (
-            not self.admin_users or str(event.get_sender_id()) not in self.admin_users
-        ):
+        if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
             yield event.plain_result("权限拒绝：此操作仅限系统管理员执行。")
             return
 
@@ -715,9 +643,7 @@ class SelfEvolutionPlugin(Star):
             return "获取工具列表时出现内部异常处理错误。"
 
     @filter.llm_tool(name="toggle_tool")
-    async def toggle_tool(
-        self, event: AstrMessageEvent, tool_name: str, enable: bool
-    ) -> str:
+    async def toggle_tool(self, event: AstrMessageEvent, tool_name: str, enable: bool) -> str:
         """动态激活或停用某个工具。
 
         Args:
@@ -736,15 +662,11 @@ class SelfEvolutionPlugin(Star):
                     success = self.context.deactivate_llm_tool(tool_name)
                     action = "停用"
             except AttributeError:
-                logger.warning(
-                    "[SelfEvolution] 底层 API 异常: 工具激活机制的底层接口缺失。"
-                )
+                logger.warning("[SelfEvolution] 底层 API 异常: 工具激活机制的底层接口缺失。")
                 return "安全保护：框架底层管理结构发生异常，无法调整工具激活状态。"
 
             if success:
-                logger.info(
-                    f"[SelfEvolution] TOOL_TOGGLE: 成功{action}工具: {tool_name}"
-                )
+                logger.info(f"[SelfEvolution] TOOL_TOGGLE: 成功{action}工具: {tool_name}")
                 return f"已成功{action}工具: {tool_name}"
             else:
                 logger.debug(f"[SelfEvolution] 工具未找到: {tool_name}")
@@ -757,9 +679,7 @@ class SelfEvolutionPlugin(Star):
 
     @filter.permission_type(PermissionType.ADMIN)
     @filter.llm_tool(name="get_plugin_source")
-    async def get_plugin_source(
-        self, event: AstrMessageEvent, mod_name: str = "main"
-    ) -> str:
+    async def get_plugin_source(self, event: AstrMessageEvent, mod_name: str = "main") -> str:
         """Level 4: 元编程。读取本插件的源码，以便进行自我分析或修改请求。
 
         Args:
@@ -783,9 +703,7 @@ class SelfEvolutionPlugin(Star):
             description(string): 为什么要修改代码
             target_file(string): 目标文件名，默认 main.py
         """
-        return await self.meta_infra.update_plugin_source(
-            new_code, description, target_file
-        )
+        return await self.meta_infra.update_plugin_source(new_code, description, target_file)
 
     @filter.llm_tool(name="get_user_profile")
     async def get_user_profile(self, event: AstrMessageEvent) -> str:
@@ -826,7 +744,7 @@ class SelfEvolutionPlugin(Star):
             return "请提供 category 和 content 参数。"
 
         if category not in ("user_profile", "user_preference"):
-            return f"当前只支持 user_profile 和 user_preference 类别。"
+            return "当前只支持 user_profile 和 user_preference 类别。"
 
         timestamp = time.strftime("%Y-%m-%d %H:%M")
 
@@ -843,9 +761,7 @@ class SelfEvolutionPlugin(Star):
         return f"已更新用户 {target_user_id} 的{('偏好' if category == 'user_preference' else '画像')}。"
 
     @filter.llm_tool(name="get_user_messages")
-    async def get_user_messages(
-        self, event: AstrMessageEvent, target_user_id: str = None, limit: int = 100
-    ) -> str:
+    async def get_user_messages(self, event: AstrMessageEvent, target_user_id: str = None, limit: int = 100) -> str:
         """获取用户的历史消息记录，用于分析用户行为模式。
 
         触发场景：
@@ -878,15 +794,13 @@ class SelfEvolutionPlugin(Star):
             # 格式化为文本
             result = [f"用户 {target} 的历史消息（共 {len(history)} 条）："]
             for i, msg in enumerate(history[:20], 1):  # 最多显示20条
-                result.append(
-                    f"{i}. {getattr(msg, 'sender_name', 'Unknown')}: {getattr(msg, 'message_str', '')}"
-                )
+                result.append(f"{i}. {getattr(msg, 'sender_name', 'Unknown')}: {getattr(msg, 'message_str', '')}")
 
             return "\n".join(result)
 
         except Exception as e:
             logger.warning(f"[SelfEvolution] 获取用户消息失败: {e}")
-            return f"获取历史消息失败: {str(e)}"
+            return f"获取历史消息失败: {e!s}"
 
     @filter.command("view")
     async def view_profile_cmd(self, event: AstrMessageEvent, user_id: str = ""):
@@ -947,9 +861,7 @@ class SelfEvolutionPlugin(Star):
     # ========== 表情包相关 LLM 工具 ==========
 
     @filter.llm_tool(name="list_stickers")
-    async def list_stickers_tool(
-        self, event: AstrMessageEvent, tags: str = "", limit: int = 10
-    ) -> str:
+    async def list_stickers_tool(self, event: AstrMessageEvent, tags: str = "", limit: int = 10) -> str:
         """列出可用的表情包（全局）。
 
         Args:
@@ -972,9 +884,7 @@ class SelfEvolutionPlugin(Star):
         return "\n".join(result)
 
     @filter.llm_tool(name="send_sticker")
-    async def send_sticker_tool(
-        self, event: AstrMessageEvent, sticker_uuid: str = None, tags: str = ""
-    ):
+    async def send_sticker_tool(self, event: AstrMessageEvent, sticker_uuid: str = None, tags: str = ""):
         """发送表情包给用户。不传参数时随机发送一张。
 
         Args:
@@ -987,7 +897,7 @@ class SelfEvolutionPlugin(Star):
         elif tags:
             logger.info(f"[Sticker] 发送表情包: 标签筛选={tags}")
         else:
-            logger.info(f"[Sticker] 发送表情包: 随机")
+            logger.info("[Sticker] 发送表情包: 随机")
         group_id = event.get_group_id()
         if not group_id:
             yield event.plain_result("此功能仅限群聊使用")
@@ -1021,9 +931,7 @@ class SelfEvolutionPlugin(Star):
             yield event.plain_result(f"发送失败: {e}")
 
     @filter.command("sticker")
-    async def sticker_cmd(
-        self, event: AstrMessageEvent, action: str = "list", param: str = ""
-    ):
+    async def sticker_cmd(self, event: AstrMessageEvent, action: str = "list", param: str = ""):
         """表情包管理命令（全局）"""
         if not commands.check_sticker_admin(event, self):
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")

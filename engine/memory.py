@@ -55,9 +55,7 @@ class MemoryManager:
 
     def _get_target_groups(self):
         """获取需要总结的群列表"""
-        if hasattr(self.plugin, "eavesdropping") and hasattr(
-            self.plugin.eavesdropping, "active_users"
-        ):
+        if hasattr(self.plugin, "eavesdropping") and hasattr(self.plugin.eavesdropping, "active_users"):
             return list(self.plugin.eavesdropping.active_users.keys())
         return []
 
@@ -140,20 +138,13 @@ class MemoryManager:
         """保存总结到知识库"""
         try:
             kb_manager = self.plugin.context.kb_manager
-            kb_helper = await asyncio.wait_for(
-                kb_manager.get_kb_by_name(self.memory_kb_name), timeout=10.0
-            )
+            kb_helper = await asyncio.wait_for(kb_manager.get_kb_by_name(self.memory_kb_name), timeout=10.0)
 
             if not kb_helper:
                 logger.warning(f"[Memory] 知识库 {self.memory_kb_name} 不存在")
                 return
 
-            formatted = (
-                f"【群聊总结】\n"
-                f"群号: {group_id}\n"
-                f"时间: {datetime.now().strftime('%Y-%m-%d')}\n"
-                f"内容: {summary}"
-            )
+            formatted = f"【群聊总结】\n群号: {group_id}\n时间: {datetime.now().strftime('%Y-%m-%d')}\n内容: {summary}"
 
             await kb_helper.upload_document(
                 file_name=f"summary_{group_id}_{int(time.time() * 1000)}.txt",
@@ -174,9 +165,7 @@ class MemoryManager:
 
         try:
             kb_manager = self.plugin.context.kb_manager
-            kb_helper = await asyncio.wait_for(
-                kb_manager.get_kb_by_name(self.memory_kb_name), timeout=5.0
-            )
+            kb_helper = await asyncio.wait_for(kb_manager.get_kb_by_name(self.memory_kb_name), timeout=5.0)
 
             if not kb_helper:
                 return f"知识库 {self.memory_kb_name} 不存在"
@@ -209,9 +198,7 @@ class MemoryManager:
 
         try:
             kb_manager = self.plugin.context.kb_manager
-            kb_helper = await asyncio.wait_for(
-                kb_manager.get_kb_by_name(self.memory_kb_name), timeout=5.0
-            )
+            kb_helper = await asyncio.wait_for(kb_manager.get_kb_by_name(self.memory_kb_name), timeout=5.0)
 
             if not kb_helper:
                 return f"知识库 {self.memory_kb_name} 不存在"

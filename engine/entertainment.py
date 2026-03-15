@@ -2,11 +2,11 @@
 娱乐功能模块 - 包含表情包学习和今日老婆等娱乐指令
 """
 
-import asyncio
 import base64
 import hashlib
 import random
 import time
+
 from astrbot.api import logger
 
 
@@ -99,23 +99,17 @@ class EntertainmentEngine:
 
                     daily_count = await self.dao.get_today_sticker_count()
                     if daily_count >= self.cfg.sticker_daily_limit:
-                        logger.info(
-                            f"[Sticker] 今日已达上限 {self.cfg.sticker_daily_limit}"
-                        )
+                        logger.info(f"[Sticker] 今日已达上限 {self.cfg.sticker_daily_limit}")
                         return False
 
                     total_count = await self.dao.get_sticker_count()
                     if total_count >= self.cfg.sticker_total_limit:
                         await self.dao.delete_oldest_sticker()
-                        logger.info(f"[Sticker] 已达总上限，删除最旧的")
+                        logger.info("[Sticker] 已达总上限，删除最旧的")
 
-                    sticker_uuid = await self.dao.add_sticker(
-                        group_id, user_id, base64_data, "", sticker_hash
-                    )
+                    sticker_uuid = await self.dao.add_sticker(group_id, user_id, base64_data, "", sticker_hash)
                     if sticker_uuid:
-                        logger.info(
-                            f"[Sticker] 成功学习表情包: user={user_id}, group={group_id}"
-                        )
+                        logger.info(f"[Sticker] 成功学习表情包: user={user_id}, group={group_id}")
                         return True
                     else:
                         logger.debug(f"[Sticker] 表情包已存在: hash={sticker_hash}")
@@ -134,14 +128,12 @@ class EntertainmentEngine:
         cooldown_seconds = self.cfg.sticker_tag_cooldown * 60
 
         if now - self._last_tag_time < cooldown_seconds:
-            logger.debug(
-                f"[Sticker] 打标签冷却中，剩余 {int(cooldown_seconds - (now - self._last_tag_time))} 秒"
-            )
+            logger.debug(f"[Sticker] 打标签冷却中，剩余 {int(cooldown_seconds - (now - self._last_tag_time))} 秒")
             return False
 
         untagged = await self.dao.get_untagged_stickers(1)
         if not untagged:
-            logger.debug(f"[Sticker] 没有未打标签的表情包")
+            logger.debug("[Sticker] 没有未打标签的表情包")
             return False
 
         sticker = untagged[0]
@@ -173,21 +165,19 @@ class EntertainmentEngine:
             # 调用 MCP 工具 understand_image
             tool_manager = self.plugin.context.get_llm_tool_manager()
             if not tool_manager:
-                logger.warning(f"[Sticker] 获取 tool_manager 失败")
+                logger.warning("[Sticker] 获取 tool_manager 失败")
                 return False
 
             mcp_runtime = tool_manager._mcp_server_runtime
             if not mcp_runtime:
-                logger.warning(f"[Sticker] 没有可用的 MCP 服务")
+                logger.warning("[Sticker] 没有可用的 MCP 服务")
                 return False
 
             logger.info(f"[Sticker] 找到 {len(mcp_runtime)} 个 MCP 服务器")
 
             # 遍历所有 MCP 服务器，找到 understand_image 工具并调用
             for server_name, runtime in mcp_runtime.items():
-                logger.info(
-                    f"[Sticker] 检查 MCP 服务器: {server_name}, runtime: {runtime}"
-                )
+                logger.info(f"[Sticker] 检查 MCP 服务器: {server_name}, runtime: {runtime}")
                 if runtime and runtime.client:
                     mcp_client = runtime.client
                     logger.info(f"[Sticker] 准备调用 MCP 客户端: {server_name}")
@@ -214,9 +204,7 @@ class EntertainmentEngine:
                                 elif isinstance(content, str):
                                     response_text += content
 
-                            logger.info(
-                                f"[Sticker] MCP 工具响应: {response_text[:100]}"
-                            )
+                            logger.info(f"[Sticker] MCP 工具响应: {response_text[:100]}")
 
                             # 解析描述和标签
                             description = ""
@@ -246,9 +234,7 @@ class EntertainmentEngine:
                             if not tags:
                                 tags = response_text.split("\n")[0][:50]
 
-                            await self.dao.update_sticker_tags_by_uuid(
-                                sticker["uuid"], tags, description
-                            )
+                            await self.dao.update_sticker_tags_by_uuid(sticker["uuid"], tags, description)
                             self._last_tag_time = time.time()
                             logger.info(
                                 f"[Sticker] 打标签成功: uuid={sticker['uuid']}, tags={tags}, description={description[:30]}"
@@ -258,7 +244,7 @@ class EntertainmentEngine:
                         logger.warning(f"[Sticker] MCP 客户端调用失败: {e}")
                         continue
 
-            logger.warning(f"[Sticker] 所有 MCP 客户端调用失败")
+            logger.warning("[Sticker] 所有 MCP 客户端调用失败")
             return False
 
         except Exception as e:
@@ -281,9 +267,7 @@ class EntertainmentEngine:
         cooldown_seconds = self.cfg.sticker_send_cooldown * 60
         last_time = self._last_send_time.get("global", 0)
         if time.time() - last_time < cooldown_seconds:
-            logger.debug(
-                f"[Sticker] 发表情包冷却中，剩余 {int(cooldown_seconds - (time.time() - last_time))} 秒"
-            )
+            logger.debug(f"[Sticker] 发表情包冷却中，剩余 {int(cooldown_seconds - (time.time() - last_time))} 秒")
             return False
 
         sticker = await self.dao.get_random_sticker()
@@ -313,10 +297,10 @@ class EntertainmentEngine:
         if stats["total"] == 0:
             return ""
 
-        injection = f"\n\n【表情包库】你有一个表情包库，目前有 {stats['total']} 张表情包（今日新增 {stats['today']} 张）。"
-        injection += (
-            "\n当群聊氛围适合时，可以使用 send_sticker 工具发送表情包来活跃气氛。"
+        injection = (
+            f"\n\n【表情包库】你有一个表情包库，目前有 {stats['total']} 张表情包（今日新增 {stats['today']} 张）。"
         )
+        injection += "\n当群聊氛围适合时，可以使用 send_sticker 工具发送表情包来活跃气氛。"
         injection += "\n使用 list_stickers 工具可以查看可用的表情包。"
 
         return injection

@@ -9,11 +9,9 @@ async def handle_version(event, plugin):
     """显示插件版本"""
     version = getattr(plugin, "_cached_version", None)
     if version is None:
-        metadata_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "metadata.yaml"
-        )
+        metadata_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "metadata.yaml")
         if os.path.exists(metadata_path):
-            with open(metadata_path, "r", encoding="utf-8") as f:
+            with open(metadata_path, encoding="utf-8") as f:
                 for line in f:
                     if line.startswith("version:"):
                         version = line.split(":", 1)[1].strip()
@@ -27,9 +25,7 @@ async def handle_version(event, plugin):
 async def handle_help(event, plugin):
     """显示帮助信息"""
     user_id = event.get_sender_id()
-    is_admin = event.is_admin() or (
-        plugin.admin_users and str(user_id) in plugin.admin_users
-    )
+    is_admin = event.is_admin() or (plugin.admin_users and str(user_id) in plugin.admin_users)
 
     help_text = """【Self-Evolution 指令帮助】
 

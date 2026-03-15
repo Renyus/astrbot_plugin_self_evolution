@@ -7,12 +7,12 @@ import logging
 logger = logging.getLogger("astrbot")
 
 from . import (
+    scheduled_interject,
+    scheduled_memory_summary,
+    scheduled_profile_cleanup,
     scheduled_reflection,
     scheduled_san_analyze,
-    scheduled_memory_summary,
-    scheduled_interject,
     scheduled_sticker_tag,
-    scheduled_profile_cleanup,
 )
 
 
@@ -32,9 +32,7 @@ async def register_tasks(plugin):
                         await cron_mgr.delete_job(job.job_id)
                         logger.info(f"[SelfEvolution] 已清理旧任务: {job.name}")
                     except Exception as e:
-                        logger.warning(
-                            f"[SelfEvolution] 清理旧任务失败: {job.name}, {e}"
-                        )
+                        logger.warning(f"[SelfEvolution] 清理旧任务失败: {job.name}, {e}")
         except Exception as e:
             logger.warning(f"[SelfEvolution] 获取任务列表失败: {e}")
 
