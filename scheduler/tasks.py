@@ -4,7 +4,7 @@ Scheduler Tasks - 定时任务回调实现
 
 import logging
 
-logger = logging.getLogger("astrbot.astrbot_plugin_self_evolution")
+logger = logging.getLogger("astrbot")
 
 
 async def scheduled_reflection(plugin):

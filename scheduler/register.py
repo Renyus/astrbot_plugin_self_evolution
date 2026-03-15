@@ -4,7 +4,7 @@ Scheduler Register - 定时任务注册
 
 import logging
 
-logger = logging.getLogger("astrbot.astrbot_plugin_self_evolution")
+logger = logging.getLogger("astrbot")
 
 from . import (
     scheduled_reflection,
