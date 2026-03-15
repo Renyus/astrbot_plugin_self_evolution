@@ -99,7 +99,7 @@ async def handle_delete(event, plugin):
 async def handle_stats(event, plugin):
     """查看画像统计实现"""
     stats = await plugin.profile.list_profiles()
-    return f"画像统计：\n- 用户数: {stats['total_users']}\n- 兴趣标签: {stats['total_tags']}\n- 性格特征: {stats['total_traits']}"
+    return f"画像统计：\n- 用户数: {stats['total_users']}"
 
 
 def check_admin(event, plugin):

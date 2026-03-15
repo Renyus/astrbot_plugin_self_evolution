@@ -969,7 +969,9 @@ class EavesdroppingEngine:
                 logger.debug(f"[Interject] 群 {group_id}: 无 LLM provider")
                 return
 
-            prompt = f"""分析以下群聊消息，判断AI是否应该主动插嘴：
+            prompt = f"""分析以下群聊消息，判断AI是否应该主动插嘴。
+
+当前机器人ID：{bot_id}
 
 群聊消息：
 {chr(10).join(formatted[: self.plugin.cfg.interject_analyze_count])}
@@ -981,7 +983,10 @@ class EavesdroppingEngine:
     "suggested_response": "如果应该插嘴，给出建议的回复内容"
 }}
 
-注意：只有当群里有有趣的讨论、有争议的话题、或者有人提问但没人回答时才应该插嘴。"""
+注意：
+1. 只有当消息中@了当前机器人(ID={bot_id})时才插嘴，不要把@其他人误认为是@你
+2. 只有当群里有有趣的讨论、有争议的话题、或者有人提问但没人回答时才应该插嘴
+3. 如果消息中没有@当前机器人，通常不应该插嘴"""
 
             res = await llm_provider.text_chat(
                 prompt=prompt,
