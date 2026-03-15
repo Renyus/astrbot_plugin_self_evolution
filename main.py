@@ -102,7 +102,6 @@ class SelfEvolutionPlugin(Star):
         self._shut_until = None  # 闭嘴截止时间 (timestamp)
         self._shut_until_by_group = {}  # 群级别闭嘴 {群号: 截止时间}
         self._interject_history = {}  # 群插嘴历史 {群号: {"last_time": timestamp, "last_msg_id": str}}
-        self._inner_monologue_cache = {}  # 内心独白缓存（内存，阅后即焚）
 
     def _setup_debug_logging(self):
         """根据配置设置 debug 日志模式"""

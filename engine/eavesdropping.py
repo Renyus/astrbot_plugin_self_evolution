@@ -2,7 +2,7 @@ from astrbot.api import logger
 import re
 import time
 import asyncio
-from collections import defaultdict
+from collections import defaultdict, deque
 from astrbot.api.all import AstrMessageEvent
 from .context_injection import build_identity_context
 
@@ -10,7 +10,7 @@ from .context_injection import build_identity_context
 class EavesdroppingEngine:
     def __init__(self, plugin):
         self.plugin = plugin
-        self.global_window = defaultdict(list)
+        self.global_window = defaultdict(lambda: deque(maxlen=5))
         self.window_size = 5
         self.leaky_bucket = defaultdict(dict)  # {"value": float, "last_time": float}
         self.boredom_cache = defaultdict(lambda: {"count": 0, "last_message_time": 0.0})
@@ -146,6 +146,17 @@ class EavesdroppingEngine:
         window_end = self.active_users[group_id].get(user_id, {}).get("window_end", 0)
         return time.time() < window_end
 
+    async def _mark_user_active_async(self, group_id: str, user_id: str):
+        """标记用户为活跃状态，开启30秒窗口（异步版本，带锁）"""
+        group_id = str(group_id)
+        user_id = str(user_id)
+        now = time.time()
+        async with self._active_users_lock:
+            self.active_users[group_id][user_id] = {
+                "last_active": now,
+                "window_end": now + self.active_window_seconds,
+            }
+
     def _mark_user_active(self, group_id: str, user_id: str):
         """标记用户为活跃状态，开启30秒窗口"""
         # 确保类型一致
@@ -184,6 +195,27 @@ class EavesdroppingEngine:
             "consecutive_count": self.plugin.cfg.boredom_consecutive_count,
             "sarcastic_reply": self.plugin.cfg.boredom_sarcastic_reply,
         }
+
+    async def _update_boredom_async(self, group_id: str, entropy: float):
+        """更新无聊状态（异步版本，带锁）"""
+        params = self._get_boredom_params()
+        if not params["enabled"]:
+            return False
+        async with self._boredom_lock:
+            boredom = self.boredom_cache[group_id]
+            current_time = time.time()
+            if current_time - boredom["last_message_time"] > 120:
+                boredom["count"] = 0
+            boredom["last_message_time"] = current_time
+            if entropy < params["threshold"]:
+                boredom["count"] += 1
+            else:
+                boredom["count"] = max(0, boredom["count"] - 1)
+            is_bored = boredom["count"] >= params["consecutive_count"]
+        logger.debug(
+            f"[Boredom] Group {group_id}: entropy={entropy:.2f}, count={boredom['count']}, is_bored={is_bored}"
+        )
+        return is_bored
 
     def _update_boredom(self, group_id: str, entropy: float):
         params = self._get_boredom_params()
@@ -279,7 +311,7 @@ class EavesdroppingEngine:
         funnel_triggered = self._check_funnel_trigger(event)
 
         if funnel_triggered:
-            self._mark_user_active(group_id, user_id)
+            await self._mark_user_active_async(group_id, user_id)
             logger.debug(f"[漏斗] 用户 {user_id} 在群 {group_id} 被标记为活跃")
 
         # 清理过期的活跃用户（每100条消息清理一次）
@@ -302,15 +334,14 @@ class EavesdroppingEngine:
             return
 
         if group_id:
-            self.global_window[group_id].append(f"{sender_name}: {msg_text}")
-            if len(self.global_window[group_id]) > self.window_size:
-                self.global_window[group_id].pop(0)
+            async with self._session_lock:
+                self.global_window[group_id].append(f"{sender_name}: {msg_text}")
 
         entropy = self._calculate_entropy(msg_text)
         boredom_params = self._get_boredom_params()
         is_bored = False
         if boredom_params["enabled"]:
-            is_bored = self._update_boredom(group_id, entropy)
+            is_bored = await self._update_boredom_async(group_id, entropy)
 
         # 将无聊状态传递给评估函数
         self._current_boredom_state = is_bored
