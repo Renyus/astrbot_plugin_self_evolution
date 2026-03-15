@@ -971,7 +971,6 @@ class EavesdroppingEngine:
 
             prompt = f"""分析以下群聊消息，判断AI是否应该主动插嘴。
 
-当前机器人名称：{self.plugin.persona_name}
 当前机器人ID：{bot_id}
 
 群聊消息：
