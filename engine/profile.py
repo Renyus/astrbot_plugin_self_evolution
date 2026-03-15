@@ -255,8 +255,8 @@ class ProfileManager:
             prompt = (
                 f"你是记忆助手。请根据对话分析用户特征。\n"
                 f"{'旧笔记：' + existing_note + '\n' if mode == 'update' else ''}"
-                f"用户消息：\n" + "\n".join(user_messages[:50]) + "\n"
-                "请输出一段精简的用户画像描述，不超过200字。只输出文本，不要其他内容。"
+                f"用户消息：\n" + "\n".join(user_messages) + "\n"
+                "请根据以上消息输出一段详细用户画像描述。使用Markdown格式输出，不少于500字。"
             )
 
             llm_provider = self.plugin.context.get_using_provider("qq")
@@ -266,7 +266,7 @@ class ProfileManager:
             res = await llm_provider.text_chat(
                 prompt=prompt,
                 contexts=[],
-                system_prompt="你是一个记忆助手，只输出精简的文本描述。每个结论必须标注置信度。",
+                system_prompt="你是一个专业的用户画像分析师。根据用户消息分析其身份背景、性格特征、兴趣爱好、沟通方式，工作学习习惯等，每个结论必须标注置信度。",
             )
 
             new_note = res.completion_text.strip() if res.completion_text else ""
