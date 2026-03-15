@@ -41,7 +41,13 @@ class ProfileManager:
         keywords = self.plugin.cfg.core_info_keywords
         return [k.strip() for k in keywords.split(",")]
 
-    def _get_profile_path(self, group_id: str, user_id: str) -> Path:
+    def _get_profile_path(self, group_id: str, user_id: str, nickname: str = "") -> Path:
+        # 清理昵称中的非法字符
+        if nickname:
+            import re
+
+            safe_nickname = re.sub(r'[<>:"/\\|?*]', "", nickname)[:20]
+            return self.profile_dir / f"user_{group_id}_{user_id}_{safe_nickname}.md"
         return self.profile_dir / f"user_{group_id}_{user_id}.md"
 
     def _is_core_info(self, line: str) -> bool:
@@ -97,18 +103,18 @@ class ProfileManager:
         logger.debug(f"[Profile] 用户无画像: {profile_key}")
         return ""
 
-    async def save_profile(self, group_id: str, user_id: str, content: str):
+    async def save_profile(self, group_id: str, user_id: str, content: str, nickname: str = ""):
         """保存用户画像（Markdown 文本）"""
         profile_key = f"{group_id}_{user_id}"
         # 定期清理过期缓存
         self._cleanup_expired_cache()
 
-        path = self._get_profile_path(group_id, user_id)
+        path = self._get_profile_path(group_id, user_id, nickname)
         path.write_text(content, encoding="utf-8")
         # 更新缓存
         self._profile_cache[profile_key] = content
         self._cache_access_time[profile_key] = time.time()
-        logger.info(f"[Profile] 已保存用户画像: {profile_key} ({len(content)} 字符)")
+        logger.info(f"[Profile] 已保存用户画像: {path.name} ({len(content)} 字符)")
 
     async def get_profile_summary(self, group_id: str, user_id: str) -> str:
         """获取画像摘要（用于注入 LLM）- 支持分层失活"""
@@ -246,14 +252,14 @@ class ProfileManager:
             if not bot:
                 return "无法获取 bot 实例"
 
-            # 获取用户昵称
+            # 获取用户昵称（用于文件名）
             try:
                 member_info = await bot.call_action(
                     "get_group_member_info", group_id=int(group_id), user_id=int(user_id)
                 )
-                nickname = member_info.get("card") or member_info.get("nickname", "未知")
+                member_nickname = member_info.get("card") or member_info.get("nickname", "未知")
             except Exception:
-                nickname = "未知"
+                member_nickname = "未知"
 
             msg_count = self.plugin.cfg.profile_msg_count
             result = await bot.call_action("get_group_msg_history", group_id=int(group_id), count=msg_count)
@@ -263,6 +269,7 @@ class ProfileManager:
                 return f"群 {group_id} 无消息记录"
 
             user_messages = []
+            nickname = member_nickname  # 默认使用群名片/昵称
             for msg in messages:
                 if str(msg.get("user_id")) == str(user_id):
                     sender = msg.get("sender", {})
@@ -304,7 +311,7 @@ class ProfileManager:
             if not new_note:
                 return "生成画像失败，请重试"
 
-            await self.save_profile(group_id, user_id, new_note)
+            await self.save_profile(group_id, user_id, new_note, nickname)
             # 更新冷却时间
             self._profile_build_cooldown[cooldown_key] = time.time()
             logger.info(f"[Profile] 已保存用户画像: {user_id}")
