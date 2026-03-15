@@ -1,12 +1,12 @@
-import logging
 import asyncio
-import aiosqlite
+import hashlib
+import logging
 import time
 import uuid
-import hashlib
 from datetime import datetime
 from functools import wraps
-from typing import List, Tuple
+
+import aiosqlite
 
 logger = logging.getLogger("astrbot")
 
@@ -65,11 +65,7 @@ class SelfEvolutionDAO:
         # 定期清理过期缓存
         if len(self._affinity_cache) > 1000:
             current_time = time.time()
-            expired = [
-                k
-                for k, t in self._affinity_cache_time.items()
-                if current_time - t >= self._cache_ttl
-            ]
+            expired = [k for k, t in self._affinity_cache_time.items() if current_time - t >= self._cache_ttl]
             for k in expired:
                 self._affinity_cache.pop(k, None)
                 self._affinity_cache_time.pop(k, None)
@@ -78,9 +74,7 @@ class SelfEvolutionDAO:
         """兼容旧接口，内部实际上已融入 get_conn 的连接池锁机制，从而规避初始化并发造成的 WAL 锁定冲突"""
         try:
             await self.get_conn()
-            logger.info(
-                "[SelfEvolution] DAO: 成功在长连接池状态机的保护下建立/验证数据库。"
-            )
+            logger.info("[SelfEvolution] DAO: 成功在长连接池状态机的保护下建立/验证数据库。")
         except aiosqlite.Error as e:
             logger.error(f"[SelfEvolution] DAO: 初始化 aiosqlite 数据库失败: {e}")
 
@@ -94,19 +88,6 @@ class SelfEvolutionDAO:
                 new_prompt TEXT NOT NULL,
                 reason TEXT NOT NULL,
                 status TEXT NOT NULL
-            )
-        """)
-        # 用户互动关系表（用于关系图谱）
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS user_interactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                source_user_id TEXT NOT NULL,
-                target_user_id TEXT,
-                group_id TEXT NOT NULL,
-                interaction_count INTEGER NOT NULL DEFAULT 1,
-                last_seen TEXT NOT NULL,
-                traits TEXT,
-                UNIQUE(source_user_id, target_user_id, group_id)
             )
         """)
         # 表情包表
@@ -158,9 +139,7 @@ class SelfEvolutionDAO:
             pass  # 列已存在忽略错误
 
         # 迁移旧数据：给已有记录生成 uuid 和 hash（基于 base64_data 计算）
-        cursor = await db.execute(
-            "SELECT id, uuid, base64_data FROM stickers WHERE uuid IS NULL OR hash IS NULL"
-        )
+        cursor = await db.execute("SELECT id, uuid, base64_data FROM stickers WHERE uuid IS NULL OR hash IS NULL")
         rows = await cursor.fetchall()
         for row in rows:
             row_id = row["id"]
@@ -215,9 +194,7 @@ class SelfEvolutionDAO:
 
             await asyncio.wait_for(probe(), timeout=2.0)
         except Exception:
-            logger.warning(
-                "[SelfEvolution] DAO: 侦测到 SQLite 长连接句柄丢失或断裂，尝试热重连机制..."
-            )
+            logger.warning("[SelfEvolution] DAO: 侦测到 SQLite 长连接句柄丢失或断裂，尝试热重连机制...")
             async with self._db_lock:
                 # Double-check 预防并发协程在等待锁时已经被前面的人重设连接，同样增加时限防护
                 try:
@@ -240,9 +217,7 @@ class SelfEvolutionDAO:
                         self.db_conn.row_factory = aiosqlite.Row
                         await self._init_schema(self.db_conn)
                     except Exception as e:
-                        logger.error(
-                            f"[SelfEvolution] DAO重连与建表崩溃, 数据库文件极可能已被移出损毁: {e}"
-                        )
+                        logger.error(f"[SelfEvolution] DAO重连与建表崩溃, 数据库文件极可能已被移出损毁: {e}")
                         self.db_conn = None
                         raise
         return self.db_conn
@@ -262,7 +237,7 @@ class SelfEvolutionDAO:
                         self.db_conn = None
                 finally:
                     self._db_lock.release()
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.error(
                     "[SelfEvolution] 紧急关闭：_db_lock 被阻断超时！强制越权解除底层 aiosqlite 绑定以防宿主平台卸载雪崩。"
                 )
@@ -274,9 +249,7 @@ class SelfEvolutionDAO:
                 self.db_conn = None
 
     @with_db_retry()
-    async def add_pending_evolution(
-        self, persona_id: str, new_prompt: str, reason: str
-    ):
+    async def add_pending_evolution(self, persona_id: str, new_prompt: str, reason: str):
         db = await self.get_conn()
         async with self._write_lock:
             await db.execute(
@@ -381,30 +354,6 @@ class SelfEvolutionDAO:
             await db.commit()
 
     @with_db_retry()
-    async def get_user_groups(self, user_id: str) -> List[str]:
-        """获取用户所在的所有群"""
-        db = await self.get_conn()
-        async with db.execute(
-            "SELECT DISTINCT group_id FROM user_interactions WHERE source_user_id = ?",
-            (user_id,),
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return [row[0] for row in rows]
-
-    @with_db_retry()
-    async def get_frequent_interactors(
-        self, user_id: str, limit: int = 5
-    ) -> List[Tuple[str, int]]:
-        """获取与用户互动最频繁的用户列表"""
-        db = await self.get_conn()
-        async with db.execute(
-            "SELECT target_user_id, interaction_count FROM user_interactions WHERE source_user_id = ? AND target_user_id IS NOT NULL ORDER BY interaction_count DESC LIMIT ?",
-            (user_id, limit),
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return [(row[0], row[1]) for row in rows]
-
-    @with_db_retry()
     async def get_pending_evolutions(self, limit: int, offset: int):
         db = await self.get_conn()
         async with db.execute(
@@ -437,9 +386,7 @@ class SelfEvolutionDAO:
         """批量清理（标记为已清除）所有待审批的进化请求"""
         db = await self.get_conn()
         async with self._write_lock:
-            await db.execute(
-                "UPDATE pending_evolutions SET status = 'cleared' WHERE status = 'pending_approval'"
-            )
+            await db.execute("UPDATE pending_evolutions SET status = 'cleared' WHERE status = 'pending_approval'")
             await db.commit()
 
     # ========== 表情包相关方法 ==========
@@ -492,9 +439,7 @@ class SelfEvolutionDAO:
         """获取今日新增表情包数量"""
         db = await self.get_conn()
         async with self._db_lock:
-            cursor = await db.execute(
-                "SELECT COUNT(*) as cnt FROM stickers WHERE date(created_at) = date('now')"
-            )
+            cursor = await db.execute("SELECT COUNT(*) as cnt FROM stickers WHERE date(created_at) = date('now')")
             row = await cursor.fetchone()
             return row["cnt"] if row else 0
 
@@ -520,9 +465,7 @@ class SelfEvolutionDAO:
             ]
 
     @with_db_retry()
-    async def update_sticker_tags_by_uuid(
-        self, sticker_uuid: str, tags: str, description: str = ""
-    ) -> bool:
+    async def update_sticker_tags_by_uuid(self, sticker_uuid: str, tags: str, description: str = "") -> bool:
         """根据UUID更新表情包标签和描述"""
         db = await self.get_conn()
         async with self._write_lock:
@@ -534,9 +477,7 @@ class SelfEvolutionDAO:
             return cursor.rowcount > 0
 
     @with_db_retry()
-    async def get_stickers_by_tags(
-        self, tags: str = None, limit: int = 10, offset: int = 0
-    ) -> list:
+    async def get_stickers_by_tags(self, tags: str = None, limit: int = 10, offset: int = 0) -> list:
         """根据标签搜索表情包（全局）"""
         db = await self.get_conn()
         async with self._db_lock:
@@ -615,9 +556,7 @@ class SelfEvolutionDAO:
         db = await self.get_conn()
         async with self._db_lock:
             total = await db.execute("SELECT COUNT(*) as cnt FROM stickers")
-            today = await db.execute(
-                "SELECT COUNT(*) as cnt FROM stickers WHERE date(created_at) = date('now')"
-            )
+            today = await db.execute("SELECT COUNT(*) as cnt FROM stickers WHERE date(created_at) = date('now')")
             total_row = await total.fetchone()
             today_row = await today.fetchone()
             return {
@@ -633,6 +572,30 @@ class SelfEvolutionDAO:
             cursor = await db.execute(
                 "SELECT id, uuid, hash, group_id, user_id, base64_data, tags, description, created_at FROM stickers WHERE hash = ?",
                 (sticker_hash,),
+            )
+            row = await cursor.fetchone()
+            if row:
+                return {
+                    "id": row["id"],
+                    "uuid": row["uuid"],
+                    "hash": row["hash"],
+                    "group_id": row["group_id"],
+                    "user_id": row["user_id"],
+                    "base64_data": row["base64_data"],
+                    "tags": row["tags"],
+                    "description": row["description"] or "",
+                    "created_at": row["created_at"],
+                }
+            return None
+
+    @with_db_retry()
+    async def get_sticker_by_uuid(self, sticker_uuid: str) -> dict | None:
+        """根据uuid获取表情包信息"""
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute(
+                "SELECT id, uuid, hash, group_id, user_id, base64_data, tags, description, created_at FROM stickers WHERE uuid = ?",
+                (sticker_uuid,),
             )
             row = await cursor.fetchone()
             if row:
@@ -670,7 +633,7 @@ class SelfEvolutionDAO:
                     cursor = await db.execute(f"SELECT COUNT(*) as cnt FROM {table}")
                     row = await cursor.fetchone()
                     stats[table] = row["cnt"] if row else 0
-                except Exception as e:
+                except Exception:
                     stats[table] = 0
 
         return stats

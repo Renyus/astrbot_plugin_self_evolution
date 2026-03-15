@@ -2,8 +2,6 @@
 上下文注入模块 - 共享的身份隔离与认知指令
 """
 
-from astrbot.api import logger
-
 
 def build_identity_context(
     user_id: str,

@@ -1,16 +1,18 @@
-from astrbot.api import logger
+import asyncio
 import re
 import time
-import asyncio
-from collections import defaultdict
+from collections import defaultdict, deque
+
+from astrbot.api import logger
 from astrbot.api.all import AstrMessageEvent
+
 from .context_injection import build_identity_context
 
 
 class EavesdroppingEngine:
     def __init__(self, plugin):
         self.plugin = plugin
-        self.global_window = defaultdict(list)
+        self.global_window = defaultdict(lambda: deque(maxlen=5))
         self.window_size = 5
         self.leaky_bucket = defaultdict(dict)  # {"value": float, "last_time": float}
         self.boredom_cache = defaultdict(lambda: {"count": 0, "last_message_time": 0.0})
@@ -19,13 +21,6 @@ class EavesdroppingEngine:
         self._bucket_lock = asyncio.Lock()
         self._boredom_lock = asyncio.Lock()
         self._active_users_lock = asyncio.Lock()
-        self._intercepted_lock = asyncio.Lock()
-
-        # 中间消息拦截缓存：{session_id: {"messages": [], "last_update": timestamp}}
-        self.intercepted_messages = defaultdict(
-            lambda: {"messages": [], "last_update": 0.0}
-        )
-        self.intercepted_message_ttl = 30  # 缓存30秒后丢弃
 
         # 漏斗机制 - 用户活跃判定
         self.active_users = defaultdict(
@@ -41,30 +36,8 @@ class EavesdroppingEngine:
         self.processing_sessions = set()
         self._session_lock = asyncio.Lock()
 
-        # 中间消息模式 - 这些消息会在工具调用期间被拦截
-        self.intermediate_message_patterns = [
-            r"^让我",
-            r"^让我先",
-            r"^让我查查",
-            r"^让我看看",
-            r"^让我再",
-            r"^我来帮你",
-            r"^让我获取",
-            r"^让我整理",
-            r"^我先",
-            r"^我先查",
-            r"^我先看看",
-            r"^我先了解一下",
-            r"^让我先了解一下",
-            r"^让我先查一下",
-            r"^让我先看看",
-            r"^让我来分析",
-            r"^让我来",
-        ]
-        # 预编译中间消息正则
-        self._intermediate_patterns_compiled = [
-            re.compile(p) for p in self.intermediate_message_patterns
-        ]
+        # 插嘴功能状态
+        self._interject_history = {}  # 群插嘴历史 {群号: {"last_time": timestamp, "last_msg_id": str}}
 
         # 强AI意图句式
         self.ai_intent_patterns = [
@@ -79,44 +52,7 @@ class EavesdroppingEngine:
             r"^生成",
         ]
         # 预编译AI意图正则
-        self._ai_intent_patterns_compiled = [
-            re.compile(p) for p in self.ai_intent_patterns
-        ]
-
-    def is_intermediate_message(self, text: str) -> bool:
-        """检查消息是否是中间消息（工具调用期间的过渡性消息），应该被拦截"""
-        if not text:
-            return False
-        text = text.strip()
-        for pattern in self._intermediate_patterns_compiled:
-            if pattern.match(text):
-                logger.debug(f"[IntermediateFilter] 拦截中间消息: {text[:50]}")
-                return True
-        return False
-
-    def cache_intercepted_message(self, session_id: str, message: str):
-        """缓存被拦截的中间消息"""
-        session_id = str(session_id)
-        now = time.time()
-        self.intercepted_messages[session_id]["messages"].append(message)
-        self.intercepted_messages[session_id]["last_update"] = now
-        logger.debug(
-            f"[IntermediateFilter] 缓存中间消息，当前缓存 {len(self.intercepted_messages[session_id]['messages'])} 条"
-        )
-
-    def cleanup_expired_intercepted_messages(self):
-        """清理过期的被拦截消息"""
-        now = time.time()
-        expired_sessions = []
-        for session_id, data in self.intercepted_messages.items():
-            if now - data["last_update"] > self.intercepted_message_ttl:
-                if data["messages"]:
-                    logger.debug(
-                        f"[IntermediateFilter] 丢弃过期缓存消息 {len(data['messages'])} 条"
-                    )
-                expired_sessions.append(session_id)
-        for session_id in expired_sessions:
-            del self.intercepted_messages[session_id]
+        self._ai_intent_patterns_compiled = [re.compile(p) for p in self.ai_intent_patterns]
 
     def _calculate_entropy(self, text: str) -> float:
         """基于香农熵计算文本信息量"""
@@ -180,8 +116,10 @@ class EavesdroppingEngine:
         # 引用回复检测
         if hasattr(msg, "reply") and msg.reply:
             reply_msg = msg.reply
-            if hasattr(reply_msg, "sender") and reply_msg.sender:
-                bot_id = str(self.plugin.context.bot_info.get("user_id", ""))
+            platform_insts = self.plugin.context.platform_manager.platform_insts
+            if platform_insts:
+                platform = platform_insts[0]
+                bot_id = str(getattr(platform, "client_self_id", ""))
                 if str(reply_msg.sender) == bot_id:
                     return True
 
@@ -211,6 +149,17 @@ class EavesdroppingEngine:
         window_end = self.active_users[group_id].get(user_id, {}).get("window_end", 0)
         return time.time() < window_end
 
+    async def _mark_user_active_async(self, group_id: str, user_id: str):
+        """标记用户为活跃状态，开启30秒窗口（异步版本，带锁）"""
+        group_id = str(group_id)
+        user_id = str(user_id)
+        now = time.time()
+        async with self._active_users_lock:
+            self.active_users[group_id][user_id] = {
+                "last_active": now,
+                "window_end": now + self.active_window_seconds,
+            }
+
     def _mark_user_active(self, group_id: str, user_id: str):
         """标记用户为活跃状态，开启30秒窗口"""
         # 确保类型一致
@@ -232,9 +181,7 @@ class EavesdroppingEngine:
         now = time.time()
         expired_groups = []
         for group_id, users in self.active_users.items():
-            expired_users = [
-                uid for uid, data in users.items() if now > data.get("window_end", 0)
-            ]
+            expired_users = [uid for uid, data in users.items() if now > data.get("window_end", 0)]
             for uid in expired_users:
                 del users[uid]
             if not users:
@@ -249,6 +196,27 @@ class EavesdroppingEngine:
             "consecutive_count": self.plugin.cfg.boredom_consecutive_count,
             "sarcastic_reply": self.plugin.cfg.boredom_sarcastic_reply,
         }
+
+    async def _update_boredom_async(self, group_id: str, entropy: float):
+        """更新无聊状态（异步版本，带锁）"""
+        params = self._get_boredom_params()
+        if not params["enabled"]:
+            return False
+        async with self._boredom_lock:
+            boredom = self.boredom_cache[group_id]
+            current_time = time.time()
+            if current_time - boredom["last_message_time"] > 120:
+                boredom["count"] = 0
+            boredom["last_message_time"] = current_time
+            if entropy < params["threshold"]:
+                boredom["count"] += 1
+            else:
+                boredom["count"] = max(0, boredom["count"] - 1)
+            is_bored = boredom["count"] >= params["consecutive_count"]
+        logger.debug(
+            f"[Boredom] Group {group_id}: entropy={entropy:.2f}, count={boredom['count']}, is_bored={is_bored}"
+        )
+        return is_bored
 
     def _update_boredom(self, group_id: str, entropy: float):
         params = self._get_boredom_params()
@@ -336,22 +304,19 @@ class EavesdroppingEngine:
 
         # =========================================
 
-        logger.info(
-            f"[CognitionCore] 收到待评估消息，{label}: {msg_text[:30] if msg_text else '(无文字)'}"
-        )
+        logger.info(f"[CognitionCore] 收到待评估消息，{label}: {msg_text[:30] if msg_text else '(无文字)'}")
 
         # 漏斗机制：检测用户是否活跃
         funnel_triggered = self._check_funnel_trigger(event)
 
         if funnel_triggered:
-            self._mark_user_active(group_id, user_id)
+            await self._mark_user_active_async(group_id, user_id)
             logger.debug(f"[漏斗] 用户 {user_id} 在群 {group_id} 被标记为活跃")
 
         # 清理过期的活跃用户（每100条消息清理一次）
         self._msg_counter = getattr(self, "_msg_counter", 0) + 1
         if self._msg_counter % 100 == 0:
             self.cleanup_expired_active_users()
-            self.cleanup_expired_intercepted_messages()
 
         config = self.plugin.context.get_config()
         bot_wake_prefixes = config.get("wake_prefix", ["/"])
@@ -368,15 +333,14 @@ class EavesdroppingEngine:
             return
 
         if group_id:
-            self.global_window[group_id].append(f"{sender_name}: {msg_text}")
-            if len(self.global_window[group_id]) > self.window_size:
-                self.global_window[group_id].pop(0)
+            async with self._session_lock:
+                self.global_window[group_id].append(f"{sender_name}: {msg_text}")
 
         entropy = self._calculate_entropy(msg_text)
         boredom_params = self._get_boredom_params()
         is_bored = False
         if boredom_params["enabled"]:
-            is_bored = self._update_boredom(group_id, entropy)
+            is_bored = await self._update_boredom_async(group_id, entropy)
 
         # 将无聊状态传递给评估函数
         self._current_boredom_state = is_bored
@@ -388,9 +352,7 @@ class EavesdroppingEngine:
             return
 
         # 计算 boost 值（统一入口，根据触发条件不同）
-        critical_pattern = re.compile(
-            f"({self.plugin.cfg.critical_keywords})", re.IGNORECASE
-        )
+        critical_pattern = re.compile(f"({self.plugin.cfg.critical_keywords})", re.IGNORECASE)
         funnel_triggered = self._check_funnel_trigger(event)
 
         trigger_reason = ""
@@ -414,37 +376,25 @@ class EavesdroppingEngine:
             boost += image_boost
             trigger_reason += "+图片"
 
-        if len(msg_text) < 6 and not is_at and not has_image:
-            logger.info(
-                f"[CognitionCore] 消息过短跳过: {msg_text[:10] if msg_text else '(空)'} ({label})"
-            )
-            return
-
         # 信息质量多维度检查
         char_diversity = len(set(msg_text)) / len(msg_text) if msg_text else 0
 
         # 1. 熵值过低 = 重复字符（如"哈哈哈"）
         if entropy < 0.3:
             if not is_at:
-                logger.info(
-                    f"[CognitionCore] 信息熵过低跳过: {msg_text[:10] if msg_text else '(空)'} ({label})"
-                )
+                logger.info(f"[CognitionCore] 信息熵过低跳过: {msg_text[:10] if msg_text else '(空)'} ({label})")
                 return
 
         # 2. 字符多样性过低 = 大量重复字符
         if char_diversity < 0.15 and len(msg_text) > 10:
             if not is_at:
-                logger.info(
-                    f"[CognitionCore] 字符多样性过低跳过: {msg_text[:10] if msg_text else '(空)'} ({label})"
-                )
+                logger.info(f"[CognitionCore] 字符多样性过低跳过: {msg_text[:10] if msg_text else '(空)'} ({label})")
                 return
 
         # 3. 熵值过高 + 字符多样性异常 = 可能是乱码
         if entropy > 0.95 and char_diversity > 0.9 and len(msg_text) > 50:
             if not is_at:
-                logger.info(
-                    f"[CognitionCore] 疑似乱码跳过: {msg_text[:10] if msg_text else '(空)'} ({label})"
-                )
+                logger.info(f"[CognitionCore] 疑似乱码跳过: {msg_text[:10] if msg_text else '(空)'} ({label})")
                 return
 
         # 统一欲望累积流程
@@ -456,9 +406,7 @@ class EavesdroppingEngine:
         # 如果正在观察期间遇到感兴趣话题，重置计数器
         if bucket_data.get("triggered", False) and trigger_reason:
             bucket_data["consecutive_replies"] = 0
-            logger.info(
-                f"[CognitionCore] 观察期间遇到 {trigger_reason}，重置观察计数器 ({label})"
-            )
+            logger.info(f"[CognitionCore] 观察期间遇到 {trigger_reason}，重置观察计数器 ({label})")
 
         last_time = bucket_data.get("last_time", current_time)
         delta_t = current_time - last_time
@@ -476,9 +424,7 @@ class EavesdroppingEngine:
             decay_factor = 0.3
             exp_decay = math.exp(-decay_factor * delta_t / 60)
             new_value = old_value * exp_decay
-            logger.info(
-                f"[CognitionCore] 贤者时间冷却中 Z={new_value:.2f}/{params['threshold']} ({label})"
-            )
+            logger.info(f"[CognitionCore] 贤者时间冷却中 Z={new_value:.2f}/{params['threshold']} ({label})")
         else:
             decay_factor = params.get("decay", 0.9)
             exp_decay = math.exp(-decay_factor * delta_t / 60)
@@ -514,33 +460,23 @@ class EavesdroppingEngine:
                 yield result
             return
         elif triggered:
-            logger.info(
-                f"[CognitionCore] 欲望已触发，观察中 {consecutive_replies}/{cooldown_messages} ({label})"
-            )
+            logger.info(f"[CognitionCore] 欲望已触发，观察中 {consecutive_replies}/{cooldown_messages} ({label})")
         else:
             if session_id not in self.processing_sessions:
                 session_buffer = self.session_buffers.get(buffer_key, {})
                 msg_count = len(session_buffer.get("messages", []))
-                dynamic_threshold = session_buffer.get(
-                    "threshold", self.plugin.cfg.eavesdrop_message_threshold
-                )
+                dynamic_threshold = session_buffer.get("threshold", self.plugin.cfg.eavesdrop_message_threshold)
 
                 if msg_count >= dynamic_threshold:
-                    logger.info(
-                        f"[CognitionCore] 消息数阈值触发 {msg_count}/{dynamic_threshold} ({label})"
-                    )
+                    logger.info(f"[CognitionCore] 消息数阈值触发 {msg_count}/{dynamic_threshold} ({label})")
                     count = session_buffer.get("eavesdrop_count", 0) + 1
                     session_buffer["eavesdrop_count"] = count
 
                     if count >= 1:
-                        async for result in self._evaluate_interjection(
-                            event, session_id
-                        ):
+                        async for result in self._evaluate_interjection(event, session_id):
                             yield result
 
-    async def _evaluate_interjection(
-        self, event: AstrMessageEvent, session_id: str, force_immediate: bool = False
-    ):
+    async def _evaluate_interjection(self, event: AstrMessageEvent, session_id: str, force_immediate: bool = False):
         """插嘴评估层：使用 session_buffers 作为上下文"""
         if session_id in self.processing_sessions:
             return
@@ -571,11 +507,7 @@ class EavesdroppingEngine:
             persona_name = "AI"
             persona_prompt = ""
             try:
-                personality = (
-                    await self.plugin.context.persona_manager.get_default_persona_v3(
-                        event.unified_msg_origin
-                    )
-                )
+                personality = await self.plugin.context.persona_manager.get_default_persona_v3(event.unified_msg_origin)
                 if personality:
                     persona_name = personality.get("name", "AI")
                     persona_prompt = personality.get("prompt", "")
@@ -599,20 +531,14 @@ class EavesdroppingEngine:
                 prompt_parts.append(persona_prompt)
             prompt_parts.append(f"\n对话：\n{chat_history}\n")
             prompt_parts.append("有趣吗？有趣[+3] / 无聊[-1]\n")
-            prompt_parts.append(
-                "数值由你自己决定。只返回判定结果，不要生成任何回复内容。"
-            )
+            prompt_parts.append("数值由你自己决定。只返回判定结果，不要生成任何回复内容。")
             decision_prompt = "".join(prompt_parts)
 
-            llm_provider = self.plugin.context.get_using_provider(
-                event.unified_msg_origin
-            )
+            llm_provider = self.plugin.context.get_using_provider(event.unified_msg_origin)
             if not llm_provider:
                 return
 
-            logger.info(
-                f"[CognitionCore] 正在请求 LLM 决策自省... Prompt长度: {len(decision_prompt)}"
-            )
+            logger.info(f"[CognitionCore] 正在请求 LLM 决策自省... Prompt长度: {len(decision_prompt)}")
             res = await llm_provider.text_chat(
                 prompt=decision_prompt,
                 contexts=contexts,
@@ -633,13 +559,9 @@ class EavesdroppingEngine:
 
             # 简化解析：支持多种格式
             # 只匹配明确标注"有趣"的格式，避免匹配"无聊[-1]"中的[-1]
-            interesting_match = re.search(
-                r"(有趣)\s*\[([+-]?\d+)\]", reply_text, re.IGNORECASE
-            )
+            interesting_match = re.search(r"(有趣)\s*\[([+-]?\d+)\]", reply_text, re.IGNORECASE)
             boring_match = re.search(r"(无聊)\s*\[(-?\d+)\]", reply_text, re.IGNORECASE)
-            ignore_match = re.search(
-                r"(忽略|IGNORE|跳过|不感兴趣)", reply_text, re.IGNORECASE
-            )
+            ignore_match = re.search(r"(忽略|IGNORE|跳过|不感兴趣)", reply_text, re.IGNORECASE)
 
             if interesting_match:
                 value = int(interesting_match.group(2))
@@ -648,45 +570,29 @@ class EavesdroppingEngine:
                 session_buffer["threshold"] = new_threshold
                 if session_id in self.leaky_bucket:
                     self.leaky_bucket[session_id]["value"] += value
-                logger.info(
-                    f"[CognitionCore] 有趣判定！欲望+{value}，阈值降至 {new_threshold}"
-                )
+                logger.info(f"[CognitionCore] 有趣判定！欲望+{value}，阈值降至 {new_threshold}")
                 # 有趣时，生成正式回复
-                formal_reply = await self._generate_formal_reply(
-                    event, session_id, chat_history, persona_name
-                )
+                formal_reply = await self._generate_formal_reply(event, session_id, chat_history, persona_name)
                 if formal_reply:
-                    logger.info(
-                        f"[CognitionCore] 有趣判定生成正式回复: {formal_reply[:30]}"
-                    )
+                    logger.info(f"[CognitionCore] 有趣判定生成正式回复: {formal_reply[:30]}")
                     yield event.plain_result(formal_reply)
 
                     # AI 回复了，增加连续回复计数器
                     bucket_data = self.leaky_bucket.get(session_id, {})
                     if bucket_data.get("triggered", False):
-                        consecutive_replies = (
-                            bucket_data.get("consecutive_replies", 0) + 1
-                        )
-                        cooldown_messages = getattr(
-                            self.plugin, "desire_cooldown_messages", 5
-                        )
+                        consecutive_replies = bucket_data.get("consecutive_replies", 0) + 1
+                        cooldown_messages = getattr(self.plugin, "desire_cooldown_messages", 5)
 
                         # 检查当前消息是否包含兴趣关键词
                         msg_for_check = event.message_str or ""
-                        critical_pattern_check = re.compile(
-                            f"({self.plugin.critical_keywords})", re.IGNORECASE
-                        )
+                        critical_pattern_check = re.compile(f"({self.plugin.critical_keywords})", re.IGNORECASE)
                         if critical_pattern_check.search(msg_for_check):
                             # 本条消息包含兴趣关键词，重置计数器
                             bucket_data["consecutive_replies"] = 0
-                            logger.info(
-                                f"[CognitionCore] 本条消息包含兴趣关键词，重置观察计数器，继续回复"
-                            )
+                            logger.info("[CognitionCore] 本条消息包含兴趣关键词，重置观察计数器，继续回复")
                         else:
                             bucket_data["consecutive_replies"] = consecutive_replies
-                            logger.info(
-                                f"[CognitionCore] AI 回复第 {consecutive_replies}/{cooldown_messages} 条"
-                            )
+                            logger.info(f"[CognitionCore] AI 回复第 {consecutive_replies}/{cooldown_messages} 条")
 
                     if consecutive_replies >= cooldown_messages:
                         bucket_data = self.leaky_bucket.get(session_id, {})
@@ -712,16 +618,14 @@ class EavesdroppingEngine:
                 new_threshold = min(threshold_max, current_threshold + value)
                 session_buffer["threshold"] = new_threshold
                 await self._decrease_san(event, value)
-                logger.info(
-                    f"[CognitionCore] 无聊判定！SAN-{value}，阈值升至 {new_threshold}"
-                )
-                logger.info(f"[CognitionCore] 无聊判定，不回应。")
+                logger.info(f"[CognitionCore] 无聊判定！SAN-{value}，阈值升至 {new_threshold}")
+                logger.info("[CognitionCore] 无聊判定，不回应。")
                 # 尝试生成内心独白
                 if self.plugin.cfg.inner_monologue_enabled:
                     await self._generate_inner_monologue(event, session_id, "无聊")
                 return
             elif ignore_match:
-                logger.info(f"[CognitionCore] 判定为忽略，不回应。")
+                logger.info("[CognitionCore] 判定为忽略，不回应。")
                 # 尝试生成内心独白
                 if self.plugin.cfg.inner_monologue_enabled:
                     await self._generate_inner_monologue(event, session_id, "忽略")
@@ -732,48 +636,34 @@ class EavesdroppingEngine:
                 if number_match:
                     value = int(number_match.group(1))
                     if value < 0:
-                        logger.info(f"[CognitionCore] 判定为负数（无聊），不回应。")
+                        logger.info("[CognitionCore] 判定为负数（无聊），不回应。")
                         return
                     elif value > 0:
-                        logger.info(f"[CognitionCore] 判定为正数（有趣）")
+                        logger.info("[CognitionCore] 判定为正数（有趣）")
                         yield event.plain_result(reply_text)
 
                         # AI 回复了，始终检查贤者时间（不依赖 triggered 状态）
-                        consecutive_replies = (
-                            session_buffer.get("consecutive_replies", 0) + 1
-                        )
+                        consecutive_replies = session_buffer.get("consecutive_replies", 0) + 1
                         session_buffer["consecutive_replies"] = consecutive_replies
-                        cooldown_messages = getattr(
-                            self.plugin, "desire_cooldown_messages", 5
-                        )
+                        cooldown_messages = getattr(self.plugin, "desire_cooldown_messages", 5)
 
                         msg_for_check = event.message_str or ""
-                        critical_pattern_check = re.compile(
-                            f"({self.plugin.critical_keywords})", re.IGNORECASE
-                        )
+                        critical_pattern_check = re.compile(f"({self.plugin.critical_keywords})", re.IGNORECASE)
                         if critical_pattern_check.search(msg_for_check):
                             session_buffer["consecutive_replies"] = 0
                             consecutive_replies = 0
-                            logger.info(
-                                f"[CognitionCore] 本条消息包含兴趣关键词，重置观察计数器，继续回复"
-                            )
+                            logger.info("[CognitionCore] 本条消息包含兴趣关键词，重置观察计数器，继续回复")
 
-                        logger.info(
-                            f"[CognitionCore] AI 回复第 {consecutive_replies}/{cooldown_messages} 条"
-                        )
+                        logger.info(f"[CognitionCore] AI 回复第 {consecutive_replies}/{cooldown_messages} 条")
 
                         bucket_data = self.leaky_bucket.get(session_id, {})
                         if consecutive_replies >= cooldown_messages:
                             current_time = time.time()
-                            cooldown_seconds = getattr(
-                                self.plugin.cfg, "desire_cooldown_seconds", 60
-                            )
+                            cooldown_seconds = getattr(self.plugin.cfg, "desire_cooldown_seconds", 60)
                             new_urge = bucket_data.get("value", 2.0) * 0.1
                             bucket_data["value"] = new_urge
                             bucket_data["is_cooling_down"] = True
-                            bucket_data["cooling_end_time"] = (
-                                current_time + cooldown_seconds
-                            )
+                            bucket_data["cooling_end_time"] = current_time + cooldown_seconds
                             bucket_data["triggered"] = False
                             bucket_data["consecutive_replies"] = 0
                             session_buffer["consecutive_replies"] = 0
@@ -786,10 +676,10 @@ class EavesdroppingEngine:
                             self.leaky_bucket[session_id] = bucket_data
                         return
                     else:  # value == 0
-                        logger.info(f"[CognitionCore] 判定为0，静默")
+                        logger.info("[CognitionCore] 判定为0，静默")
                         return
                 else:
-                    logger.info(f"[CognitionCore] 无法解析 LLM 判定，发送原始回复")
+                    logger.info("[CognitionCore] 无法解析 LLM 判定，发送原始回复")
                     yield event.plain_result(reply_text)
         except Exception as e:
             logger.warning(f"[CognitionCore] 插嘴评估过程发生异常: {e}")
@@ -810,13 +700,9 @@ class EavesdroppingEngine:
         except Exception as e:
             logger.warning(f"[CognitionCore] 降低SAN失败: {e}")
 
-    async def _generate_inner_monologue(
-        self, event: AstrMessageEvent, session_id: str, reason: str
-    ):
+    async def _generate_inner_monologue(self, event: AstrMessageEvent, session_id: str, reason: str):
         """生成内心独白并缓存"""
         try:
-            from astrbot.core.provider.entities import ProviderRequest
-
             user_id = event.get_sender_id()
             group_id = event.get_group_id()
             buffer_key = str(group_id) if group_id else f"private_{user_id}"
@@ -824,12 +710,12 @@ class EavesdroppingEngine:
             # 检查是否已有缓存的内心独白
             session_buffer = self.session_buffers.get(buffer_key, {})
             if session_buffer.get("inner_monologue"):
-                logger.debug(f"[CognitionCore] 已有缓存的内心独白，跳过生成")
+                logger.debug("[CognitionCore] 已有缓存的内心独白，跳过生成")
                 return
 
             provider = self.plugin.context.get_using_provider()
             if not provider:
-                logger.warning(f"[CognitionCore] 获取 provider 失败，无法生成内心独白")
+                logger.warning("[CognitionCore] 获取 provider 失败，无法生成内心独白")
                 return
 
             prompt = f"""你正在群聊/私聊中听到一段对话，但你选择不直接回复。
@@ -841,15 +727,13 @@ class EavesdroppingEngine:
             res = await provider.text_chat(prompt=prompt, contexts=[])
 
             if not res or not res.completion_text:
-                logger.warning(f"[CognitionCore] 生成内心独白失败：LLM 响应为空")
+                logger.warning("[CognitionCore] 生成内心独白失败：LLM 响应为空")
                 return
 
             response_text = res.completion_text.strip()
 
             # 解析内心独白
-            match = re.search(
-                r"<inner_monologue>(.*?)</inner_monologue>", response_text, re.DOTALL
-            )
+            match = re.search(r"<inner_monologue>(.*?)</inner_monologue>", response_text, re.DOTALL)
             if match:
                 monologue = match.group(1).strip()
             else:
@@ -861,11 +745,9 @@ class EavesdroppingEngine:
                     self.session_buffers[buffer_key] = {}
                 self.session_buffers[buffer_key]["inner_monologue"] = monologue
 
-                logger.info(
-                    f"[CognitionCore] 内心独白已缓存(内存): {monologue[:50]}..."
-                )
+                logger.info(f"[CognitionCore] 内心独白已缓存(内存): {monologue[:50]}...")
             else:
-                logger.warning(f"[CognitionCore] 无法解析内心独白内容")
+                logger.warning("[CognitionCore] 无法解析内心独白内容")
 
         except Exception as e:
             logger.warning(f"[CognitionCore] 生成内心独白异常: {e}")
@@ -895,11 +777,7 @@ class EavesdroppingEngine:
             # 获取完整人格
             persona_prompt = ""
             try:
-                personality = (
-                    await self.plugin.context.persona_manager.get_default_persona_v3(
-                        event.unified_msg_origin
-                    )
-                )
+                personality = await self.plugin.context.persona_manager.get_default_persona_v3(event.unified_msg_origin)
                 if personality:
                     persona_name = personality.get("name", persona_name)
                     persona_prompt = personality.get("prompt", "")
@@ -940,23 +818,10 @@ class EavesdroppingEngine:
                 except Exception:
                     pass
 
-            # 补充群氛围
-            if group_id and hasattr(self.plugin, "vibe_system"):
-                try:
-                    vibe_prompt = self.plugin.vibe_system.get_prompt_injection(
-                        str(group_id)
-                    )
-                    if vibe_prompt:
-                        prompt_parts.append(vibe_prompt)
-                except Exception:
-                    pass
-
             # 补充表情包库
             if self.plugin.cfg.sticker_learning_enabled:
                 try:
-                    sticker_prompt = (
-                        await self.plugin.entertainment.get_prompt_injection()
-                    )
+                    sticker_prompt = await self.plugin.entertainment.get_prompt_injection()
                     if sticker_prompt:
                         prompt_parts.append(sticker_prompt)
                 except Exception:
@@ -966,13 +831,11 @@ class EavesdroppingEngine:
             prompt_parts.append("你觉得这个对话很有趣，决定参与。现在该你参与互动了。")
             formal_prompt = "".join(prompt_parts)
 
-            llm_provider = self.plugin.context.get_using_provider(
-                event.unified_msg_origin
-            )
+            llm_provider = self.plugin.context.get_using_provider(event.unified_msg_origin)
             if not llm_provider:
                 return ""
 
-            logger.info(f"[CognitionCore] 正在请求正式回复...")
+            logger.info("[CognitionCore] 正在请求正式回复...")
             # 不传框架的历史contexts，避免历史干扰导致身份混淆
             res = await llm_provider.text_chat(
                 prompt=formal_prompt,
@@ -991,3 +854,194 @@ class EavesdroppingEngine:
         """重置互动意愿触发计数器"""
         if group_id in self.session_buffers:
             self.session_buffers[group_id]["eavesdrop_count"] = 0
+
+    # ==================== 插嘴功能 ====================
+
+    async def _get_interject_prompt(self) -> str:
+        """获取插嘴判断的 system prompt"""
+        persona_prompt = ""
+        try:
+            personality = await self.plugin.context.persona_manager.get_default_persona_v3("qq")
+            if personality:
+                persona_prompt = personality.get("prompt", "")
+        except Exception as e:
+            logger.debug(f"[Interject] 获取主人格设定失败: {e}")
+
+        if persona_prompt:
+            base_prompt = f"你是 {self.plugin.persona_name}。\n\n{persona_prompt}\n\n"
+        else:
+            base_prompt = f"你是 {self.plugin.persona_name}。\n\n"
+
+        try:
+            if self.plugin._prompts_injection:
+                extra_rules = self.plugin._prompts_injection.get("interject", {}).get("judge_prompt", "")
+                if extra_rules:
+                    extra_rules = extra_rules.replace("{persona_name}", self.plugin.persona_name)
+                    return base_prompt + extra_rules
+        except Exception as e:
+            logger.warning(f"[Interject] 获取插嘴提示词失败: {e}")
+
+        default_prompt = f"你是 {self.plugin.persona_name}。根据群聊消息判断是否应该主动插嘴，只输出JSON。"
+        return base_prompt + default_prompt
+
+    def _clean_message(self, message: str) -> str:
+        """清洗消息中的括号、星号动作和空行"""
+        message = re.sub(r"[（(][^）)]*[）)]", "", message)
+        message = re.sub(r"\*[^*]+\*", "", message)
+        message = re.sub(r"\n\s*\n", "\n", message)
+        return message.strip()
+
+    async def interject_check_group(self, group_id: str):
+        """检查单个群是否需要插嘴"""
+        try:
+            platform_insts = self.plugin.context.platform_manager.platform_insts
+            if not platform_insts:
+                logger.debug(f"[Interject] 群 {group_id}: 无平台实例")
+                return
+
+            platform = platform_insts[0]
+            if not hasattr(platform, "get_client"):
+                logger.debug(f"[Interject] 群 {group_id}: 平台无 get_client")
+                return
+
+            bot = platform.get_client()
+            if not bot:
+                logger.debug(f"[Interject] 群 {group_id}: 无法获取 bot 实例")
+                return
+
+            if group_id in self.plugin._shut_until_by_group:
+                if time.time() < self.plugin._shut_until_by_group[group_id]:
+                    remaining = int(self.plugin._shut_until_by_group[group_id] - time.time())
+                    logger.debug(f"[Interject] 群 {group_id} 闭嘴中，跳过，剩余 {remaining} 秒")
+                    return
+                else:
+                    del self.plugin._shut_until_by_group[group_id]
+
+            msg_count = self.plugin.cfg.interject_analyze_count
+            result = await bot.call_action("get_group_msg_history", group_id=int(group_id), count=msg_count)
+
+            messages = result.get("messages", [])
+            if not messages:
+                logger.debug(f"[Interject] 群 {group_id}: 无历史消息")
+                return
+
+            bot_id = str(getattr(platform, "client_self_id", ""))
+            has_ai_mention = False
+
+            for msg in messages:
+                message = msg.get("message", [])
+                if isinstance(message, list):
+                    for comp in message:
+                        if comp.get("type") == "at":
+                            at_qq = str(comp.get("qq", ""))
+                            if at_qq == bot_id:
+                                has_ai_mention = True
+                                break
+                        if comp.get("type") == "reply":
+                            reply_sender = str(comp.get("sender", ""))
+                            if reply_sender == bot_id:
+                                has_ai_mention = True
+                                break
+                if has_ai_mention:
+                    break
+
+            cooldown_seconds = self.plugin.cfg.interject_cooldown * 60
+            if group_id in self._interject_history:
+                last_time = self._interject_history[group_id].get("last_time", 0)
+                if not has_ai_mention and (time.time() - last_time) < cooldown_seconds:
+                    logger.debug(f"[Interject] 群 {group_id}: 冷却时间内且无@AI/引用，跳过插嘴")
+                    return
+
+            formatted = []
+            for msg in messages:
+                sender = msg.get("sender", {})
+                nickname = sender.get("nickname", "未知")
+                content = msg.get("message", "")
+                if content:
+                    formatted.append(f"{nickname}: {content}")
+
+            if not formatted:
+                logger.debug(f"[Interject] 群 {group_id}: 消息格式化为空")
+                return
+
+            llm_provider = self.plugin.context.get_using_provider("qq")
+            if not llm_provider:
+                logger.debug(f"[Interject] 群 {group_id}: 无 LLM provider")
+                return
+
+            prompt = f"""分析以下群聊消息，判断AI是否应该主动插嘴：
+
+群聊消息：
+{chr(10).join(formatted[: self.plugin.cfg.interject_analyze_count])}
+
+请以JSON格式输出判断结果：
+{{
+    "should_interject": true/false,
+    "reason": "判断理由",
+    "suggested_response": "如果应该插嘴，给出建议的回复内容"
+}}
+
+注意：只有当群里有有趣的讨论、有争议的话题、或者有人提问但没人回答时才应该插嘴。"""
+
+            res = await llm_provider.text_chat(
+                prompt=prompt,
+                contexts=[],
+                system_prompt=await self._get_interject_prompt(),
+            )
+
+            if not res.completion_text:
+                logger.debug(f"[Interject] 群 {group_id}: LLM 无返回")
+                return
+
+            import json
+
+            match = re.search(r"\{.*\}", res.completion_text, re.DOTALL)
+            if not match:
+                logger.debug(f"[Interject] 群 {group_id}: LLM 返回无法解析 JSON")
+                return
+
+            try:
+                result = json.loads(match.group())
+            except:
+                logger.debug(f"[Interject] 群 {group_id}: JSON 解析失败")
+                return
+
+            if result.get("should_interject"):
+                suggested = result.get("suggested_response", "")
+                if suggested:
+                    logger.info(f"[Interject] 群 {group_id} 建议插嘴: {suggested[:50]}...")
+                    await self._do_interject(group_id, suggested)
+            else:
+                reason = result.get("reason", "未知")
+                logger.debug(f"[Interject] 群 {group_id} 气氛不需要插嘴: {reason[:50]}")
+
+        except Exception as e:
+            logger.warning(f"[Interject] 群 {group_id} 检查失败: {e}", exc_info=True)
+
+    async def _do_interject(self, group_id: str, message: str):
+        """执行插嘴"""
+        try:
+            platform_insts = self.plugin.context.platform_manager.platform_insts
+            if not platform_insts:
+                return
+
+            platform = platform_insts[0]
+            if not hasattr(platform, "get_client"):
+                return
+
+            bot = platform.get_client()
+            if not bot:
+                return
+
+            message = self._clean_message(message)
+            if not message:
+                logger.debug(f"[Interject] 群 {group_id}: 消息清洗后为空")
+                return
+
+            await bot.call_action("send_group_msg", group_id=int(group_id), message=message)
+
+            self._interject_history[group_id] = {"last_time": time.time()}
+            logger.info(f"[Interject] 群 {group_id} 插嘴成功: {message[:30]}...")
+
+        except Exception as e:
+            logger.warning(f"[Interject] 群 {group_id} 插嘴失败: {e}")

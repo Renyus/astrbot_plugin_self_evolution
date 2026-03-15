@@ -1,12 +1,11 @@
-# -*- coding: utf-8 -*-
 """
 提示词注入配置加载模块
 用于加载 prompts_injection.yaml 配置文件
 """
 
-import os
-import yaml
 from pathlib import Path
+
+import yaml
 
 
 def load_prompts_config() -> dict:
@@ -21,7 +20,7 @@ def load_prompts_config() -> dict:
     if not config_path.exists():
         return {}
 
-    with open(config_path, "r", encoding="utf-8") as f:
+    with open(config_path, encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 

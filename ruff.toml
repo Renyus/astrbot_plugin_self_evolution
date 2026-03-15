@@ -1,0 +1,46 @@
+# Ruff 配置文件
+# Python linter and formatter
+
+line-length = 120
+target-version = "py312"
+
+[lint]
+# 启用的规则
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "SIM",    # flake8-simplify
+    "RUF",    # Ruff specific rules
+]
+# 忽略的规则
+ignore = [
+    "E501",   # 行太长 (由 line-length 控制)
+    "B008",   # do not perform function call in argument defaults
+    "C901",   # too complex
+    "SIM108",  # use ternary operator instead of if-else
+    "RUF001",  # ambiguous variable name
+]
+
+[lint.isort]
+# 已知的第一方模块
+known-first-party = ["astrbot"]
+# 按类别分组导入
+force-single-line = false
+
+[format]
+# 格式化风格
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[lint.per-file-ignores]
+# 特定文件的忽略规则
+"__init__.py" = ["F401"]
+"tests/*" = ["F401", "E501"]
