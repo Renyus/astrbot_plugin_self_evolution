@@ -58,18 +58,30 @@ astrbot_plugin_self_evolution/
 |-- dao.py                     # SQLite 数据访问层（好感度、进化审核等）
 |-- _conf_schema.json          # AstrBot 配置面板 Schema
 |-- metadata.yaml               # 插件元信息
+|-- prompts_injection.yaml      # Prompt 注入模板
+|-- ruff.toml                  # 代码格式化配置
 |-- cognition/
 |   |-- __init__.py
 |   +-- san.py                 # SAN 精力值系统
-+-- engine/
-    |-- __init__.py            # 模块导出
-    |-- eavesdropping.py        # 欲望积分器、主动插嘴
-    |-- memory.py               # 每日群聊总结
-    |-- profile.py              # 用户画像管理
-    |-- persona.py              # 人格进化管理
-    |-- meta_infra.py           # 元编程基础设施
-    |-- entertainment.py        # 娱乐功能（表情包、今日老婆）
-    +-- context_injection.py    # 上下文注入
+|-- engine/
+|   |-- __init__.py            # 模块导出
+|   |-- eavesdropping.py        # 欲望积分器、主动插嘴
+|   |-- memory.py               # 每日群聊总结
+|   |-- profile.py              # 用户画像管理
+|   |-- persona.py              # 人格进化管理
+|   |-- meta_infra.py           # 元编程基础设施
+|   |-- entertainment.py         # 娱乐功能（表情包、今日老婆）
+|   +-- context_injection.py    # 上下文注入
+|-- commands/
+|   |-- __init__.py            # 命令模块导出
+|   |-- profile.py             # 画像相关命令
+|   |-- sticker.py             # 表情包命令
+|   |-- admin.py               # 管理命令
+|   +-- system.py              # 系统命令
++-- scheduler/
+    |-- __init__.py            # 调度模块导出
+    |-- tasks.py               # 定时任务回调
+    +-- register.py            # 任务注册逻辑
 ```
 
 ---
@@ -335,6 +347,9 @@ AI 自主修改系统提示词，支持管理员审核。
 | `interest_boost` | float | 2.0 | 兴趣增益 |
 | `desire_cooldown_messages` | int | 5 | 冷却消息数 |
 | `desire_cooldown_seconds` | int | 60 | 冷却时长（秒） |
+| `eavesdrop_message_threshold` | int | 20 | 偷听消息阈值 |
+| `eavesdrop_threshold_min` | int | 10 | 偷听阈值最小值 |
+| `eavesdrop_threshold_max` | int | 50 | 偷听阈值最大值 |
 
 ### 主动插嘴
 
@@ -343,6 +358,9 @@ AI 自主修改系统提示词，支持管理员审核。
 | `interject_enabled` | bool | false | 启用主动插嘴 |
 | `interject_interval` | int | 30 | 检查间隔（分钟） |
 | `interject_msg_count` | int | 100 | 获取消息数 |
+| `interject_analyze_count` | int | 15 | 分析消息数 |
+| `interject_cooldown` | int | 30 | 冷却时间（分钟） |
+| `interject_whitelist` | list | [] | 插嘴白名单群号 |
 
 ### 分层失活
 
