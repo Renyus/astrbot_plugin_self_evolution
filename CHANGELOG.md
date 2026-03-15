@@ -500,7 +500,7 @@
 
 ---
 
-## [2.1.0] - 2026-03-08
+## [2.2.0] - 2026-03-08
 
 - 新增管理员命令：`/reject_evolution`、`/clear_evolutions`、`/reflect`
 - 新增 `validate_plugin.py` 预检测脚本
