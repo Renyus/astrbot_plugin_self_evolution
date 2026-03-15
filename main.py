@@ -101,6 +101,7 @@ class SelfEvolutionPlugin(Star):
         self._pending_db_reset = {}  # 待确认的数据库重置操作 {user_id: timestamp}
         self._shut_until = None  # 闭嘴截止时间 (timestamp)
         self._shut_until_by_group = {}  # 群级别闭嘴 {群号: 截止时间}
+        self._interject_history = {}  # 群插嘴历史 {群号: {"last_time": timestamp, "last_msg_id": str}}
         self._inner_monologue_cache = {}  # 内心独白缓存（内存，阅后即焚）
 
     def _setup_debug_logging(self):
@@ -885,6 +886,28 @@ class SelfEvolutionPlugin(Star):
                 logger.debug(f"[Interject] 群 {group_id}: 无历史消息")
                 return
 
+            # 检查是否有@AI或引用AI的消息
+            bot_id = str(self.context.bot_info.get("user_id", ""))
+            has_ai_mention = False
+
+            for msg in messages:
+                message = msg.get("message", [])
+                if isinstance(message, list):
+                    for comp in message:
+                        # 检查@消息
+                        if comp.get("type") == "at":
+                            at_qq = str(comp.get("qq", ""))
+                            if at_qq == bot_id:
+                                has_ai_mention = True
+                                break
+                if has_ai_mention:
+                    break
+
+            # 如果没有@AI且之前插过嘴，跳过
+            if not has_ai_mention and group_id in self._interject_history:
+                logger.debug(f"[Interject] 群 {group_id}: 无新@AI，跳过插嘴")
+                return
+
             formatted = []
             for msg in messages:
                 sender = msg.get("sender", {})
@@ -981,9 +1004,17 @@ class SelfEvolutionPlugin(Star):
             await bot.call_action(
                 "send_group_msg", group_id=int(group_id), message=full_message
             )
-            logger.info(
-                f"[Interject] 已向群 {group_id} 发送插嘴消息: {message[:30]}..."
-            )
+
+            # 记录插嘴历史
+            import time as time_module
+
+            self._interject_history[group_id] = {
+                "last_time": time_module.time(),
+                "last_msg_id": str(
+                    int(time_module.time() * 1000)
+                ),  # 使用时间戳作为临时ID
+            }
+
             logger.info(
                 f"[Interject] 已向群 {group_id} 发送插嘴消息: {message[:30]}..."
             )
