@@ -314,15 +314,7 @@ class SelfEvolutionPlugin(Star):
 """
             context_info += history_override_note
 
-        # 使用共享函数构建身份上下文
-        identity_context = build_identity_context(
-            user_id=str(sender_id),
-            user_name=sender_name,
-            affinity=affinity,
-            role_info=role_info,
-            is_group=bool(group_id),
-        )
-        context_info += identity_context
+        # 身份信息已在【内部参考信息】中提供，不再重复注入
         req.system_prompt += context_info
         # --- 环境注入结束 ---
 
