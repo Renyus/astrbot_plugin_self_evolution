@@ -303,13 +303,10 @@ class EavesdroppingEngine:
             pass
 
         if has_image:
-            # 图片只在 on_llm_request 时处理，这里只记录 boost
-            image_boost = 0.1  # 纯文字标记，不消耗性能
-            logger.info(f"[漏斗] 检测到图片，欲望 +{image_boost}")
+            image_boost = 0.1
+            logger.debug(f"[漏斗] 检测到图片，欲望 +{image_boost}")
 
-        # =========================================
-
-        logger.info(f"[CognitionCore] 收到待评估消息，{label}: {msg_text[:30] if msg_text else '(无文字)'}")
+        logger.debug(f"[CognitionCore] 收到待评估消息，{label}: {msg_text[:30] if msg_text else '(无文字)'}")
 
         # 漏斗机制：检测用户是否活跃
         funnel_triggered = await self._check_funnel_trigger(event)
@@ -353,7 +350,7 @@ class EavesdroppingEngine:
         params = self._get_leaky_params()
 
         if not params["enabled"]:
-            logger.info(f"[CognitionCore] 漏斗积分器未启用，跳过 ({label})")
+            logger.debug(f"[CognitionCore] 漏斗积分器未启用，跳过 ({label})")
             return
 
         # 计算 boost 值（统一入口，根据触发条件不同）
@@ -387,19 +384,19 @@ class EavesdroppingEngine:
         # 1. 熵值过低 = 重复字符（如"哈哈哈"）
         if entropy < 0.3:
             if not is_at:
-                logger.info(f"[CognitionCore] 信息熵过低跳过: {msg_text[:10] if msg_text else '(空)'} ({label})")
+                logger.debug(f"[CognitionCore] 信息熵过低跳过: {msg_text[:10] if msg_text else '(空)'} ({label})")
                 return
 
         # 2. 字符多样性过低 = 大量重复字符
         if char_diversity < 0.15 and len(msg_text) > 10:
             if not is_at:
-                logger.info(f"[CognitionCore] 字符多样性过低跳过: {msg_text[:10] if msg_text else '(空)'} ({label})")
+                logger.debug(f"[CognitionCore] 字符多样性过低跳过: {msg_text[:10] if msg_text else '(空)'} ({label})")
                 return
 
         # 3. 熵值过高 + 字符多样性异常 = 可能是乱码
         if entropy > 0.95 and char_diversity > 0.9 and len(msg_text) > 50:
             if not is_at:
-                logger.info(f"[CognitionCore] 疑似乱码跳过: {msg_text[:10] if msg_text else '(空)'} ({label})")
+                logger.debug(f"[CognitionCore] 疑似乱码跳过: {msg_text[:10] if msg_text else '(空)'} ({label})")
                 return
 
         # 统一欲望累积流程
@@ -411,7 +408,7 @@ class EavesdroppingEngine:
         # 如果正在观察期间遇到感兴趣话题，重置计数器
         if bucket_data.get("triggered", False) and trigger_reason:
             bucket_data["consecutive_replies"] = 0
-            logger.info(f"[CognitionCore] 观察期间遇到 {trigger_reason}，重置观察计数器 ({label})")
+            logger.debug(f"[CognitionCore] 观察期间遇到 {trigger_reason}，重置观察计数器 ({label})")
 
         last_time = bucket_data.get("last_time", current_time)
         delta_t = current_time - last_time
@@ -421,7 +418,7 @@ class EavesdroppingEngine:
 
         if is_cooling_down and current_time >= cooling_end_time:
             is_cooling_down = False
-            logger.info(f"[CognitionCore] 冷却结束，欲望恢复累积 ({label})")
+            logger.debug(f"[CognitionCore] 冷却结束，欲望恢复累积 ({label})")
 
         old_value = float(bucket_data.get("value", 2.0))
 
@@ -429,13 +426,12 @@ class EavesdroppingEngine:
             decay_factor = 0.3
             exp_decay = math.exp(-decay_factor * delta_t / 60)
             new_value = old_value * exp_decay
-            logger.info(f"[CognitionCore] 贤者时间冷却中 Z={new_value:.2f}/{params['threshold']} ({label})")
+            logger.debug(f"[CognitionCore] 贤者时间冷却中 Z={new_value:.2f}/{params['threshold']} ({label})")
         else:
             decay_factor = params.get("decay", 0.9)
             exp_decay = math.exp(-decay_factor * delta_t / 60)
             new_value = old_value * exp_decay + boost
-
-            logger.info(
+            logger.debug(
                 f"[CognitionCore] 欲望累积 [{trigger_reason}] Z={new_value:.2f}/{params['threshold']} boost={boost:.1f} ({label})"
             )
 
@@ -454,7 +450,7 @@ class EavesdroppingEngine:
         cooldown_messages = self.plugin.cfg.desire_cooldown_messages
 
         if current_z >= params["threshold"] and not triggered:
-            logger.info(
+            logger.debug(
                 f"[CognitionCore] 欲望触发! Z={current_z:.2f} >= {params['threshold']}，将观察 {cooldown_messages} 条消息后进入贤者时间"
             )
             bucket_data["triggered"] = True
@@ -465,7 +461,7 @@ class EavesdroppingEngine:
                 yield result
             return
         elif triggered:
-            logger.info(f"[CognitionCore] 欲望已触发，观察中 {consecutive_replies}/{cooldown_messages} ({label})")
+            logger.debug(f"[CognitionCore] 欲望已触发，观察中 {consecutive_replies}/{cooldown_messages} ({label})")
         else:
             if session_id not in self.processing_sessions:
                 session_buffer = self.session_buffers.get(buffer_key, {})
@@ -473,7 +469,7 @@ class EavesdroppingEngine:
                 dynamic_threshold = session_buffer.get("threshold", self.plugin.cfg.eavesdrop_message_threshold)
 
                 if msg_count >= dynamic_threshold:
-                    logger.info(f"[CognitionCore] 消息数阈值触发 {msg_count}/{dynamic_threshold} ({label})")
+                    logger.debug(f"[CognitionCore] 消息数阈值触发 {msg_count}/{dynamic_threshold} ({label})")
                     count = session_buffer.get("eavesdrop_count", 0) + 1
                     session_buffer["eavesdrop_count"] = count
 
@@ -543,7 +539,7 @@ class EavesdroppingEngine:
             if not llm_provider:
                 return
 
-            logger.info(f"[CognitionCore] 正在请求 LLM 决策自省... Prompt长度: {len(decision_prompt)}")
+            logger.debug(f"[CognitionCore] 正在请求 LLM 决策自省... Prompt长度: {len(decision_prompt)}")
             res = await llm_provider.text_chat(
                 prompt=decision_prompt,
                 contexts=contexts,
@@ -555,7 +551,7 @@ class EavesdroppingEngine:
                 logger.warning("[CognitionCore] LLM 返回空响应，已离线...")
                 return
 
-            logger.info(f"[CognitionCore] LLM 决策原始响应:\n{reply_text}")
+            logger.debug(f"[CognitionCore] LLM 决策原始响应:\n{reply_text}")
 
             # 解析有趣/无聊判定并调整阈值和SAN
             session_buffer = self.session_buffers.get(lookup_key, {})
@@ -575,11 +571,11 @@ class EavesdroppingEngine:
                 session_buffer["threshold"] = new_threshold
                 if session_id in self.leaky_bucket:
                     self.leaky_bucket[session_id]["value"] += value
-                logger.info(f"[CognitionCore] 有趣判定！欲望+{value}，阈值降至 {new_threshold}")
+                logger.debug(f"[CognitionCore] 有趣判定！欲望+{value}，阈值降至 {new_threshold}")
                 # 有趣时，生成正式回复
                 formal_reply = await self._generate_formal_reply(event, session_id, chat_history, persona_name)
                 if formal_reply:
-                    logger.info(f"[CognitionCore] 有趣判定生成正式回复: {formal_reply[:30]}")
+                    logger.debug(f"[CognitionCore] 有趣判定生成正式回复: {formal_reply[:30]}")
                     yield event.plain_result(formal_reply)
 
                     # AI 回复了，增加连续回复计数器
@@ -592,12 +588,11 @@ class EavesdroppingEngine:
                         msg_for_check = event.message_str or ""
                         critical_pattern_check = re.compile(f"({self.plugin.critical_keywords})", re.IGNORECASE)
                         if critical_pattern_check.search(msg_for_check):
-                            # 本条消息包含兴趣关键词，重置计数器
                             bucket_data["consecutive_replies"] = 0
-                            logger.info("[CognitionCore] 本条消息包含兴趣关键词，重置观察计数器，继续回复")
+                            logger.debug("[CognitionCore] 本条消息包含兴趣关键词，重置观察计数器，继续回复")
                         else:
                             bucket_data["consecutive_replies"] = consecutive_replies
-                            logger.info(f"[CognitionCore] AI 回复第 {consecutive_replies}/{cooldown_messages} 条")
+                            logger.debug(f"[CognitionCore] AI 回复第 {consecutive_replies}/{cooldown_messages} 条")
 
                     if consecutive_replies >= cooldown_messages:
                         bucket_data = self.leaky_bucket.get(session_id, {})
@@ -610,7 +605,7 @@ class EavesdroppingEngine:
                         bucket_data["consecutive_replies"] = 0
                         session_buffer["consecutive_replies"] = 0
                         self.leaky_bucket[session_id] = bucket_data
-                        logger.info(
+                        logger.debug(
                             f"[CognitionCore] 连续回复 {consecutive_replies} 条，进入贤者时间，欲望降至 {new_urge:.2f}"
                         )
                     else:
@@ -623,14 +618,14 @@ class EavesdroppingEngine:
                 new_threshold = min(threshold_max, current_threshold + value)
                 session_buffer["threshold"] = new_threshold
                 await self._decrease_san(event, value)
-                logger.info(f"[CognitionCore] 无聊判定！SAN-{value}，阈值升至 {new_threshold}")
-                logger.info("[CognitionCore] 无聊判定，不回应。")
+                logger.debug(f"[CognitionCore] 无聊判定！SAN-{value}，阈值升至 {new_threshold}")
+                logger.debug("[CognitionCore] 无聊判定，不回应。")
                 # 尝试生成内心独白
                 if self.plugin.cfg.inner_monologue_enabled:
                     await self._generate_inner_monologue(event, session_id, "无聊")
                 return
             elif ignore_match:
-                logger.info("[CognitionCore] 判定为忽略，不回应。")
+                logger.debug("[CognitionCore] 判定为忽略，不回应。")
                 # 尝试生成内心独白
                 if self.plugin.cfg.inner_monologue_enabled:
                     await self._generate_inner_monologue(event, session_id, "忽略")
@@ -641,10 +636,10 @@ class EavesdroppingEngine:
                 if number_match:
                     value = int(number_match.group(1))
                     if value < 0:
-                        logger.info("[CognitionCore] 判定为负数（无聊），不回应。")
+                        logger.debug("[CognitionCore] 判定为负数（无聊），不回应。")
                         return
                     elif value > 0:
-                        logger.info("[CognitionCore] 判定为正数（有趣）")
+                        logger.debug("[CognitionCore] 判定为正数（有趣）")
                         yield event.plain_result(reply_text)
 
                         # AI 回复了，始终检查贤者时间（不依赖 triggered 状态）
@@ -657,9 +652,9 @@ class EavesdroppingEngine:
                         if critical_pattern_check.search(msg_for_check):
                             session_buffer["consecutive_replies"] = 0
                             consecutive_replies = 0
-                            logger.info("[CognitionCore] 本条消息包含兴趣关键词，重置观察计数器，继续回复")
+                            logger.debug("[CognitionCore] 本条消息包含兴趣关键词，重置观察计数器，继续回复")
 
-                        logger.info(f"[CognitionCore] AI 回复第 {consecutive_replies}/{cooldown_messages} 条")
+                        logger.debug(f"[CognitionCore] AI 回复第 {consecutive_replies}/{cooldown_messages} 条")
 
                         bucket_data = self.leaky_bucket.get(session_id, {})
                         if consecutive_replies >= cooldown_messages:
@@ -673,18 +668,17 @@ class EavesdroppingEngine:
                             bucket_data["consecutive_replies"] = 0
                             session_buffer["consecutive_replies"] = 0
                             self.leaky_bucket[session_id] = bucket_data
-                            logger.info(
+                            logger.debug(
                                 f"[CognitionCore] 连续回复 {consecutive_replies} 条，进入贤者时间 {cooldown_seconds}秒，欲望降至 {new_urge:.2f}"
                             )
                         else:
                             bucket_data["consecutive_replies"] = consecutive_replies
                             self.leaky_bucket[session_id] = bucket_data
-                        return
                     else:  # value == 0
-                        logger.info("[CognitionCore] 判定为0，静默")
+                        logger.debug("[CognitionCore] 判定为0，静默")
                         return
                 else:
-                    logger.info("[CognitionCore] 无法解析 LLM 判定，发送原始回复")
+                    logger.debug("[CognitionCore] 无法解析 LLM 判定，发送原始回复")
                     yield event.plain_result(reply_text)
         except Exception as e:
             logger.warning(f"[CognitionCore] 插嘴评估过程发生异常: {e}")
@@ -701,7 +695,7 @@ class EavesdroppingEngine:
             san = getattr(self.plugin, "san", None)
             if san and hasattr(san, "consume"):
                 await san.consume(value)
-                logger.info(f"[CognitionCore] 无聊判定，降低SAN: -{value}")
+                logger.debug(f"[CognitionCore] 无聊判定，降低SAN: -{value}")
         except Exception as e:
             logger.warning(f"[CognitionCore] 降低SAN失败: {e}")
 
@@ -750,7 +744,7 @@ class EavesdroppingEngine:
                     self.session_buffers[buffer_key] = {}
                 self.session_buffers[buffer_key]["inner_monologue"] = monologue
 
-                logger.info(f"[CognitionCore] 内心独白已缓存(内存): {monologue[:50]}...")
+                logger.debug(f"[CognitionCore] 内心独白已缓存(内存): {monologue[:50]}...")
             else:
                 logger.warning("[CognitionCore] 无法解析内心独白内容")
 
@@ -840,7 +834,7 @@ class EavesdroppingEngine:
             if not llm_provider:
                 return ""
 
-            logger.info("[CognitionCore] 正在请求正式回复...")
+            logger.debug("[CognitionCore] 正在请求正式回复...")
             # 不传框架的历史contexts，避免历史干扰导致身份混淆
             res = await llm_provider.text_chat(
                 prompt=formal_prompt,
@@ -1047,7 +1041,7 @@ class EavesdroppingEngine:
             if result.get("should_interject"):
                 suggested = result.get("suggested_response", "")
                 if suggested:
-                    logger.info(f"[Interject] 群 {group_id} 建议插嘴: {suggested[:50]}...")
+                    logger.debug(f"[Interject] 群 {group_id} 建议插嘴: {suggested[:50]}...")
                     await self._do_interject(group_id, suggested)
             else:
                 reason = result.get("reason", "未知")
@@ -1079,7 +1073,7 @@ class EavesdroppingEngine:
             await bot.call_action("send_group_msg", group_id=int(group_id), message=message)
 
             self._interject_history[group_id] = {"last_time": time.time()}
-            logger.info(f"[Interject] 群 {group_id} 插嘴成功: {message[:30]}...")
+            logger.debug(f"[Interject] 群 {group_id} 插嘴成功: {message[:30]}...")
 
         except Exception as e:
             logger.warning(f"[Interject] 群 {group_id} 插嘴失败: {e}")

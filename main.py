@@ -222,7 +222,7 @@ class SelfEvolutionPlugin(Star):
                 req.system_prompt = "我现在很累，脑容量超载了。让我安静一会。"
                 return
             if self.san_system.value < self.san_low_threshold:
-                logger.info(f"[SAN] 精力过低: {self.san_system.value}/{self.san_system.max_value}")
+                logger.debug(f"[SAN] 精力过低: {self.san_system.value}/{self.san_system.max_value}")
 
         # 动态上下文路由：轻量级消息分类，决定加载哪些模块
         needs_profile = False
@@ -382,7 +382,7 @@ class SelfEvolutionPlugin(Star):
                         "请主动调用 update_user_profile 工具记录：用户对某事物的认知发生了重要变化，"
                         "这可能意味着之前的认知是错误的，或者用户获得了新信息。"
                     )
-                    logger.info(f"[Surprise] 检测到用户 {user_id} 的认知颠覆表达，触发即时画像更新。")
+                    logger.debug(f"[Surprise] 检测到用户 {user_id} 的认知颠覆表达，触发即时画像更新。")
 
         # 4.8 SAN 值系统注入
         if self.san_enabled:
@@ -407,7 +407,7 @@ class SelfEvolutionPlugin(Star):
                 inner_monologue = getattr(event, "_inner_monologue", None)
                 if inner_monologue:
                     req.system_prompt += f"\n\n【内心独白】{inner_monologue}"
-                    logger.info(f"[InnerMonologue] 注入内心独白: {inner_monologue[:50]}...")
+                    logger.debug(f"[InnerMonologue] 注入内心独白: {inner_monologue[:50]}...")
             except Exception as e:
                 logger.warning(f"[InnerMonologue] 注入内心独白失败: {e}")
 
@@ -430,6 +430,12 @@ class SelfEvolutionPlugin(Star):
         except Exception as e:
             logger.warning(f"[SelfEvolution] 获取框架人格失败: {e}")
 
+        # 输出完整 prompt 到日志（仅在 debug 模式开启）
+        if self.cfg.debug_log_enabled and req.system_prompt:
+            logger.debug(
+                f"[LLM Prompt] ===== 发送给 LLM 的完整 Prompt (共 {len(req.system_prompt)} 字符) =====\n{req.system_prompt}\n===== Prompt End ====="
+            )
+
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message_listener(self, event: AstrMessageEvent):
         """CognitionCore 6.0: 被动监听 - 滑动上下文窗口"""
@@ -438,7 +444,7 @@ class SelfEvolutionPlugin(Star):
         if group_id and group_id in self._shut_until_by_group:
             if time.time() < self._shut_until_by_group[group_id]:
                 remaining = int(self._shut_until_by_group[group_id] - time.time())
-                logger.info(f"[SelfEvolution] 群 {group_id} 闭嘴中，剩余 {remaining} 秒")
+                logger.debug(f"[SelfEvolution] 群 {group_id} 闭嘴中，剩余 {remaining} 秒")
                 return
             else:
                 del self._shut_until_by_group[group_id]
@@ -448,7 +454,7 @@ class SelfEvolutionPlugin(Star):
         # 检查全局闭嘴状态
         if self._shut_until and time.time() < self._shut_until:
             remaining = int(self._shut_until - time.time())
-            logger.info(f"[SelfEvolution] 全局闭嘴中，剩余 {remaining} 秒")
+            logger.debug(f"[SelfEvolution] 全局闭嘴中，剩余 {remaining} 秒")
             return
 
         # 命令消息不触发互动意愿系统

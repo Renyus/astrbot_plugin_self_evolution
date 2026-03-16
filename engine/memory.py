@@ -39,18 +39,18 @@ class MemoryManager:
 
     async def daily_summary(self):
         """执行每日群聊总结"""
-        logger.info("[Memory] 开始每日群聊总结...")
+        logger.debug("[Memory] 开始每日群聊总结...")
 
         try:
             groups = self._get_target_groups()
             if not groups:
-                logger.info("[Memory] 无目标群，跳过总结")
+                logger.debug("[Memory] 无目标群，跳过总结")
                 return
 
             for group_id in groups:
                 await self._summarize_group(group_id)
 
-            logger.info("[Memory] 每日群聊总结完成")
+            logger.debug("[Memory] 每日群聊总结完成")
 
         except Exception as e:
             logger.error(f"[Memory] 每日群聊总结异常: {e}", exc_info=True)
@@ -60,13 +60,13 @@ class MemoryManager:
         # 方式1: 白名单配置
         whitelist = getattr(self.plugin.cfg, "profile_group_whitelist", [])
         if whitelist:
-            logger.info(f"[Memory] 使用白名单群列表: {whitelist}")
+            logger.debug(f"[Memory] 使用白名单群列表: {whitelist}")
             return whitelist
         # 方式2: eavesdropping active_users
         if hasattr(self.plugin, "eavesdropping") and hasattr(self.plugin.eavesdropping, "active_users"):
             groups = list(self.plugin.eavesdropping.active_users.keys())
             if groups:
-                logger.info(f"[Memory] 使用 eavesdropping 活跃群列表: {groups}")
+                logger.debug(f"[Memory] 使用 eavesdropping 活跃群列表: {groups}")
                 return groups
         # 方式3: 通过 platform 获取 bot 加入的群列表
         return self._fetch_groups_from_platform()
@@ -120,7 +120,7 @@ class MemoryManager:
                 return
 
             await self._save_to_knowledge_base(group_id, summary)
-            logger.info(f"[Memory] 群 {group_id} 总结已保存")
+            logger.debug(f"[Memory] 群 {group_id} 总结已保存")
 
         except Exception as e:
             logger.warning(f"[Memory] 群 {group_id} 总结失败: {e}")
@@ -206,7 +206,7 @@ class MemoryManager:
 
     async def view_summary(self, group_id: str = None) -> str:
         """查看群聊总结"""
-        logger.info(f"[Memory] 查看总结: {group_id}")
+        logger.debug(f"[Memory] 查看总结: {group_id}")
 
         if not group_id:
             return "请指定群号"
@@ -239,7 +239,7 @@ class MemoryManager:
 
     async def clear_summary(self, group_id: str = None, confirm: bool = False) -> str:
         """清空群聊总结"""
-        logger.info(f"[Memory] 清空总结: {group_id}, confirm={confirm}")
+        logger.debug(f"[Memory] 清空总结: {group_id}, confirm={confirm}")
 
         if not confirm:
             return "请传入 confirm=true 确认要清空总结"
