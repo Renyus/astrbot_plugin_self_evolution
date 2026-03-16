@@ -334,34 +334,31 @@ class SelfEvolutionPlugin(Star):
 
                 # 检测是否引用了 AI 的消息
                 if self.enable_context_recall and (reply_sender == self.persona_name or str(reply_sender_id) == "AI"):
-                    quoted_info = f"，你在之前说：{reply_content}..."
+                    quoted_info = "回复了你"
                     ai_context_info = "\n【重要】用户正在引用你之前的发言进行追问，请针对你之前的发言回答。"
                 else:
-                    quoted_info = f"，你正在回复用户 {reply_sender} 的消息：{reply_content}..."
+                    quoted_info = "回复了你"
             elif type(comp).__name__ == "At":
                 at_targets.append(str(getattr(comp, "qq", "")))
 
-        at_info = f"，消息中提到了: {', '.join(at_targets)}" if at_targets else ""
+        at_info = "at了你" if at_targets else ""
 
         # 构造上下文注入（内部参考，不要输出）
         context_info = f"\n\n【内部参考信息 - 不要输出】：\n- 发送者ID: {sender_id}\n- 发送者昵称: {sender_name}{role_info}\n- 情感积分: {affinity}/100\n"
         if is_group:
-            context_info += f"- 来源：群聊\n- 交互上下文: 你{quoted_info}{at_info}\n"
+            context_parts = []
+            if quoted_info:
+                context_parts.append(quoted_info)
+            if at_info:
+                context_parts.append(at_info)
+            context_str = " + ".join(context_parts) if context_parts else ""
+            context_info += f"- 来源：群聊\n- 交互上下文: {context_str}\n"
         else:
             context_info += "- 来源：私聊\n"
 
         # 注入 AI 上下文（如果用户引用了 AI 的话）
         if ai_context_info:
             context_info += ai_context_info
-
-        # 重要：添加历史覆盖指令，抵抗框架自动注入的历史干扰
-        if is_group and group_id:
-            history_override_note = f"""
-【关键历史覆盖指令 - 必须遵守】：
-虽然上方可能有历史消息，但请只关注当前用户({sender_id})的发言！
-历史中的其他人骂你≠当前用户在骂你！
-"""
-            context_info += history_override_note
 
         # 身份信息已在【内部参考信息】中提供，不再重复注入
         req.system_prompt += context_info
