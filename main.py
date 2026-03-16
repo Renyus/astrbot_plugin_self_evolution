@@ -407,20 +407,12 @@ class SelfEvolutionPlugin(Star):
         session_id = event.session_id
         is_pending = await self.dao.pop_pending_reflection(session_id)
 
-        # 最后注入框架人格（确保人格设定优先，不被稀释）
+        # 框架人格由框架自动注入，不再手动追加
         # 先截断过长的注入内容，避免超出 token 限制
         max_injection_length = self.cfg.max_prompt_injection_length
         if req.system_prompt and len(req.system_prompt) > max_injection_length:
             req.system_prompt = req.system_prompt[:max_injection_length] + "\n\n[...内容已截断...]"
             logger.warning(f"[SelfEvolution] 注入内容超长，已截断至 {max_injection_length} 字符")
-
-        try:
-            personality = await self.context.persona_manager.get_default_persona_v3(event.unified_msg_origin)
-            if personality and personality.get("prompt"):
-                req.system_prompt = f"【人格设定】\n{personality['prompt']}\n\n" + req.system_prompt
-                logger.debug(f"[SelfEvolution] 已注入框架人格: {personality.get('name', 'unknown')}")
-        except Exception as e:
-            logger.warning(f"[SelfEvolution] 获取框架人格失败: {e}")
 
         # 输出完整 prompt 到日志（仅在 debug 模式开启）
         if self.cfg.debug_log_enabled and req.system_prompt:
