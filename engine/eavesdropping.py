@@ -925,7 +925,13 @@ class EavesdroppingEngine:
                 logger.debug(f"[Interject] 群 {group_id}: 无历史消息")
                 return
 
-            bot_id = str(getattr(platform, "client_self_id", ""))
+            # 通过 NapCat API 获取机器人真实 QQ 号
+            try:
+                login_info = await bot.call_action("get_login_info")
+                bot_id = str(login_info.get("user_id", ""))
+            except Exception:
+                bot_id = str(getattr(platform, "client_self_id", ""))
+
             has_ai_mention = False
 
             for msg in messages:
