@@ -2,6 +2,8 @@
 上下文注入模块 - 共享的身份隔离与认知指令
 """
 
+import re
+
 from astrbot.api import logger
 
 
@@ -53,8 +55,22 @@ async def parse_message_chain(msg: dict, plugin=None) -> str:
                             if bot:
                                 result = await bot.call_action("get_msg", message_id=int(msg_id))
                                 orig_msg = result.get("message", [])
-                                orig_sender = result.get("sender", {}).get("nickname", "未知")
-                                orig_content = await parse_message_chain({"message": orig_msg}, plugin)
+                                sender_info = result.get("sender", {})
+                                orig_sender = (
+                                    sender_info.get("nickname")
+                                    or sender_info.get("card")
+                                    or str(sender_info.get("user_id", "未知"))
+                                )
+                                # 解析原文内容，去掉 @ 开头的部分
+                                orig_content_list = []
+                                for seg in orig_msg:
+                                    if seg.get("type") == "text":
+                                        text = seg.get("data", {}).get("text", "")
+                                        # 去掉开头的 @xxx
+                                        text = re.sub(r"^@\S+\s*", "", text)
+                                        if text:
+                                            orig_content_list.append(text)
+                                orig_content = "".join(orig_content_list) if orig_content_list else "消息内容"
                                 parts.append(f"[回复了 {orig_sender}: {orig_content}]")
                 except Exception:
                     parts.append(f"[回复消息ID:{msg_id}]")
