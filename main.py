@@ -211,6 +211,9 @@ class SelfEvolutionPlugin(Star):
 
         logger.debug(f"[CognitionCore] 进入 LLM 请求拦截层。用户: {user_id}")
 
+        # 清空框架的 contexts，完全自己控制
+        req.contexts = []
+
         # 图片处理去重：检查是否已在消息监听阶段处理过
         if hasattr(event, "_image_processed") and event._image_processed:
             logger.debug("[ImageCache] 图片已在消息监听阶段处理，跳过")
