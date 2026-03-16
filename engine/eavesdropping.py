@@ -526,6 +526,19 @@ class EavesdroppingEngine:
             if persona_prompt:
                 prompt_parts.append(persona_prompt)
             prompt_parts.append(f"\n对话：\n{chat_history}\n")
+
+            # 添加 SAN 值
+            if self.plugin.san_enabled:
+                san_prompt = self.plugin.san_system.get_prompt_injection()
+                if san_prompt:
+                    prompt_parts.append(san_prompt)
+
+            # 添加表情包库
+            if self.plugin.cfg.sticker_learning_enabled:
+                sticker_prompt = await self.plugin.entertainment.get_prompt_injection()
+                if sticker_prompt:
+                    prompt_parts.append(sticker_prompt)
+
             prompt_parts.append("有趣吗？有趣[+3] / 无聊[-1]\n")
             prompt_parts.append("数值由你自己决定。只返回判定结果，不要生成任何回复内容。")
             decision_prompt = "".join(prompt_parts)
@@ -538,7 +551,8 @@ class EavesdroppingEngine:
             if self.plugin.cfg.disable_framework_contexts:
                 contexts = []
 
-            logger.debug(f"[CognitionCore] 正在请求 LLM 决策自省... Prompt长度: {len(decision_prompt)}")
+            logger.info(f"[CognitionCore] 触发插嘴判断... Prompt长度: {len(decision_prompt)}")
+            logger.debug(f"[CognitionCore] 插嘴判断 Prompt: {decision_prompt[:200]}...")
             res = await llm_provider.text_chat(
                 prompt=decision_prompt,
                 contexts=contexts,
@@ -570,11 +584,11 @@ class EavesdroppingEngine:
                 session_buffer["threshold"] = new_threshold
                 if session_id in self.leaky_bucket:
                     self.leaky_bucket[session_id]["value"] += value
-                logger.debug(f"[CognitionCore] 有趣判定！欲望+{value}，阈值降至 {new_threshold}")
+                logger.info(f"[CognitionCore] 有趣判定！欲望+{value}，阈值降至 {new_threshold}")
                 # 有趣时，生成正式回复
                 formal_reply = await self._generate_formal_reply(event, session_id, chat_history, persona_name)
                 if formal_reply:
-                    logger.debug(f"[CognitionCore] 有趣判定生成正式回复: {formal_reply[:30]}")
+                    logger.info(f"[CognitionCore] 有趣判定生成正式回复: {formal_reply[:30]}")
                     yield event.plain_result(formal_reply)
 
                     # AI 回复了，增加连续回复计数器
@@ -617,14 +631,14 @@ class EavesdroppingEngine:
                 new_threshold = min(threshold_max, current_threshold + value)
                 session_buffer["threshold"] = new_threshold
                 await self._decrease_san(event, value)
-                logger.debug(f"[CognitionCore] 无聊判定！SAN-{value}，阈值升至 {new_threshold}")
-                logger.debug("[CognitionCore] 无聊判定，不回应。")
+                logger.info(f"[CognitionCore] 无聊判定！SAN-{value}，阈值升至 {new_threshold}")
+                logger.info("[CognitionCore] 无聊判定，不回应。")
                 # 尝试生成内心独白
                 if self.plugin.cfg.inner_monologue_enabled:
                     await self._generate_inner_monologue(event, session_id, "无聊")
                 return
             elif ignore_match:
-                logger.debug("[CognitionCore] 判定为忽略，不回应。")
+                logger.info("[CognitionCore] 判定为忽略，不回应。")
                 # 尝试生成内心独白
                 if self.plugin.cfg.inner_monologue_enabled:
                     await self._generate_inner_monologue(event, session_id, "忽略")
@@ -635,10 +649,10 @@ class EavesdroppingEngine:
                 if number_match:
                     value = int(number_match.group(1))
                     if value < 0:
-                        logger.debug("[CognitionCore] 判定为负数（无聊），不回应。")
+                        logger.info("[CognitionCore] 判定为负数（无聊），不回应。")
                         return
                     elif value > 0:
-                        logger.debug("[CognitionCore] 判定为正数（有趣）")
+                        logger.info("[CognitionCore] 判定为正数（有趣）")
                         yield event.plain_result(reply_text)
 
                         # AI 回复了，始终检查贤者时间（不依赖 triggered 状态）
@@ -674,10 +688,10 @@ class EavesdroppingEngine:
                             bucket_data["consecutive_replies"] = consecutive_replies
                             self.leaky_bucket[session_id] = bucket_data
                     else:  # value == 0
-                        logger.debug("[CognitionCore] 判定为0，静默")
+                        logger.info("[CognitionCore] 判定为0，静默")
                         return
                 else:
-                    logger.debug("[CognitionCore] 无法解析 LLM 判定，发送原始回复")
+                    logger.info("[CognitionCore] 无法解析 LLM 判定，发送原始回复")
                     yield event.plain_result(reply_text)
         except Exception as e:
             logger.warning(f"[CognitionCore] 插嘴评估过程发生异常: {e}")
@@ -829,7 +843,7 @@ class EavesdroppingEngine:
             if not llm_provider:
                 return ""
 
-            logger.debug("[CognitionCore] 正在请求正式回复...")
+            logger.info("[CognitionCore] 正在请求正式回复...")
             # 不传框架的历史contexts，避免历史干扰导致身份混淆
             res = await llm_provider.text_chat(
                 prompt=formal_prompt,
