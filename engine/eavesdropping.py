@@ -976,8 +976,9 @@ class EavesdroppingEngine:
             if group_id in self._interject_history:
                 last_msg_id = self._interject_history[group_id].get("last_msg_id")
 
+            total_msgs = len(messages)
             # 找到新增消息的起始位置
-            new_msg_count = len(messages)
+            new_msg_count = total_msgs
             found_last_msg = False
             if last_msg_id:
                 for i, msg in enumerate(messages):
@@ -987,9 +988,14 @@ class EavesdroppingEngine:
                         found_last_msg = True
                         break
 
-                # 如果找不到上次的 last_msg_id，说明消息已过期，按没有新增处理
+                # 如果找不到上次的 last_msg_id，说明消息已过期，使用全部消息数
                 if not found_last_msg:
-                    new_msg_count = 0
+                    new_msg_count = total_msgs
+                    logger.debug(
+                        f"[Interject] 群 {group_id}: 未找到上次的last_msg_id({last_msg_id})，使用全部消息数{total_msgs}作为新增"
+                    )
+            else:
+                logger.debug(f"[Interject] 群 {group_id}: 无last_msg_id记录，使用全部消息数{total_msgs}作为新增")
 
             min_msg_count = self.plugin.cfg.interject_min_msg_count
 
