@@ -6,7 +6,7 @@ from collections import defaultdict, deque
 from astrbot.api import logger
 from astrbot.api.all import AstrMessageEvent
 
-from .context_injection import build_identity_context
+from .context_injection import build_identity_context, get_group_history, parse_message_chain
 
 
 class EavesdroppingEngine:
@@ -517,15 +517,10 @@ class EavesdroppingEngine:
 
             # 获取对话上下文
             contexts = []
-            try:
-                history_mgr = self.plugin.context.message_history_manager
-                if history_mgr and hasattr(history_mgr, "get"):
-                    hist = await history_mgr.get(event.get_group_id(), limit=10)
-                    if hist:
-                        contexts = hist
-            except Exception:
-                pass
-
+            if self.plugin.cfg.inject_group_history:
+                hist_str = await get_group_history(self.plugin, str(group_id), 10)
+                if hist_str:
+                    chat_history = hist_str
             # 构建判断prompt
             prompt_parts = []
             if persona_prompt:
@@ -538,6 +533,10 @@ class EavesdroppingEngine:
             llm_provider = self.plugin.context.get_using_provider(event.unified_msg_origin)
             if not llm_provider:
                 return
+
+            # 根据配置决定是否禁用框架 contexts
+            if self.plugin.cfg.disable_framework_contexts:
+                contexts = []
 
             logger.debug(f"[CognitionCore] 正在请求 LLM 决策自省... Prompt长度: {len(decision_prompt)}")
             res = await llm_provider.text_chat(
@@ -785,14 +784,10 @@ class EavesdroppingEngine:
 
             # 获取对话上下文
             contexts = []
-            try:
-                history_mgr = self.plugin.context.message_history_manager
-                if history_mgr and hasattr(history_mgr, "get"):
-                    hist = await history_mgr.get(event.get_group_id(), limit=10)
-                    if hist:
-                        contexts = hist
-            except Exception:
-                pass
+            if self.plugin.cfg.inject_group_history:
+                chat_history_str = await get_group_history(self.plugin, str(group_id), 10)
+                if chat_history_str:
+                    chat_history = chat_history_str
 
             # 构建正式回复的prompt
             prompt_parts = []
@@ -973,13 +968,7 @@ class EavesdroppingEngine:
                         # 有人 @ 或回复 bot，重置冷却时间
                         self._interject_history[group_id] = {"last_time": time.time()}
 
-            formatted = []
-            for msg in messages:
-                sender = msg.get("sender", {})
-                nickname = sender.get("nickname", "未知")
-                content = msg.get("message", "")
-                if content:
-                    formatted.append(f"{nickname}: {content}")
+            formatted = [parse_message_chain(msg) for msg in messages]
 
             if not formatted:
                 logger.debug(f"[Interject] 群 {group_id}: 消息格式化为空")

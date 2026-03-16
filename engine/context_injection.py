@@ -2,6 +2,96 @@
 上下文注入模块 - 共享的身份隔离与认知指令
 """
 
+from astrbot.api import logger
+
+
+def parse_message_chain(msg: dict) -> str:
+    """解析消息链为可读文本"""
+    nickname = msg.get("sender", {}).get("nickname", "未知")
+    message = msg.get("message", [])
+
+    if isinstance(message, str):
+        return f"{nickname}: {message}"
+
+    parts = []
+    for seg in message:
+        seg_type = seg.get("type")
+        data = seg.get("data", {})
+
+        if seg_type == "text":
+            text = data.get("text", "")
+            if text:
+                parts.append(text)
+        elif seg_type == "image":
+            sub_type = data.get("sub_type", 0)
+            if sub_type == 1:
+                parts.append("[动画表情]")
+            else:
+                parts.append("[图片]")
+        elif seg_type == "at":
+            qq = data.get("qq", "")
+            if qq == "all":
+                parts.append("@全体成员")
+            else:
+                parts.append(f"@{qq}")
+        elif seg_type == "face":
+            parts.append(f"[表情{data.get('id', '')}]")
+        elif seg_type == "reply":
+            parts.append("[引用消息]")
+        elif seg_type == "record":
+            parts.append("[语音]")
+        elif seg_type == "video":
+            parts.append("[视频]")
+        elif seg_type == "share":
+            title = data.get("title", "")
+            if title:
+                parts.append(f"[分享: {title}]")
+
+    content = "".join(parts) if parts else "[消息]"
+    return f"{nickname}: {content}"
+
+
+async def get_group_history(plugin, group_id: str, count: int = 10) -> str:
+    """
+    获取群消息历史（使用 NapCat API）
+
+    Args:
+        plugin: 插件实例
+        group_id: 群号
+        count: 获取消息数量
+
+    Returns:
+        格式化的群消息历史字符串
+    """
+    try:
+        platform_insts = plugin.context.platform_manager.platform_insts
+        if not platform_insts:
+            return ""
+
+        platform = platform_insts[0]
+        if not hasattr(platform, "get_client"):
+            return ""
+
+        bot = platform.get_client()
+        if not bot:
+            return ""
+
+        result = await bot.call_action(
+            "get_group_msg_history",
+            group_id=int(group_id),
+            message_seq=0,
+            count=count,
+        )
+
+        messages = result.get("messages", [])
+        if not messages:
+            return ""
+
+        return "\n".join(parse_message_chain(msg) for msg in messages)
+    except Exception as e:
+        logger.debug(f"[ContextInjection] 获取群消息历史失败: {e}")
+        return ""
+
 
 def build_identity_context(
     user_id: str,
