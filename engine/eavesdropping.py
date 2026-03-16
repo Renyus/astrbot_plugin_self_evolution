@@ -983,6 +983,16 @@ class EavesdroppingEngine:
                     else:
                         # 有人 @ 或回复 bot，重置冷却时间
                         self._interject_history[group_id] = {"last_time": time.time()}
+                else:
+                    # 冷却时间过了，检查消息数量是否足够
+                    min_msg_count = self.plugin.cfg.interject_min_msg_count
+                    if len(messages) < min_msg_count:
+                        logger.debug(
+                            f"[Interject] 群 {group_id}: 冷却时间已过，但消息数量不足({len(messages)}条<{min_msg_count}条)，跳过插嘴"
+                        )
+                        return
+
+            logger.info(f"[Interject] 群 {group_id}: 获取到 {len(messages)} 条消息，开始分析...")
 
             formatted = [parse_message_chain(msg) for msg in messages]
 
@@ -990,11 +1000,8 @@ class EavesdroppingEngine:
                 logger.debug(f"[Interject] 群 {group_id}: 消息格式化为空")
                 return
 
-            # 检查新增消息数量
+            # 检查新增消息数量（已在上面冷却逻辑中统一检查）
             min_msg_count = self.plugin.cfg.interject_min_msg_count
-            if len(messages) < min_msg_count:
-                logger.debug(f"[Interject] 群 {group_id}: 新增消息数量不足({len(messages)}条)，跳过插嘴")
-                return
 
             llm_provider = self.plugin.context.get_using_provider("qq")
             if not llm_provider:
