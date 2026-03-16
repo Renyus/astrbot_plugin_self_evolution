@@ -1,6 +1,6 @@
 # 自我进化 -- AstrBot 认知增强插件
 
-**版本**: Ver 2.2.3 | **内核**: CognitionCore 7.0 | **协议**: CC BY-NC 4.0
+**版本**: Ver 2.3.0 | **内核**: CognitionCore 7.0 | **协议**: CC BY-NC 4.0
 
 交流群: 1087272376
 
