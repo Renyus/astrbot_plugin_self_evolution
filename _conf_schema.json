@@ -116,7 +116,7 @@
         "title": "画像构建白名单群号",
         "description": "指定要构建画像的群号列表。",
         "hint": "群号列表，如：[123456789, 987654321]",
-        "type": "array",
+        "type": "list",
         "default": []
     },
     "auto_profile_enabled": {
