@@ -317,6 +317,18 @@ class SelfEvolutionPlugin(Star):
         # 身份信息已在【内部参考信息】中提供，不再重复注入
         req.system_prompt += context_info
 
+        # 注入框架传来的历史对话上下文（便于调试）
+        try:
+            history_mgr = self.context.message_history_manager
+            if history_mgr and hasattr(history_mgr, "get"):
+                group_id_for_history = group_id if group_id else None
+                hist = await history_mgr.get(group_id_for_history, limit=10)
+                if hist:
+                    hist_str = "\n".join([f"{h.get('role', 'user')}: {h.get('content', '')}" for h in hist])
+                    req.system_prompt += f"\n\n【框架历史上下文】\n{hist_str}\n"
+        except Exception:
+            pass
+
         # 注入用户当前消息，便于调试和 AI 理解上下文
         msg_text = event.message_str
         if msg_text:
