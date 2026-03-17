@@ -45,7 +45,7 @@ PAGE_LIMIT = 10
 @register(
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
-    "CognitionCore 6.0 数字生命。",
+    "CognitionCore 7.0 数字生命。",
     "Ver 2.5.1",
 )
 class SelfEvolutionPlugin(Star):
@@ -93,7 +93,7 @@ class SelfEvolutionPlugin(Star):
             logger.error(f"[SelfEvolution] 核心组件初始化失败: {e}")
             raise e
 
-        # CognitionCore 6.0: 状态容器
+        # CognitionCore 7.0: 状态容器
         self._lock = None  # 用于元编程写锁
         self.daily_reflection_pending = False
         self._pending_db_reset = {}  # 待确认的数据库重置操作 {user_id: timestamp}
@@ -431,7 +431,7 @@ class SelfEvolutionPlugin(Star):
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message_listener(self, event: AstrMessageEvent):
-        """CognitionCore 6.0: 被动监听 - 滑动上下文窗口"""
+        """CognitionCore 7.0: 被动监听 - 滑动上下文窗口"""
         # 检查群级别闭嘴（直接拦截，不处理任何逻辑）
         group_id = event.get_group_id()
         if group_id and group_id in self._shut_until_by_group:
