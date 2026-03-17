@@ -966,10 +966,16 @@ class EavesdroppingEngine:
 
             for msg in messages:
                 message = msg.get("message", [])
+                sender_id = str(msg.get("sender", {}).get("user_id", ""))
+                msg_seq = msg.get("message_seq")
                 if isinstance(message, list):
                     for comp in message:
-                        if comp.get("type") == "at":
-                            at_qq = str(comp.get("qq", ""))
+                        comp_type = comp.get("type")
+                        if comp_type == "at":
+                            at_qq = str(comp.get("data", {}).get("qq", ""))
+                            logger.debug(
+                                f"[Interject] 群 {group_id}: 检测到@，msg_seq={msg_seq}, sender={sender_id}, at_qq={at_qq}, bot_id={bot_id}, 匹配={at_qq == bot_id}"
+                            )
                             if at_qq == bot_id:
                                 has_ai_mention = True
                                 break
