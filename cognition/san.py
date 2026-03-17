@@ -198,14 +198,15 @@ class SANSystem:
         try:
             messages = await self._fetch_group_messages(group_id)
             if not messages:
-                logger.debug(f"[SAN] 群 {group_id} 无消息")
-                return self.low_activity_drain
+                drain = self.low_activity_drain
+                return drain if drain is not None else 0
 
             analysis = await self._llm_analyze(messages)
             if not analysis:
                 return 0
 
-            return self._calculate_san_change(analysis)
+            change = self._calculate_san_change(analysis)
+            return change if change is not None else 0
 
         except Exception as e:
             logger.warning(f"[SAN] 群 {group_id} 分析失败: {e}")
