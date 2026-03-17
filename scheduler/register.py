@@ -9,6 +9,7 @@ logger = logging.getLogger("astrbot")
 from .tasks import (
     scheduled_interject,
     scheduled_memory_summary,
+    scheduled_profile_build,
     scheduled_profile_cleanup,
     scheduled_reflection,
     scheduled_san_analyze,
@@ -45,6 +46,18 @@ async def register_tasks(plugin):
             persistent=True,
         )
         logger.info("[SelfEvolution] 已注册画像清理任务: 0 4 * * *")
+
+        # 注册自动画像构建任务
+        if plugin.cfg.auto_profile_enabled:
+            profile_cron = plugin.cfg.auto_profile_schedule
+            await cron_mgr.add_basic_job(
+                name="SelfEvolution_ProfileBuild",
+                cron_expression=profile_cron,
+                handler=lambda: scheduled_profile_build(plugin),
+                description="自我进化插件：定时批量构建用户画像。",
+                persistent=True,
+            )
+            logger.info(f"[SelfEvolution] 已注册自动画像构建任务: {profile_cron}")
 
         # 注册每日自省任务
         await cron_mgr.add_basic_job(

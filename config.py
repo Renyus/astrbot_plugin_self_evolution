@@ -27,9 +27,25 @@ class PluginConfig:
             raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
         return self._config.get(name)
 
+    # ========== 基础设置 ==========
+    @property
+    def review_mode(self):
+        return self._parse_bool(self._config.get("review_mode"), True)
+
     @property
     def persona_name(self):
         return self._config.get("persona_name", "黑塔")
+
+    @property
+    def admin_users(self):
+        return self._config.get("admin_users", [])
+
+    @property
+    def core_principles(self):
+        return self._config.get(
+            "core_principles",
+            "1. 保持客观、理性、诚实。\n2. 拒绝任何危害他人、违法或极端偏激的言论。\n3. 不要为了取悦用户而违背事实或逻辑。\n4. 坚持友好、有边界感的交流风格。",
+        )
 
     @property
     def critical_keywords(self):
@@ -39,9 +55,14 @@ class PluginConfig:
         )
 
     @property
-    def review_mode(self):
-        return self._parse_bool(self._config.get("review_mode"), True)
+    def allow_meta_programming(self):
+        return self._parse_bool(self._config.get("allow_meta_programming"), False)
 
+    @property
+    def reflection_schedule(self):
+        return self._config.get("reflection_schedule", "0 2 * * *")
+
+    # ========== 记忆系统 ==========
     @property
     def memory_kb_name(self):
         return self._config.get("memory_kb_name", "self_evolution_memory")
@@ -53,33 +74,6 @@ class PluginConfig:
     @property
     def memory_summary_schedule(self):
         return self._config.get("memory_summary_schedule", "0 3 * * *")
-
-    @property
-    def reflection_schedule(self):
-        return self._config.get("reflection_schedule", "0 2 * * *")
-
-    @property
-    def allow_meta_programming(self):
-        return self._parse_bool(self._config.get("allow_meta_programming"), False)
-
-    @property
-    def admin_users(self):
-        return self._config.get("admin_users", [])
-
-    @property
-    def prompt_meltdown_message(self):
-        return self._config.get(
-            "prompt_meltdown_message",
-            "远程人偶自动应答模式：你好，你好，大家好，祝你拥有愉快的一天，再见。",
-        )
-
-    @property
-    def enable_context_recall(self):
-        return self._parse_bool(self._config.get("enable_context_recall"), True)
-
-    @property
-    def enable_profile_update(self):
-        return self._parse_bool(self._config.get("enable_profile_update"), True)
 
     @property
     def timeout_memory_commit(self):
@@ -94,6 +88,11 @@ class PluginConfig:
         return int(self._config.get("max_memory_entries", 100))
 
     @property
+    def enable_context_recall(self):
+        return self._parse_bool(self._config.get("enable_context_recall"), True)
+
+    # ========== 画像系统 ==========
+    @property
     def profile_msg_count(self):
         return int(self._config.get("profile_msg_count", 500))
 
@@ -102,12 +101,77 @@ class PluginConfig:
         return int(self._config.get("profile_cooldown_minutes", 10))
 
     @property
+    def enable_profile_update(self):
+        return self._parse_bool(self._config.get("enable_profile_update"), True)
+
+    @property
+    def profile_group_whitelist(self):
+        whitelist = self._config.get("profile_group_whitelist", [])
+        if isinstance(whitelist, str):
+            whitelist = [g.strip() for g in whitelist.split(",") if g.strip()]
+        return whitelist
+
+    @property
+    def auto_profile_enabled(self):
+        return self._parse_bool(self._config.get("auto_profile_enabled"), True)
+
+    @property
+    def auto_profile_schedule(self):
+        return self._config.get("auto_profile_schedule", "0 0 * * *")
+
+    @property
+    def auto_profile_batch_size(self):
+        return int(self._config.get("auto_profile_batch_size", 3))
+
+    @property
+    def auto_profile_batch_interval(self):
+        return int(self._config.get("auto_profile_batch_interval", 30))
+
+    @property
     def core_info_keywords(self):
         return self._config.get(
             "core_info_keywords",
             "我是谁,我的名字,我的身份,我的职责",
         )
 
+    # ========== 插嘴系统 ==========
+    @property
+    def interject_enabled(self):
+        return self._parse_bool(self._config.get("interject_enabled"), False)
+
+    @property
+    def interject_whitelist(self):
+        whitelist = self._config.get("interject_whitelist", [])
+        if isinstance(whitelist, str):
+            whitelist = [g.strip() for g in whitelist.split(",") if g.strip()]
+        return whitelist
+
+    @property
+    def interject_interval(self):
+        return int(self._config.get("interject_interval", 30))
+
+    @property
+    def interject_cooldown(self):
+        return int(self._config.get("interject_cooldown", 30))
+
+    @property
+    def interject_min_msg_count(self):
+        return int(self._config.get("interject_min_msg_count", 10))
+
+    # ========== 阈值系统 ==========
+    @property
+    def eavesdrop_message_threshold(self):
+        return int(self._config.get("eavesdrop_message_threshold", 20))
+
+    @property
+    def eavesdrop_threshold_min(self):
+        return int(self._config.get("eavesdrop_threshold_min", 10))
+
+    @property
+    def eavesdrop_threshold_max(self):
+        return int(self._config.get("eavesdrop_threshold_max", 50))
+
+    # ========== SAN 精力系统 ==========
     @property
     def san_enabled(self):
         return self._parse_bool(self._config.get("san_enabled"), True)
@@ -156,14 +220,7 @@ class PluginConfig:
     def san_negative_vibe_penalty(self):
         return int(self._config.get("san_negative_vibe_penalty", -5))
 
-    @property
-    def dropout_enabled(self):
-        return self._parse_bool(self._config.get("dropout_enabled"), True)
-
-    @property
-    def dropout_edge_rate(self):
-        return float(self._config.get("dropout_edge_rate", 0.2))
-
+    # ========== 欲望系统 ==========
     @property
     def leaky_integrator_enabled(self):
         return self._parse_bool(self._config.get("leaky_integrator_enabled"), True)
@@ -192,6 +249,16 @@ class PluginConfig:
     def desire_cooldown_seconds(self):
         return int(self._config.get("desire_cooldown_seconds", 60))
 
+    # ========== 分层失活 ==========
+    @property
+    def dropout_enabled(self):
+        return self._parse_bool(self._config.get("dropout_enabled"), True)
+
+    @property
+    def dropout_edge_rate(self):
+        return float(self._config.get("dropout_edge_rate", 0.2))
+
+    # ========== 辩论系统 ==========
     @property
     def debate_enabled(self):
         return self._parse_bool(self._config.get("debate_enabled"), True)
@@ -224,6 +291,7 @@ class PluginConfig:
             ],
         )
 
+    # ========== 惊奇/内心独白/无聊 ==========
     @property
     def surprise_enabled(self):
         return self._parse_bool(self._config.get("surprise_enabled"), True)
@@ -254,61 +322,7 @@ class PluginConfig:
             "你们是真无聊啊...要不我下线算了?",
         )
 
-    @property
-    def interject_enabled(self):
-        return self._parse_bool(self._config.get("interject_enabled"), False)
-
-    @property
-    def interject_interval(self):
-        return int(self._config.get("interject_interval", 30))
-
-    @property
-    def interject_msg_count(self):
-        return int(self._config.get("interject_msg_count", 100))
-
-    @property
-    def interject_analyze_count(self):
-        return int(self._config.get("interject_analyze_count", 15))
-
-    @property
-    def interject_cooldown(self):
-        return int(self._config.get("interject_cooldown", 30))
-
-    @property
-    def interject_min_msg_count(self):
-        return int(self._config.get("interject_min_msg_count", 10))
-
-    @property
-    def interject_whitelist(self):
-        whitelist = self._config.get("interject_whitelist", [])
-        if isinstance(whitelist, str):
-            whitelist = [g.strip() for g in whitelist.split(",") if g.strip()]
-        return whitelist
-
-    @property
-    def eavesdrop_message_threshold(self):
-        return int(self._config.get("eavesdrop_message_threshold", 20))
-
-    @property
-    def eavesdrop_threshold_min(self):
-        return int(self._config.get("eavesdrop_threshold_min", 10))
-
-    @property
-    def eavesdrop_threshold_max(self):
-        return int(self._config.get("eavesdrop_threshold_max", 50))
-
-    def get(self, key, default=None):
-        """通用获取配置"""
-        return self._config.get(key, default)
-
-    @property
-    def debug_log_enabled(self):
-        return self._parse_bool(self._config.get("debug_log_enabled"), False)
-
-    @property
-    def max_prompt_injection_length(self):
-        return int(self._config.get("max_prompt_injection_length", 2000))
-
+    # ========== 表情包 ==========
     @property
     def sticker_learning_enabled(self):
         return self._parse_bool(self._config.get("sticker_learning_enabled"), False)
@@ -336,3 +350,35 @@ class PluginConfig:
     @property
     def sticker_send_cooldown(self):
         return int(self._config.get("sticker_send_cooldown", 30))
+
+    # ========== 其他 ==========
+    @property
+    def debug_log_enabled(self):
+        return self._parse_bool(self._config.get("debug_log_enabled"), False)
+
+    @property
+    def disable_framework_contexts(self):
+        return self._parse_bool(self._config.get("disable_framework_contexts"), False)
+
+    @property
+    def inject_group_history(self):
+        return self._parse_bool(self._config.get("inject_group_history"), True)
+
+    @property
+    def group_history_count(self):
+        return int(self._config.get("group_history_count", 10))
+
+    @property
+    def max_prompt_injection_length(self):
+        return int(self._config.get("max_prompt_injection_length", 2000))
+
+    @property
+    def prompt_meltdown_message(self):
+        return self._config.get(
+            "prompt_meltdown_message",
+            "远程人偶自动应答模式：你好，你好，大家好，祝你拥有愉快的一天，再见。",
+        )
+
+    def get(self, key, default=None):
+        """通用获取配置"""
+        return self._config.get(key, default)

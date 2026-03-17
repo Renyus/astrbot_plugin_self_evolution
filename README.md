@@ -1,6 +1,6 @@
 # 自我进化 -- AstrBot 认知增强插件
 
-**版本**: Ver 2.3.0 | **内核**: CognitionCore 7.0 | **协议**: CC BY-NC 4.0
+**版本**: Ver 2.5.1 | **内核**: CognitionCore 7.0 | **协议**: CC BY-NC 4.0
 
 交流群: 1087272376
 
@@ -55,34 +55,33 @@
 ```
 astrbot_plugin_self_evolution/
 |-- main.py                      # 入口文件，生命周期管理，LLM 工具注册
-|-- config.py                   # 配置属性代理，所有配置项集中定义
-|-- dao.py                     # SQLite 数据访问层（好感度、进化审核等）
-|-- _conf_schema.json          # AstrBot 配置面板 Schema
-|-- metadata.yaml               # 插件元信息
-|-- prompts_injection.yaml      # Prompt 注入模板
-|-- ruff.toml                  # 代码格式化配置
+|-- config.py                     # 配置属性代理，所有配置项集中定义
+|-- dao.py                       # SQLite 数据访问层（好感度、进化审核等）
+|-- _conf_schema.json            # AstrBot 配置面板 Schema
+|-- metadata.yaml                 # 插件元信息
+|-- prompts_injection.yaml        # Prompt 注入模板
 |-- cognition/
 |   |-- __init__.py
-|   +-- san.py                 # SAN 精力值系统
+|   +-- san.py                   # SAN 精力值系统
 |-- engine/
-|   |-- __init__.py            # 模块导出
-|   |-- eavesdropping.py        # 欲望积分器、主动插嘴
-|   |-- memory.py               # 每日群聊总结
-|   |-- profile.py              # 用户画像管理
-|   |-- persona.py              # 人格进化管理
-|   |-- meta_infra.py           # 元编程基础设施
-|   |-- entertainment.py         # 娱乐功能（表情包、今日老婆）
-|   +-- context_injection.py    # 上下文注入
+|   |-- __init__.py              # 模块导出
+|   |-- eavesdropping.py          # 欲望积分器、主动插嘴
+|   |-- memory.py                 # 每日群聊总结
+|   |-- profile.py               # 用户画像管理
+|   |-- persona.py               # 人格进化管理
+|   |-- meta_infra.py            # 元编程基础设施
+|   |-- entertainment.py          # 娱乐功能（表情包、今日老婆）
+|   +-- context_injection.py     # 上下文注入
 |-- commands/
-|   |-- __init__.py            # 命令模块导出
-|   |-- profile.py             # 画像相关命令
-|   |-- sticker.py             # 表情包命令
-|   |-- admin.py               # 管理命令
-|   +-- system.py              # 系统命令
+|   |-- __init__.py              # 命令模块导出
+|   |-- profile.py               # 画像相关命令
+|   |-- sticker.py               # 表情包命令
+|   |-- admin.py                # 管理命令
+|   +-- system.py               # 系统命令
 +-- scheduler/
-    |-- __init__.py            # 调度模块导出
-    |-- tasks.py               # 定时任务回调
-    +-- register.py            # 任务注册逻辑
+    |-- __init__.py              # 调度模块导出
+    |-- tasks.py                 # 定时任务回调
+    +-- register.py              # 任务注册逻辑
 ```
 
 ---
@@ -122,7 +121,7 @@ astrbot_plugin_self_evolution/
 基于 NapCat API 获取用户在群里的消息记录，手动指令触发画像构建。
 
 **触发方式**：
-- `/create` - 手动创建画像（获取最近 500 条消息）
+- `/create` - 手动创建画像（获取最近消息）
 - `/update` - 手动更新画像（增量更新）
 - `/view` - 查看画像
 
@@ -130,22 +129,17 @@ astrbot_plugin_self_evolution/
 - 普通用户：只能操作自己的画像
 - 管理员：可以指定用户操作
 
-**画像格式**：Markdown 文本，存储在 `data/plugin_data/self_evolution/profiles/user_{id}.md`
-
 ### 3. 每日群聊总结
 
 定时获取群消息，LLM 总结后存入知识库。
 
-**触发时间**：每天凌晨 3 点（可配置）
+**触发时间**：每天凌晨（可配置）
 
 **工作流程**：
-1. 获取所有监听群的消息（默认 500 条）
-2. 调用 LLM 生成群聊总结
-3. 存入知识库
-
-**配置项**：
-- `memory_summary_schedule` - Cron 表达式
-- `memory_msg_count` - 获取消息数
+1. 获取所有监听群的消息
+2. 使用 `parse_message_chain()` 正确解析消息链
+3. 调用 LLM 生成群聊总结
+4. 存入知识库
 
 ### 4. 好感度系统
 
@@ -192,15 +186,16 @@ S(t) = S(t-1) * exp(-λ * Δt / 60) + w
 **默认状态**：关闭
 
 **工作流程**：
-1. 定时任务触发（默认每 30 分钟）
-2. 通过 NapCat API 获取群消息（默认 100 条）
-3. 调用 LLM 判断是否应该插嘴
-4. 如果应该插嘴，发送消息
+1. 定时任务触发（默认每 1 分钟）
+2. 通过 NapCat API 获取群消息
+3. 正确识别消息顺序（倒序）和 sender 信息
+4. 调用 LLM 判断是否应该插嘴
+5. 如果应该插嘴，发送消息
 
-**配置项**：
-- `interject_enabled` - 是否启用（默认 false）
-- `interject_interval` - 检查间隔（默认 30 分钟）
-- `interject_msg_count` - 获取消息数（默认 100）
+**技术细节**：
+- 使用 `message_seq` 而非 `message_id` 追踪新增消息
+- 消息列表是倒序的（最新在前），需要正确处理
+- `@` 检测需要从 `data.qq` 而非直接获取
 
 ### 7. 人格进化
 
@@ -357,11 +352,14 @@ AI 自主修改系统提示词，支持管理员审核。
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `interject_enabled` | bool | false | 启用主动插嘴 |
-| `interject_interval` | int | 30 | 检查间隔（分钟） |
-| `interject_msg_count` | int | 100 | 获取消息数 |
+| `interject_check_interval` | int | 1 | 检查间隔（分钟） |
+| `group_history_count` | int | 20 | 获取消息数 |
 | `interject_analyze_count` | int | 15 | 分析消息数 |
+| `interject_min_msg_count` | int | 10 | 最小新增消息数 |
 | `interject_cooldown` | int | 30 | 冷却时间（分钟） |
 | `interject_whitelist` | list | [] | 插嘴白名单群号 |
+| `disable_framework_contexts` | bool | false | 禁用框架上下文 |
+| `inject_group_history` | bool | false | 注入群历史消息 |
 
 ### 分层失活
 
@@ -445,6 +443,7 @@ AI 自主修改系统提示词，支持管理员审核。
 | 获取群信息 | `get_group_info` |
 | 获取群成员列表 | `get_group_member_list` |
 | 获取成员信息 | `get_group_member_info` |
+| 获取消息详情 | `get_msg` |
 
 ---
 

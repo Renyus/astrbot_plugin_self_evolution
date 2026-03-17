@@ -87,7 +87,7 @@ class SANSystem:
             self._san_value = self.max_value
             self._san_last_recovery = time.time()
             self._last_analyze_time = time.time()
-            logger.info(f"[SAN] 精力值系统初始化: {self._san_value}/{self.max_value}")
+            logger.debug(f"[SAN] 精力值系统初始化: {self._san_value}/{self.max_value}")
 
     def update(self):
         if not self.enabled:
@@ -96,7 +96,7 @@ class SANSystem:
         if self._san_value is None:
             self._san_value = self.max_value
             self._san_last_recovery = time.time()
-            logger.info(f"[SAN] 精力值已初始化: {self._san_value}/{self.max_value}")
+            logger.debug(f"[SAN] 精力值已初始化: {self._san_value}/{self.max_value}")
 
         current_time = time.time()
         elapsed = current_time - (self._san_last_recovery or current_time)
@@ -105,7 +105,7 @@ class SANSystem:
             recovered = int(elapsed / 3600) * self.recovery_per_hour
             self._san_value = min(self.max_value, self._san_value + recovered)
             self._san_last_recovery = current_time
-            logger.info(f"[SAN] 精力恢复 +{recovered}: {self._san_value}/{self.max_value}")
+            logger.debug(f"[SAN] 精力恢复 +{recovered}: {self._san_value}/{self.max_value}")
 
         if self._san_value <= 0:
             logger.warning("[SAN] 精力耗尽，拒绝服务")
@@ -153,7 +153,7 @@ class SANSystem:
             return
 
         self._last_analyze_time = current_time
-        logger.info("[SAN] 开始分析群状态...")
+        logger.debug("[SAN] 开始分析群状态...")
 
         try:
             listened_groups = self._get_listened_groups()
@@ -166,11 +166,11 @@ class SANSystem:
                 change = await self._analyze_group(group_id)
                 if change != 0:
                     total_change += change
-                    logger.info(f"[SAN] 群 {group_id} 分析完成，SAN 变化: {change:+d}")
+                    logger.debug(f"[SAN] 群 {group_id} 分析完成，SAN 变化: {change:+d}")
 
             if total_change != 0:
                 self._san_value = max(0, min(self.max_value, self._san_value + total_change))
-                logger.info(
+                logger.debug(
                     f"[SAN] 群分析完成，总 SAN 变化: {total_change:+d}, 当前值: {self._san_value}/{self.max_value}"
                 )
 
@@ -182,13 +182,13 @@ class SANSystem:
         # 方式1: 白名单配置
         whitelist = getattr(self.plugin.cfg, "profile_group_whitelist", [])
         if whitelist:
-            logger.info(f"[SAN] 使用白名单群列表: {whitelist}")
+            logger.debug(f"[SAN] 使用白名单群列表: {whitelist}")
             return whitelist
         # 方式2: eavesdropping active_users
         if hasattr(self.plugin, "eavesdropping") and hasattr(self.plugin.eavesdropping, "active_users"):
             groups = list(self.plugin.eavesdropping.active_users.keys())
             if groups:
-                logger.info(f"[SAN] 使用 eavesdropping 活跃群列表: {groups}")
+                logger.debug(f"[SAN] 使用 eavesdropping 活跃群列表: {groups}")
                 return groups
         # 方式3: 通过 platform 获取 bot 加入的群列表
         return []
@@ -198,14 +198,15 @@ class SANSystem:
         try:
             messages = await self._fetch_group_messages(group_id)
             if not messages:
-                logger.debug(f"[SAN] 群 {group_id} 无消息")
-                return self.low_activity_drain
+                drain = self.low_activity_drain
+                return drain if drain is not None else 0
 
             analysis = await self._llm_analyze(messages)
             if not analysis:
                 return 0
 
-            return self._calculate_san_change(analysis)
+            change = self._calculate_san_change(analysis)
+            return change if change is not None else 0
 
         except Exception as e:
             logger.warning(f"[SAN] 群 {group_id} 分析失败: {e}")

@@ -19,7 +19,7 @@ from .config import PluginConfig
 
 # 导入模块化组件
 from .dao import SelfEvolutionDAO
-from .engine.context_injection import build_identity_context
+from .engine.context_injection import build_identity_context, get_group_history, parse_message_chain
 from .engine.eavesdropping import EavesdroppingEngine
 from .engine.entertainment import EntertainmentEngine
 from .engine.memory import MemoryManager
@@ -46,7 +46,7 @@ PAGE_LIMIT = 10
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "CognitionCore 6.0 数字生命。",
-    "Ver 2.3.0",
+    "Ver 2.5.1",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
@@ -211,6 +211,10 @@ class SelfEvolutionPlugin(Star):
 
         logger.debug(f"[CognitionCore] 进入 LLM 请求拦截层。用户: {user_id}")
 
+        # 根据配置决定是否禁用框架 contexts
+        if self.cfg.disable_framework_contexts:
+            req.contexts = []
+
         # 图片处理去重：检查是否已在消息监听阶段处理过
         if hasattr(event, "_image_processed") and event._image_processed:
             logger.debug("[ImageCache] 图片已在消息监听阶段处理，跳过")
@@ -222,7 +226,7 @@ class SelfEvolutionPlugin(Star):
                 req.system_prompt = "我现在很累，脑容量超载了。让我安静一会。"
                 return
             if self.san_system.value < self.san_low_threshold:
-                logger.info(f"[SAN] 精力过低: {self.san_system.value}/{self.san_system.max_value}")
+                logger.debug(f"[SAN] 精力过低: {self.san_system.value}/{self.san_system.max_value}")
 
         # 动态上下文路由：轻量级消息分类，决定加载哪些模块
         needs_profile = False
@@ -285,19 +289,25 @@ class SelfEvolutionPlugin(Star):
 
                 # 检测是否引用了 AI 的消息
                 if self.enable_context_recall and (reply_sender == self.persona_name or str(reply_sender_id) == "AI"):
-                    quoted_info = f"，你在之前说：{reply_content}..."
+                    quoted_info = "回复了你"
                     ai_context_info = "\n【重要】用户正在引用你之前的发言进行追问，请针对你之前的发言回答。"
                 else:
-                    quoted_info = f"，你正在回复用户 {reply_sender} 的消息：{reply_content}..."
+                    quoted_info = "回复了你"
             elif type(comp).__name__ == "At":
                 at_targets.append(str(getattr(comp, "qq", "")))
 
-        at_info = f"，消息中提到了: {', '.join(at_targets)}" if at_targets else ""
+        at_info = "at了你" if at_targets else ""
 
         # 构造上下文注入（内部参考，不要输出）
         context_info = f"\n\n【内部参考信息 - 不要输出】：\n- 发送者ID: {sender_id}\n- 发送者昵称: {sender_name}{role_info}\n- 情感积分: {affinity}/100\n"
         if is_group:
-            context_info += f"- 来源：群聊\n- 交互上下文: 你{quoted_info}{at_info}\n"
+            context_parts = []
+            if quoted_info:
+                context_parts.append(quoted_info)
+            if at_info:
+                context_parts.append(at_info)
+            context_str = " + ".join(context_parts) if context_parts else ""
+            context_info += f"- 来源：群聊\n- 交互上下文: {context_str}\n"
         else:
             context_info += "- 来源：私聊\n"
 
@@ -305,29 +315,20 @@ class SelfEvolutionPlugin(Star):
         if ai_context_info:
             context_info += ai_context_info
 
-        # 重要：添加历史覆盖指令，抵抗框架自动注入的历史干扰
-        if is_group and group_id:
-            history_override_note = f"""
-【关键历史覆盖指令 - 必须遵守】：
-虽然上方可能有历史消息，但请只关注当前用户({sender_id})的发言！
-历史中的其他人骂你≠当前用户在骂你！
-"""
-            context_info += history_override_note
-
-        # 使用共享函数构建身份上下文
-        identity_context = build_identity_context(
-            user_id=str(sender_id),
-            user_name=sender_name,
-            affinity=affinity,
-            role_info=role_info,
-            is_group=bool(group_id),
-        )
-        context_info += identity_context
+        # 身份信息已在【内部参考信息】中提供，不再重复注入
         req.system_prompt += context_info
-        # --- 环境注入结束 ---
 
-        # 获取消息文本（提前定义以便后续使用）
+        # 根据配置决定是否注入群消息历史
+        if self.cfg.inject_group_history and group_id:
+            hist_str = await get_group_history(self, group_id, self.cfg.group_history_count)
+            if hist_str:
+                req.system_prompt += f"\n\n【群消息历史】\n{hist_str}\n"
+
+        # 注入用户当前消息，便于调试和 AI 理解上下文
         msg_text = event.message_str
+        if msg_text:
+            req.system_prompt += f"\n\n【当前用户消息】\n{msg_text}\n"
+        # --- 环境注入结束 ---
 
         # 4. 用户画像注入 - 按需加载（动态上下文路由）
         has_reply = bool(quoted_info)
@@ -382,7 +383,7 @@ class SelfEvolutionPlugin(Star):
                         "请主动调用 update_user_profile 工具记录：用户对某事物的认知发生了重要变化，"
                         "这可能意味着之前的认知是错误的，或者用户获得了新信息。"
                     )
-                    logger.info(f"[Surprise] 检测到用户 {user_id} 的认知颠覆表达，触发即时画像更新。")
+                    logger.debug(f"[Surprise] 检测到用户 {user_id} 的认知颠覆表达，触发即时画像更新。")
 
         # 4.8 SAN 值系统注入
         if self.san_enabled:
@@ -407,7 +408,7 @@ class SelfEvolutionPlugin(Star):
                 inner_monologue = getattr(event, "_inner_monologue", None)
                 if inner_monologue:
                     req.system_prompt += f"\n\n【内心独白】{inner_monologue}"
-                    logger.info(f"[InnerMonologue] 注入内心独白: {inner_monologue[:50]}...")
+                    logger.debug(f"[InnerMonologue] 注入内心独白: {inner_monologue[:50]}...")
             except Exception as e:
                 logger.warning(f"[InnerMonologue] 注入内心独白失败: {e}")
 
@@ -415,20 +416,18 @@ class SelfEvolutionPlugin(Star):
         session_id = event.session_id
         is_pending = await self.dao.pop_pending_reflection(session_id)
 
-        # 最后注入框架人格（确保人格设定优先，不被稀释）
+        # 框架人格由框架自动注入，不再手动追加
         # 先截断过长的注入内容，避免超出 token 限制
         max_injection_length = self.cfg.max_prompt_injection_length
         if req.system_prompt and len(req.system_prompt) > max_injection_length:
             req.system_prompt = req.system_prompt[:max_injection_length] + "\n\n[...内容已截断...]"
             logger.warning(f"[SelfEvolution] 注入内容超长，已截断至 {max_injection_length} 字符")
 
-        try:
-            personality = await self.context.persona_manager.get_default_persona_v3(event.unified_msg_origin)
-            if personality and personality.get("prompt"):
-                req.system_prompt = f"【人格设定】\n{personality['prompt']}\n\n" + req.system_prompt
-                logger.debug(f"[SelfEvolution] 已注入框架人格: {personality.get('name', 'unknown')}")
-        except Exception as e:
-            logger.warning(f"[SelfEvolution] 获取框架人格失败: {e}")
+        # 输出完整 prompt 到日志（仅在 debug 模式开启）
+        if self.cfg.debug_log_enabled and req.system_prompt:
+            logger.debug(
+                f"[LLM Prompt] ===== 发送给 LLM 的完整 Prompt (共 {len(req.system_prompt)} 字符) =====\n{req.system_prompt}\n===== Prompt End ====="
+            )
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message_listener(self, event: AstrMessageEvent):
@@ -438,7 +437,7 @@ class SelfEvolutionPlugin(Star):
         if group_id and group_id in self._shut_until_by_group:
             if time.time() < self._shut_until_by_group[group_id]:
                 remaining = int(self._shut_until_by_group[group_id] - time.time())
-                logger.info(f"[SelfEvolution] 群 {group_id} 闭嘴中，剩余 {remaining} 秒")
+                logger.debug(f"[SelfEvolution] 群 {group_id} 闭嘴中，剩余 {remaining} 秒")
                 return
             else:
                 del self._shut_until_by_group[group_id]
@@ -448,7 +447,7 @@ class SelfEvolutionPlugin(Star):
         # 检查全局闭嘴状态
         if self._shut_until and time.time() < self._shut_until:
             remaining = int(self._shut_until - time.time())
-            logger.info(f"[SelfEvolution] 全局闭嘴中，剩余 {remaining} 秒")
+            logger.debug(f"[SelfEvolution] 全局闭嘴中，剩余 {remaining} 秒")
             return
 
         # 命令消息不触发互动意愿系统

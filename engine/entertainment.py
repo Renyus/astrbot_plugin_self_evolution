@@ -34,7 +34,7 @@ class EntertainmentEngine:
         if not group_id:
             return ["此指令仅限群聊使用"]
 
-        logger.info(f"[Entertainment] 今日老婆指令，群 {group_id}")
+        logger.debug(f"[Entertainment] 今日老婆指令，群 {group_id}")
 
         try:
             group = await event.get_group(group_id)
@@ -49,7 +49,7 @@ class EntertainmentEngine:
             user_id = selected.user_id
             nickname = selected.nickname or user_id
 
-            logger.info(f"[Entertainment] 今日老婆抽取结果: {nickname} ({user_id})")
+            logger.debug(f"[Entertainment] 今日老婆抽取结果: {nickname} ({user_id})")
 
             avatar_url = f"https://q1.qlogo.cn/g?b=qq&nk={user_id}&s=640"
 
@@ -99,17 +99,17 @@ class EntertainmentEngine:
 
                     daily_count = await self.dao.get_today_sticker_count()
                     if daily_count >= self.cfg.sticker_daily_limit:
-                        logger.info(f"[Sticker] 今日已达上限 {self.cfg.sticker_daily_limit}")
+                        logger.debug(f"[Sticker] 今日已达上限 {self.cfg.sticker_daily_limit}")
                         return False
 
                     total_count = await self.dao.get_sticker_count()
                     if total_count >= self.cfg.sticker_total_limit:
                         await self.dao.delete_oldest_sticker()
-                        logger.info("[Sticker] 已达总上限，删除最旧的")
+                        logger.debug("[Sticker] 已达总上限，删除最旧的")
 
                     sticker_uuid = await self.dao.add_sticker(group_id, user_id, base64_data, "", sticker_hash)
                     if sticker_uuid:
-                        logger.info(f"[Sticker] 成功学习表情包: user={user_id}, group={group_id}")
+                        logger.debug(f"[Sticker] 成功学习表情包: user={user_id}, group={group_id}")
                         return True
                     else:
                         logger.debug(f"[Sticker] 表情包已存在: hash={sticker_hash}")
@@ -137,7 +137,7 @@ class EntertainmentEngine:
             return False
 
         sticker = untagged[0]
-        logger.info(f"[Sticker] 准备给表情包打标签: uuid={sticker['uuid']}")
+        logger.debug(f"[Sticker] 准备给表情包打标签: uuid={sticker['uuid']}")
 
         temp_file_path = None
         try:
@@ -160,7 +160,7 @@ class EntertainmentEngine:
             with open(temp_file_path, "wb") as f:
                 f.write(img_data)
 
-            logger.info(f"[Sticker] 已保存临时文件: {temp_file_path}")
+            logger.debug(f"[Sticker] 已保存临时文件: {temp_file_path}")
 
             # 调用 MCP 工具 understand_image
             tool_manager = self.plugin.context.get_llm_tool_manager()
@@ -173,14 +173,14 @@ class EntertainmentEngine:
                 logger.warning("[Sticker] 没有可用的 MCP 服务")
                 return False
 
-            logger.info(f"[Sticker] 找到 {len(mcp_runtime)} 个 MCP 服务器")
+            logger.debug(f"[Sticker] 找到 {len(mcp_runtime)} 个 MCP 服务器")
 
             # 遍历所有 MCP 服务器，找到 understand_image 工具并调用
             for server_name, runtime in mcp_runtime.items():
-                logger.info(f"[Sticker] 检查 MCP 服务器: {server_name}, runtime: {runtime}")
+                logger.debug(f"[Sticker] 检查 MCP 服务器: {server_name}, runtime: {runtime}")
                 if runtime and runtime.client:
                     mcp_client = runtime.client
-                    logger.info(f"[Sticker] 准备调用 MCP 客户端: {server_name}")
+                    logger.debug(f"[Sticker] 准备调用 MCP 客户端: {server_name}")
                     try:
                         from datetime import timedelta
 
@@ -193,7 +193,7 @@ class EntertainmentEngine:
                             timedelta(seconds=60),
                         )
 
-                        logger.info(f"[Sticker] MCP 返回结果: {tool_result}")
+                        logger.debug(f"[Sticker] MCP 返回结果: {tool_result}")
 
                         if tool_result and tool_result.content:
                             # 提取文本内容
@@ -204,7 +204,7 @@ class EntertainmentEngine:
                                 elif isinstance(content, str):
                                     response_text += content
 
-                            logger.info(f"[Sticker] MCP 工具响应: {response_text[:100]}")
+                            logger.debug(f"[Sticker] MCP 工具响应: {response_text[:100]}")
 
                             # 解析描述和标签
                             description = ""
@@ -236,7 +236,7 @@ class EntertainmentEngine:
 
                             await self.dao.update_sticker_tags_by_uuid(sticker["uuid"], tags, description)
                             self._last_tag_time = time.time()
-                            logger.info(
+                            logger.debug(
                                 f"[Sticker] 打标签成功: uuid={sticker['uuid']}, tags={tags}, description={description[:30]}"
                             )
                             return True

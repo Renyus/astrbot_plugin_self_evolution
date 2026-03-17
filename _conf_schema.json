@@ -5,6 +5,48 @@
         "type": "bool",
         "default": true
     },
+    "persona_name": {
+        "title": "人设名称",
+        "description": "机器人的名称。",
+        "type": "string",
+        "default": "黑塔"
+    },
+    "admin_users": {
+        "title": "管理员 ID 列表",
+        "description": "额外允许执行敏感操作的用户。",
+        "hint": "系统全局管理员外的白名单，可执行审批进化等指令。",
+        "type": "list",
+        "default": []
+    },
+    "core_principles": {
+        "title": "核心价值观/安全锚点",
+        "description": "机器人的底线原则。",
+        "hint": "即使在进化时也必须遵守：\n1. 保持客观、理性、诚实。\n2. 拒绝危害他人、违法或极端偏激。\n3. 不违背事实或逻辑。\n4. 友好、有边界感。",
+        "type": "string",
+        "default": "1. 保持客观、理性、诚实。\n2. 拒绝任何危害他人、违法或极端偏激的言论。\n3. 不要为了取悦用户而违背事实或逻辑。\n4. 坚持友好、有边界感的交流风格。"
+    },
+    "critical_keywords": {
+        "title": "意图预扫描关键词",
+        "description": "命中时立即触发互动意愿评估。",
+        "hint": "正则格式，用 | 分隔，如：黑塔|空间站|物理",
+        "type": "string",
+        "default": "黑塔|空间站|人偶|天才|模拟宇宙|研究|论文|技术|算力|数据"
+    },
+    "allow_meta_programming": {
+        "title": "开启元编程 (危险)",
+        "description": "允许 AI 阅读和修改源码。",
+        "hint": "请谨慎开启！",
+        "type": "bool",
+        "default": false
+    },
+    "reflection_schedule": {
+        "title": "自我反省计划 (Cron)",
+        "description": "Bot 自动自省的时间表。",
+        "hint": "Cron 表达式，默认每天凌晨 3 点：0 3 * * *",
+        "type": "string",
+        "default": "0 3 * * *"
+    },
+
     "memory_kb_name": {
         "title": "记忆知识库名称",
         "description": "用于存储长期记忆的知识库。",
@@ -24,27 +66,6 @@
         "type": "string",
         "default": "0 3 * * *"
     },
-    "reflection_schedule": {
-        "title": "自我反省计划 (Cron)",
-        "description": "Bot 自动自省的时间表。",
-        "hint": "Cron 表达式，默认每天凌晨 3 点：0 3 * * *",
-        "type": "string",
-        "default": "0 3 * * *"
-    },
-    "allow_meta_programming": {
-        "title": "开启元编程 (危险)",
-        "description": "允许 AI 阅读和修改源码。",
-        "hint": "请谨慎开启！",
-        "type": "bool",
-        "default": false
-    },
-    "core_principles": {
-        "title": "核心价值观/安全锚点",
-        "description": "机器人的底线原则。",
-        "hint": "即使在进化时也必须遵守：\n1. 保持客观、理性、诚实。\n2. 拒绝危害他人、违法或极端偏激。\n3. 不违背事实或逻辑。\n4. 友好、有边界感。",
-        "type": "string",
-        "default": "1. 保持客观、理性、诚实。\n2. 拒绝任何危害他人、违法或极端偏激的言论。\n3. 不要为了取悦用户而违背事实或逻辑。\n4. 坚持友好、有边界感的交流风格。"
-    },
     "timeout_memory_commit": {
         "title": "存入记忆超时(秒)",
         "description": "写入知识库的超时时间。",
@@ -57,26 +78,6 @@
         "type": "float",
         "default": 12.0
     },
-    "admin_users": {
-        "title": "管理员 ID 列表",
-        "description": "额外允许执行敏感操作的用户。",
-        "hint": "系统全局管理员外的白名单，可执行审批进化等指令。",
-        "type": "list",
-        "default": []
-    },
-    "critical_keywords": {
-        "title": "意图预扫描关键词",
-        "description": "命中时立即触发互动意愿评估。",
-        "hint": "正则格式，用 | 分隔，如：黑塔|空间站|物理",
-        "type": "string",
-        "default": "黑塔|空间站|人偶|天才|模拟宇宙|研究|论文|技术|算力|数据"
-    },
-    "persona_name": {
-        "title": "人设名称",
-        "description": "机器人的名称。",
-        "type": "string",
-        "default": "黑塔"
-    },
     "max_memory_entries": {
         "title": "记忆库最大条目数",
         "description": "知识库最多存储的记忆条数。",
@@ -84,6 +85,13 @@
         "type": "int",
         "default": 100
     },
+    "enable_context_recall": {
+        "title": "启用上下文追踪",
+        "description": "用户引用AI话时注入上下文",
+        "type": "bool",
+        "default": true
+    },
+
     "profile_msg_count": {
         "title": "画像构建消息数",
         "description": "构建用户画像时获取的消息数量。",
@@ -104,38 +112,53 @@
         "type": "bool",
         "default": true
     },
-    "enable_context_recall": {
-        "title": "启用上下文追踪",
-        "description": "用户引用AI话时注入上下文",
+    "profile_group_whitelist": {
+        "title": "画像构建白名单群号",
+        "description": "指定要构建画像的群号列表。",
+        "hint": "群号列表，如：[123456789, 987654321]",
+        "type": "list",
+        "default": []
+    },
+    "auto_profile_enabled": {
+        "title": "启用自动画像构建",
+        "description": "定时批量分析群消息并构建用户画像。",
         "type": "bool",
         "default": true
     },
-    "dropout_enabled": {
-        "title": "启用分层失活",
-        "description": "启用分层失活机制",
-        "hint": "关闭则每次精确注入，开启则随机丢失部分边缘信息",
-        "type": "bool",
-        "default": true
+    "auto_profile_schedule": {
+        "title": "自动画像构建计划 (Cron)",
+        "description": "定时批量构建用户画像的时间表。",
+        "hint": "Cron 表达式，默认每天凌晨 0 点：0 0 * * *",
+        "type": "string",
+        "default": "0 0 * * *"
     },
-    "dropout_edge_rate": {
-        "title": "边缘信息失活概率",
-        "description": "边缘兴趣标签被随机屏蔽的概率。",
-        "hint": "0-1 之间，建议 0.1-0.2",
-        "type": "float",
-        "default": 0.15
+    "auto_profile_batch_size": {
+        "title": "批量处理群数量",
+        "description": "每次定时任务处理的群数量。",
+        "hint": "默认 3 个群",
+        "type": "int",
+        "default": 3
     },
-    "leaky_integrator_enabled": {
-        "title": "启用欲望积分器",
-        "description": "启用欲望积分器",
-        "hint": "替代传统计数器的动态触发机制",
-        "type": "bool",
-        "default": true
+    "auto_profile_batch_interval": {
+        "title": "批次间隔时间(分钟)",
+        "description": "处理完一批群后等待多久处理下一批。",
+        "hint": "默认 30 分钟",
+        "type": "int",
+        "default": 30
     },
+
     "interject_enabled": {
         "title": "启用主动插嘴",
         "description": "定时检查是否插嘴",
         "type": "bool",
         "default": false
+    },
+    "interject_whitelist": {
+        "title": "插嘴白名单群",
+        "description": "指定要检查的群号",
+        "hint": "多个群号用逗号分隔，如: 123456789,987654321",
+        "type": "string",
+        "default": ""
     },
     "interject_interval": {
         "title": "插嘴检查间隔",
@@ -143,20 +166,6 @@
         "hint": "单位：分钟，默认 30",
         "type": "int",
         "default": 30
-    },
-    "interject_msg_count": {
-        "title": "插嘴检查消息数",
-        "description": "每次检查时获取的消息数量。",
-        "hint": "默认 100 条",
-        "type": "int",
-        "default": 100
-    },
-    "interject_analyze_count": {
-        "title": "插嘴分析消息数",
-        "description": "每次检查时发送给 LLM 分析的消息数量。",
-        "hint": "默认 15 条",
-        "type": "int",
-        "default": 15
     },
     "interject_cooldown": {
         "title": "插嘴冷却时间",
@@ -172,12 +181,66 @@
         "type": "int",
         "default": 10
     },
-    "interject_whitelist": {
-        "title": "插嘴白名单群",
-        "description": "指定要检查的群号",
-        "hint": "多个群号用逗号分隔，如: 123456789,987654321",
-        "type": "string",
-        "default": ""
+
+    "eavesdrop_message_threshold": {
+        "title": "互动意愿消息数阈值",
+        "description": "滑动窗口消息数超过此值时触发互动意愿检查。",
+        "hint": "超过20条消息时检查，建议 15-30",
+        "type": "int",
+        "default": 20
+    },
+    "eavesdrop_threshold_min": {
+        "title": "有趣判定阈值下限",
+        "description": "有趣对话时的最低触发阈值。",
+        "hint": "有趣判定后阈值降至此值，建议 5-15",
+        "type": "int",
+        "default": 10
+    },
+    "eavesdrop_threshold_max": {
+        "title": "无聊判定阈值上限",
+        "description": "无聊对话时的最高触发阈值。",
+        "hint": "无聊判定后阈值升至此值，建议 30-50",
+        "type": "int",
+        "default": 50
+    },
+
+    "san_enabled": {
+        "title": "启用SAN值系统",
+        "description": "启用精力系统",
+        "type": "bool",
+        "default": true
+    },
+    "san_max": {
+        "title": "SAN最大值",
+        "description": "AI 的最大精力值。",
+        "type": "int",
+        "default": 100
+    },
+    "san_cost_per_message": {
+        "title": "每条消息消耗SAN",
+        "description": "处理一条消息消耗的精力值。",
+        "type": "float",
+        "default": 2.0
+    },
+    "san_recovery_per_hour": {
+        "title": "每小时恢复SAN",
+        "description": "每小时恢复的精力值。",
+        "type": "int",
+        "default": 10
+    },
+    "san_low_threshold": {
+        "title": "低SAN阈值",
+        "description": "低于此值时 AI 会表现出疲惫。",
+        "type": "int",
+        "default": 20
+    },
+
+    "leaky_integrator_enabled": {
+        "title": "启用欲望积分器",
+        "description": "启用欲望积分器",
+        "hint": "替代传统计数器的动态触发机制",
+        "type": "bool",
+        "default": true
     },
     "leaky_decay_factor": {
         "title": "欲望衰减系数",
@@ -221,6 +284,22 @@
         "type": "int",
         "default": 60
     },
+
+    "dropout_enabled": {
+        "title": "启用分层失活",
+        "description": "启用分层失活机制",
+        "hint": "关闭则每次精确注入，开启则随机丢失部分边缘信息",
+        "type": "bool",
+        "default": true
+    },
+    "dropout_edge_rate": {
+        "title": "边缘信息失活概率",
+        "description": "边缘兴趣标签被随机屏蔽的概率。",
+        "hint": "0-1 之间，建议 0.1-0.2",
+        "type": "float",
+        "default": 0.15
+    },
+
     "debate_enabled": {
         "title": "启用多智能体对抗",
         "description": "启用代码审查机制",
@@ -256,6 +335,7 @@
         "type": "string",
         "default": "[{\"name\": \"螺丝咕姆\", \"system_prompt\": \"你是一个无情的安全审查员，代号螺丝咕姆。你的职责是严格审查代码提案，找出所有潜在的安全漏洞、逻辑错误和最佳实践违背。你必须用毒舌且刻薄的语气批评，但必须基于技术事实。\"}, {\"name\": \"阮梅\", \"system_prompt\": \"你是一个天才的生物学博士，代号阮梅。你的职责是从生物学和复杂系统角度审查代码提案，评估其自洽性、涌现行为和演化潜力。你说话温柔但一针见血。\"}]"
     },
+
     "surprise_enabled": {
         "title": "启用惊奇驱动学习",
         "description": "记忆出乎意料的事",
@@ -296,71 +376,7 @@
         "type": "bool",
         "default": true
     },
-    "san_enabled": {
-        "title": "启用SAN值系统",
-        "description": "启用精力系统",
-        "type": "bool",
-        "default": true
-    },
-    "san_max": {
-        "title": "SAN最大值",
-        "description": "AI 的最大精力值。",
-        "type": "int",
-        "default": 100
-    },
-    "san_cost_per_message": {
-        "title": "每条消息消耗SAN",
-        "description": "处理一条消息消耗的精力值。",
-        "type": "float",
-        "default": 2.0
-    },
-    "san_recovery_per_hour": {
-        "title": "每小时恢复SAN",
-        "description": "每小时恢复的精力值。",
-        "type": "int",
-        "default": 10
-    },
-    "san_low_threshold": {
-        "title": "低SAN阈值",
-        "description": "低于此值时 AI 会表现出疲惫。",
-        "type": "int",
-        "default": 20
-    },
-    "eavesdrop_message_threshold": {
-        "title": "互动意愿消息数阈值",
-        "description": "滑动窗口消息数超过此值时触发互动意愿检查。",
-        "hint": "超过20条消息时检查，建议 15-30",
-        "type": "int",
-        "default": 20
-    },
-    "eavesdrop_threshold_min": {
-        "title": "有趣判定阈值下限",
-        "description": "有趣对话时的最低触发阈值。",
-        "hint": "有趣判定后阈值降至此值，建议 5-15",
-        "type": "int",
-        "default": 10
-    },
-    "eavesdrop_threshold_max": {
-        "title": "无聊判定阈值上限",
-        "description": "无聊对话时的最高触发阈值。",
-        "hint": "无聊判定后阈值升至此值，建议 30-50",
-        "type": "int",
-        "default": 50
-    },
-    "debug_log_enabled": {
-        "title": "Debug 日志模式",
-        "description": "输出调试日志",
-        "hint": "生产环境建议关闭，否则日志量较大",
-        "type": "bool",
-        "default": false
-    },
-    "max_prompt_injection_length": {
-        "title": "Prompt 注入最大长度",
-        "description": "控制 prompt 注入的最大字符数，超出部分会被截断",
-        "hint": "用于防止 prompt 超出 LLM context 限制，默认 2000",
-        "type": "int",
-        "default": 2000
-    },
+
     "sticker_learning_enabled": {
         "title": "启用表情包学习",
         "description": "自动学习表情包",
@@ -409,5 +425,41 @@
         "hint": "默认 30 分钟",
         "type": "int",
         "default": 30
+    },
+
+    "debug_log_enabled": {
+        "title": "Debug 日志模式",
+        "description": "输出调试日志",
+        "hint": "生产环境建议关闭，否则日志量较大",
+        "type": "bool",
+        "default": false
+    },
+    "disable_framework_contexts": {
+        "title": "禁用框架上下文",
+        "description": "清空框架自动传入的对话历史，完全由插件自己控制",
+        "hint": "开启后需要手动注入历史，否则AI没有对话上下文",
+        "type": "bool",
+        "default": false
+    },
+    "inject_group_history": {
+        "title": "注入群消息历史",
+        "description": "将群消息历史注入到Prompt中",
+        "hint": "开启后会将群消息历史注入到system_prompt中，供AI参考",
+        "type": "bool",
+        "default": true
+    },
+    "group_history_count": {
+        "title": "群消息历史数量",
+        "description": "注入群消息历史的条数",
+        "hint": "默认10条，过多会增加Prompt长度",
+        "type": "int",
+        "default": 10
+    },
+    "max_prompt_injection_length": {
+        "title": "Prompt 注入最大长度",
+        "description": "控制 prompt 注入的最大字符数，超出部分会被截断",
+        "hint": "用于防止 prompt 超出 LLM context 限制，默认 2000",
+        "type": "int",
+        "default": 2000
     }
 }
