@@ -949,15 +949,18 @@ class EavesdroppingEngine:
                 bot_id = str(getattr(platform, "client_self_id", ""))
             logger.debug(f"[Interject] 群 {group_id}: bot_id = {bot_id}")
 
-            # 检查最新一条消息是否是 AI 自己发的 - 暂时注释用于调试
-            # if messages:
-            #     latest_msg = messages[0]
-            #     latest_sender = latest_msg.get("sender", {})
-            #     latest_sender_id = str(latest_sender.get("user_id", ""))
-            #     logger.debug(f"[Interject] 群 {group_id}: 最新消息sender={latest_sender}, latest_sender_id={latest_sender_id}, bot_id={bot_id}")
-            #     if latest_sender_id == bot_id:
-            #         logger.debug(f"[Interject] 群 {group_id}: 最新一条是AI自己的回复，跳过插嘴")
-            #         return
+            # 检查最新一条消息是否是 AI 自己发的 - 用 messages[-1] 获取最新消息（列表是倒序的）
+            if messages:
+                latest_msg = messages[-1]  # 最后一条是最新的
+                latest_sender = latest_msg.get("sender", {})
+                latest_sender_id = str(latest_sender.get("user_id", ""))
+                latest_msg_seq = latest_msg.get("message_seq")
+                logger.debug(
+                    f"[Interject] 群 {group_id}: 最新消息sender_id={latest_sender_id}, bot_id={bot_id}, latest_msg_seq={latest_msg_seq}"
+                )
+                if latest_sender_id == bot_id:
+                    logger.debug(f"[Interject] 群 {group_id}: 最新一条是AI自己的回复，跳过插嘴")
+                    return
 
             has_ai_mention = False
 
@@ -982,20 +985,27 @@ class EavesdroppingEngine:
             # 则不插嘴
 
             # 计算新增消息数量 - 使用 message_seq 更可靠
+            # 消息列表是倒序的（最新的在前），需要从最新往回找
             last_msg_seq = None
             if group_id in self._interject_history:
                 last_msg_seq = self._interject_history[group_id].get("last_msg_seq")
 
             total_msgs = len(messages)
-            # 找到新增消息的起始位置
+            # 找到新增消息的起始位置（从最新消息往前找）
             new_msg_count = total_msgs
             found_last_msg = False
             if last_msg_seq is not None:
-                for i, msg in enumerate(messages):
-                    msg_seq = msg.get("message_seq")
+                # 倒序遍历：从 messages[0]（最新）到 messages[-1]（最旧）
+                for i in range(len(messages)):
+                    msg_seq = messages[i].get("message_seq")
                     if msg_seq is not None and msg_seq <= last_msg_seq:
-                        new_msg_count = i  # 从 last_msg_seq 之前的消息数
+                        # i 是 last_msg_seq 在列表中的位置
+                        # 从 0 到 i-1 都是 last_msg_seq 之后的"新"消息
+                        new_msg_count = i
                         found_last_msg = True
+                        logger.debug(
+                            f"[Interject] 群 {group_id}: 找到last_msg_seq={last_msg_seq}在位置{i}，新增{new_msg_count}条"
+                        )
                         break
 
                 # 如果找不到上次的 last_msg_seq，说明消息已过期，使用全部消息数
@@ -1009,9 +1019,9 @@ class EavesdroppingEngine:
 
             min_msg_count = self.plugin.cfg.interject_min_msg_count
 
-            # 每次检查时都更新 last_msg_seq，确保下次能正确计算新增消息
+            # 每次检查时都更新 last_msg_seq，确保下次能正确计算新增消息 - 用 messages[-1] 获取最新消息
             if messages:
-                latest_msg_seq = messages[0].get("message_seq")
+                latest_msg_seq = messages[-1].get("message_seq")  # 最后一条是最新的
                 self._interject_history[group_id] = {
                     "last_time": self._interject_history.get(group_id, {}).get("last_time", time.time()),
                     "last_msg_seq": latest_msg_seq,
