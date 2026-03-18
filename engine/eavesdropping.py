@@ -1173,6 +1173,19 @@ class EavesdroppingEngine:
                     return
                 logger.debug(f"[Interject] 群 {group_id}: [L3] 本地过滤通过: {filter_result['reason']}")
 
+            # ========== @检测：只有@了机器人才可能插嘴 ==========
+            at_detected = False
+            for seg in latest_msg.get("message", []):
+                if isinstance(seg, dict) and seg.get("type") == "at":
+                    at_qq = str(seg.get("data", {}).get("qq", ""))
+                    if at_qq == bot_id or at_qq == "all":
+                        at_detected = True
+                        break
+            if not at_detected:
+                logger.debug(f"[Interject] 群 {group_id}: [L3.5] 最新消息未@机器人，跳过")
+                self._update_interject_cursor(group_id, latest_msg_seq)
+                return
+
             # ========== 第四层：LLM深度分析 ==========
             layer = 5
             llm_provider = self.plugin.context.get_using_provider("qq")
@@ -1199,8 +1212,7 @@ class EavesdroppingEngine:
 
 注意：
 1. urgency_score 超过 {self.plugin.cfg.interject_urgency_threshold} 时才应该插嘴
-2. 只有当消息中@了当前机器人(ID={bot_id})时才插嘴
-3. 只有当群里有有趣的讨论、有争议的话题、或者有人提问但没人回答时才应该插嘴"""
+2. 只有当群里有有趣的讨论、有争议的话题、或者有人提问但没人回答时才应该插嘴"""
 
             logger.debug(f"[Interject] 群 {group_id}: [L4] 正在请求LLM判断...")
             res = await llm_provider.text_chat(
