@@ -768,41 +768,68 @@ class SelfEvolutionPlugin(Star):
 
     @filter.llm_tool(name="get_user_messages")
     async def get_user_messages(self, event: AstrMessageEvent, target_user_id: str = None, limit: int = 100) -> str:
-        """获取用户的历史消息记录，用于分析用户行为模式。
+        """获取指定用户在群聊中的历史消息记录。
 
         触发场景：
-        - 需要了解用户更多信息时
-        - 更新用户画像前获取历史发言
+        - 需要了解用户在群里的发言历史时
+        - 分析用户在群里的行为模式时
 
         Args:
             target_user_id(string): 目标用户ID，不填则获取当前用户（可选）
             limit(number): 获取消息数量，默认100，最大1000（可选）
+
+        注意：此工具仅适用于群聊场景，使用NapCat API获取消息。
         """
         target = target_user_id or event.get_sender_id()
-
-        # 限制数量
         limit = min(max(1, limit), 1000)
 
+        logger.debug(f"[Tool] get_user_messages: target={target}, limit={limit}")
+
         try:
-            history_mgr = self.context.message_history_manager
-            platform_id = event.get_platform_name() or "qq"
+            platform_insts = self.context.platform_manager.platform_insts
+            if not platform_insts:
+                logger.warning("[Tool] get_user_messages: 无法获取平台实例")
+                return "无法获取平台实例"
 
-            history = await history_mgr.get(
-                platform_id=platform_id,
-                user_id=target,
-                page=1,
-                page_size=limit,
+            platform = platform_insts[0]
+            if not hasattr(platform, "get_client"):
+                logger.warning("[Tool] get_user_messages: 平台不支持获取 bot")
+                return "平台不支持获取 bot"
+
+            bot = platform.get_client()
+            if not bot:
+                logger.warning("[Tool] get_user_messages: 无法获取 bot 实例")
+                return "无法获取 bot 实例"
+
+            group_id = event.get_group_id()
+
+            if not group_id:
+                logger.debug("[Tool] get_user_messages: 私聊场景不适用")
+                return "此工具仅适用于群聊场景"
+
+            logger.debug(f"[Tool] get_user_messages: 群={group_id}, 获取{limit}条消息")
+            result = await bot.call_action("get_group_msg_history", group_id=int(group_id), count=limit)
+            messages = result.get("messages", [])
+
+            if not messages:
+                return f"群 {group_id} 无消息记录"
+
+            from .engine.context_injection import parse_message_chain
+
+            formatted_messages = await asyncio.gather(*[parse_message_chain(msg, self) for msg in messages])
+            formatted_messages = [f for f in formatted_messages if f]
+
+            user_messages = []
+            for msg_text in formatted_messages:
+                if f"{target}:" in msg_text or str(target) in msg_text:
+                    user_messages.append(msg_text)
+
+            if not user_messages:
+                return f"用户 {target} 在群 {group_id} 中无消息记录"
+
+            return f"用户 {target} 在群 {group_id} 的历史消息（共 {len(user_messages)} 条）：\n" + "\n".join(
+                user_messages[:20]
             )
-
-            if not history:
-                return f"未找到用户 {target} 的历史消息记录。"
-
-            # 格式化为文本
-            result = [f"用户 {target} 的历史消息（共 {len(history)} 条）："]
-            for i, msg in enumerate(history[:20], 1):  # 最多显示20条
-                result.append(f"{i}. {getattr(msg, 'sender_name', 'Unknown')}: {getattr(msg, 'message_str', '')}")
-
-            return "\n".join(result)
 
         except Exception as e:
             logger.warning(f"[SelfEvolution] 获取用户消息失败: {e}")
