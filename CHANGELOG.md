@@ -4,7 +4,7 @@
 
 ---
 
-## [Release Ver2.5.1] - 2026-03-17
+## [Release Ver2.5.5] - 2026-03-17
 
 ### NapCat API 整合修复
 

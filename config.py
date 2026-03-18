@@ -158,6 +158,30 @@ class PluginConfig:
     def interject_min_msg_count(self):
         return int(self._config.get("interject_min_msg_count", 10))
 
+    @property
+    def interject_silence_timeout(self):
+        return int(self._config.get("interject_silence_timeout", 15))
+
+    @property
+    def interject_local_filter_enabled(self):
+        return self._parse_bool(self._config.get("interject_local_filter_enabled"), True)
+
+    @property
+    def interject_urgency_threshold(self):
+        return int(self._config.get("interject_urgency_threshold", 80))
+
+    @property
+    def interject_dry_run(self):
+        return self._parse_bool(self._config.get("interject_dry_run"), False)
+
+    @property
+    def interject_random_bypass_rate(self):
+        return float(self._config.get("interject_random_bypass_rate", 0.1))
+
+    @property
+    def interject_analyze_count(self):
+        return int(self._config.get("interject_analyze_count", 15))
+
     # ========== 阈值系统 ==========
     @property
     def eavesdrop_message_threshold(self):

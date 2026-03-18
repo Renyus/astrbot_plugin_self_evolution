@@ -181,6 +181,47 @@
         "type": "int",
         "default": 10
     },
+    "interject_silence_timeout": {
+        "title": "留白检测时间",
+        "description": "距离上一条消息超过此时间才认为有插嘴机会",
+        "hint": "单位：秒，默认 15秒，避免在热聊中插嘴",
+        "type": "int",
+        "default": 15
+    },
+    "interject_local_filter_enabled": {
+        "title": "启用本地轻量级过滤",
+        "description": "在调用LLM前先用本地规则过滤，减少LLM调用次数",
+        "type": "bool",
+        "default": true
+    },
+    "interject_urgency_threshold": {
+        "title": "插嘴紧迫度阈值",
+        "description": "LLM返回的urgency_score必须超过此阈值才执行插嘴",
+        "hint": "默认 80，越高越保守",
+        "type": "int",
+        "default": 80
+    },
+    "interject_dry_run": {
+        "title": "影子模式（Dry Run）",
+        "description": "开启后不实际发送消息，只输出日志用于调优",
+        "hint": "建议开启1-2天调优参数后关闭",
+        "type": "bool",
+        "default": false
+    },
+    "interject_random_bypass_rate": {
+        "title": "随机松绑概率",
+        "description": "本地过滤未命中时，仍有概率放行给LLM判断",
+        "hint": "默认 0.1 (10%)，增加AI的不可预测性",
+        "type": "float",
+        "default": 0.1
+    },
+    "interject_analyze_count": {
+        "title": "LLM分析消息数",
+        "description": "发送给LLM分析的消息条数",
+        "hint": "默认 15 条",
+        "type": "int",
+        "default": 15
+    },
 
     "eavesdrop_message_threshold": {
         "title": "互动意愿消息数阈值",

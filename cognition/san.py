@@ -164,7 +164,7 @@ class SANSystem:
             total_change = 0
             for group_id in listened_groups:
                 change = await self._analyze_group(group_id)
-                if change != 0:
+                if change is not None and change != 0:
                     total_change += change
                     logger.debug(f"[SAN] 群 {group_id} 分析完成，SAN 变化: {change:+d}")
 
