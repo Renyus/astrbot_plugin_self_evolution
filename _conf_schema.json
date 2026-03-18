@@ -215,6 +215,13 @@
         "type": "float",
         "default": 0.1
     },
+    "interject_analyze_count": {
+        "title": "LLM分析消息数",
+        "description": "发送给LLM分析的消息条数",
+        "hint": "默认 15 条",
+        "type": "int",
+        "default": 15
+    },
 
     "eavesdrop_message_threshold": {
         "title": "互动意愿消息数阈值",

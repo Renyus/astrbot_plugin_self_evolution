@@ -178,6 +178,10 @@ class PluginConfig:
     def interject_random_bypass_rate(self):
         return float(self._config.get("interject_random_bypass_rate", 0.1))
 
+    @property
+    def interject_analyze_count(self):
+        return int(self._config.get("interject_analyze_count", 15))
+
     # ========== 阈值系统 ==========
     @property
     def eavesdrop_message_threshold(self):
