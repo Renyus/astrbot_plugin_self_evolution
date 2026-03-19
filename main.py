@@ -106,7 +106,6 @@ class SelfEvolutionPlugin(Star):
 
         # CognitionCore 7.0: 状态容器
         self._lock = None  # 用于元编程写锁
-        self.daily_reflection_pending = False
         self._pending_db_reset = {}  # 待确认的数据库重置操作 {user_id: timestamp}
         self._shut_until = None  # 闭嘴截止时间 (timestamp)
         self._shut_until_by_group = {}  # 群级别闭嘴 {群号: 截止时间}
@@ -436,6 +435,8 @@ class SelfEvolutionPlugin(Star):
         # 7. 反思标记处理
         session_id = event.session_id
         is_pending = await self.dao.pop_pending_reflection(session_id)
+        if is_pending:
+            logger.info(f"[SelfEvolution] 反思待处理标记已触发，会话: {session_id}")
 
         # 框架人格由框架自动注入，不再手动追加
         # 先截断过长的注入内容，避免超出 token 限制
