@@ -34,8 +34,8 @@
     },
     "reflection_schedule": {
         "title": "每日批处理计划 (Cron)",
-        "description": "Bot 自动执行前一自然日会话日报、画像刷新与好感度恢复的时间表。",
-        "hint": "Cron 表达式，默认每天凌晨 2 点：0 2 * * *",
+        "description": "前一自然日批处理",
+        "hint": "按前一自然日生成会话日报、刷新画像并恢复好感度。Cron 表达式，默认每天凌晨 2 点：0 2 * * *",
         "type": "string",
         "default": "0 2 * * *"
     },
@@ -48,14 +48,15 @@
     },
     "memory_msg_count": {
         "title": "每日总结分页消息数",
-        "description": "执行前一自然日会话总结时，每次从 NapCat 历史记录分页拉取的消息数量；消息过多时会继续翻页并分段总结。",
+        "description": "总结分页大小",
+        "hint": "执行前一自然日会话总结时，每次从 NapCat 历史记录分页拉取的消息数量；消息过多时会继续翻页并分段总结。",
         "type": "int",
         "default": 500
     },
     "memory_summary_schedule": {
         "title": "每日总结计划 (Cron)",
-        "description": "定时执行前一自然日会话总结的时间表。",
-        "hint": "Cron 表达式，默认每天凌晨 3 点：0 3 * * *",
+        "description": "前一自然日总结",
+        "hint": "定时执行前一自然日会话总结。Cron 表达式，默认每天凌晨 3 点：0 3 * * *",
         "type": "string",
         "default": "0 3 * * *"
     },
@@ -89,7 +90,8 @@
     },
     "auto_profile_enabled": {
         "title": "启用自动画像构建",
-        "description": "定时批量分析群消息并构建用户画像。",
+        "description": "定时自动构建画像",
+        "hint": "定时批量分析群消息并构建用户画像。",
         "type": "bool",
         "default": true
     },
@@ -109,15 +111,15 @@
     },
     "auto_profile_batch_interval": {
         "title": "批次间隔时间(分钟)",
-        "description": "处理完一批群后等待多久处理下一批。",
-        "hint": "默认 30 分钟",
+        "description": "批次间隔时长",
+        "hint": "处理完一批群后等待多久处理下一批。默认 30 分钟",
         "type": "int",
         "default": 30
     },
     "core_info_keywords": {
         "title": "核心信息关键词",
-        "description": "在画像摘要里永不丢失的关键信息提示词。",
-        "hint": "用逗号分隔，如：我是谁,我的名字,我的身份",
+        "description": "核心信息提示词",
+        "hint": "在画像摘要里永不丢失的关键信息提示词。用逗号分隔，如：我是谁,我的名字,我的身份",
         "type": "string",
         "default": "我是谁,我的名字,我的身份,我的职责"
     },
@@ -158,41 +160,42 @@
     },
     "interject_silence_timeout": {
         "title": "留白检测时间",
-        "description": "距离上一条消息超过此时间才认为有插嘴机会",
+        "description": "留白检测阈值",
         "hint": "单位：秒，默认 15秒，避免在热聊中插嘴",
         "type": "int",
         "default": 15
     },
     "interject_local_filter_enabled": {
         "title": "启用本地轻量级过滤",
-        "description": "在调用LLM前先用本地规则过滤，减少LLM调用次数",
+        "description": "启用本地预过滤",
+        "hint": "在调用 LLM 前先用本地规则过滤，减少 LLM 调用次数",
         "type": "bool",
         "default": true
     },
     "interject_require_at": {
-        "title": "Require @ mention for interject",
-        "description": "Only continue proactive interject analysis when the latest message mentions the bot or @all.",
-        "hint": "Default true for compatibility. Disable it if you want the bot to participate more proactively.",
+        "title": "插嘴需@门槛",
+        "description": "最新消息需@",
+        "hint": "开启后仅当最新消息提到机器人或 @all 时才继续主动插嘴分析。默认 true 以保持兼容；关闭后机器人会更主动参与。",
         "type": "bool",
         "default": true
     },
     "interject_urgency_threshold": {
         "title": "插嘴紧迫度阈值",
-        "description": "LLM返回的urgency_score必须超过此阈值才执行插嘴",
+        "description": "插嘴执行阈值",
         "hint": "默认 80，越高越保守",
         "type": "int",
         "default": 80
     },
     "interject_dry_run": {
         "title": "影子模式（Dry Run）",
-        "description": "开启后不实际发送消息，只输出日志用于调优",
+        "description": "只记录不发送",
         "hint": "建议开启1-2天调优参数后关闭",
         "type": "bool",
         "default": false
     },
     "interject_random_bypass_rate": {
         "title": "随机松绑概率",
-        "description": "本地过滤未命中时，仍有概率放行给LLM判断",
+        "description": "随机放行概率",
         "hint": "默认 0.1 (10%)，增加AI的不可预测性",
         "type": "float",
         "default": 0.1
@@ -207,7 +210,7 @@
 
     "eavesdrop_message_threshold": {
         "title": "互动意愿消息数阈值",
-        "description": "滑动窗口消息数超过此值时触发互动意愿检查。",
+        "description": "互动意愿阈值",
         "hint": "超过20条消息时检查，建议 15-30",
         "type": "int",
         "default": 20
@@ -259,7 +262,8 @@
     },
     "san_auto_analyze_enabled": {
         "title": "启用自动SAN分析",
-        "description": "开启后会定时分析群聊状态并动态调整 SAN。",
+        "description": "定时分析群状态",
+        "hint": "开启后会定时分析群聊状态并动态调整 SAN。",
         "type": "bool",
         "default": true
     },
@@ -278,7 +282,8 @@
     },
     "san_high_activity_boost": {
         "title": "高活跃加成",
-        "description": "高活跃且状态良好时增加的 SAN。",
+        "description": "高活跃加成值",
+        "hint": "高活跃且状态良好时增加的 SAN。",
         "type": "int",
         "default": 5
     },
@@ -338,7 +343,7 @@
     },
     "desire_cooldown_messages": {
         "title": "欲望冷却消息数",
-        "description": "AI连续回复多少条消息后进入贤者时间",
+        "description": "贤者时间消息阈值",
         "hint": "触发后不立即冷却，连续回复N条后才休息，默认5条",
         "type": "int",
         "default": 5
@@ -375,21 +380,21 @@
     },
     "debate_rounds": {
         "title": "对抗辩论轮次",
-        "description": "主控和审查 Agent 之间的辩论轮次。",
+        "description": "多智能体轮次",
         "hint": "建议 1-3 轮",
         "type": "int",
         "default": 3
     },
     "debate_system_prompt": {
         "title": "审查 Agent 系统提示词",
-        "description": "审查 Agent（螺丝咕姆）的系统提示词。",
+        "description": "审查提示词",
         "hint": "设定为一个无情的安全审查员",
         "type": "string",
         "default": "你是一个无情的安全审查员，代号螺丝咕姆。你的职责是严格审查代码提案，找出所有潜在的安全漏洞、逻辑错误和最佳实践违背。你必须用毒舌且刻薄的语气批评，但必须基于技术事实。"
     },
     "debate_criteria": {
         "title": "审查标准",
-        "description": "审查 Agent 需要检查的标准。",
+        "description": "审查标准列表",
         "hint": "用 | 分隔多个检查项",
         "type": "string",
         "default": "安全漏洞|逻辑错误|性能问题|代码规范|潜在Bug"
@@ -432,7 +437,8 @@
     },
     "boredom_consecutive_count": {
         "title": "连续无聊计数",
-        "description": "连续多少条低信息量消息后触发无聊状态。",
+        "description": "无聊触发计数",
+        "hint": "连续多少条低信息量消息后触发无聊状态。",
         "type": "int",
         "default": 10
     },
@@ -446,7 +452,7 @@
     },
     "sticker_target_qq": {
         "title": "表情包学习对象QQ号",
-        "description": "要学习的群友 QQ 号，多个用逗号分隔",
+        "description": "表情包学习对象",
         "hint": "如：123456789,987654321",
         "type": "string",
         "default": ""
@@ -474,7 +480,7 @@
     },
     "sticker_send_cooldown": {
         "title": "发表情包冷却时间(分钟)",
-        "description": "AI 发送表情包后需要等待多久才能再次发送",
+        "description": "发表情包冷却",
         "hint": "默认 30 分钟",
         "type": "int",
         "default": 30
@@ -489,7 +495,7 @@
     },
     "disable_framework_contexts": {
         "title": "禁用框架上下文",
-        "description": "清空框架自动传入的对话历史，完全由插件自己控制",
+        "description": "禁用框架上下文",
         "hint": "开启后需要手动注入历史，否则AI没有对话上下文",
         "type": "bool",
         "default": false
@@ -510,14 +516,15 @@
     },
     "max_prompt_injection_length": {
         "title": "Prompt 注入最大长度",
-        "description": "控制 prompt 注入的最大字符数，超出部分会被截断",
+        "description": "注入最大字符数",
         "hint": "用于防止 prompt 超出 LLM context 限制，默认 2000",
         "type": "int",
         "default": 2000
     },
     "prompt_meltdown_message": {
         "title": "熔断回复文本",
-        "description": "当用户好感度降到 0 时强制返回的固定回复。",
+        "description": "熔断固定回复",
+        "hint": "当用户好感度降到 0 时强制返回的固定回复。",
         "type": "string",
         "default": "远程人偶自动应答模式：你好，你好，大家好，祝你拥有愉快的一天，再见。"
     }
