@@ -186,7 +186,7 @@ class SANSystem:
             return whitelist
         # 方式2: eavesdropping active_users
         if hasattr(self.plugin, "eavesdropping") and hasattr(self.plugin.eavesdropping, "active_users"):
-            groups = list(self.plugin.eavesdropping.active_users.keys())
+            groups = [g for g in self.plugin.eavesdropping.active_users.keys() if not g.startswith("private_")]
             if groups:
                 logger.debug(f"[SAN] 使用 eavesdropping 活跃群列表: {groups}")
                 return groups

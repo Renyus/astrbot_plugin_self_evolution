@@ -58,6 +58,17 @@ class SelfEvolutionPlugin(Star):
             return val.lower() in ("true", "1", "yes", "on")
         return default
 
+    def _get_bot_id(self) -> str:
+        """获取当前机器人的ID"""
+        try:
+            platform_insts = self.context.platform_manager.platform_insts
+            if platform_insts:
+                platform = platform_insts[0]
+                return str(getattr(platform, "client_self_id", "") or "")
+        except Exception:
+            pass
+        return ""
+
     def __init__(self, context: Context, config: dict):
         super().__init__(context, config)
         self.config = config or {}
@@ -165,7 +176,6 @@ class SelfEvolutionPlugin(Star):
 
     def _post_init(self):
         self.san_system.initialize()
-        self._load_prompts_injection()
         logger.info(
             f"[SelfEvolution] === 插件初始化完成 | 模式: {'审核' if self.review_mode else '自动'} | 元编程: {self.allow_meta_programming} | SAN: {self.san_system.value}/{self.san_system.max_value} ==="
         )
@@ -187,6 +197,7 @@ class SelfEvolutionPlugin(Star):
 
     async def initialize(self) -> None:
         await self.dao.init_db()
+        self._load_prompts_injection()
 
     @filter.on_plugin_unloaded()
     async def on_plugin_unloaded(self, metadata):
@@ -286,7 +297,7 @@ class SelfEvolutionPlugin(Star):
                 reply_content = getattr(comp, "message_str", "")
                 reply_sender_id = getattr(comp, "sender_id", "")
 
-                bot_id = str(getattr(event.get_onebot_platform(), "client_self_id", "") or "")
+                bot_id = self._get_bot_id()
                 is_ai_reply = (
                     reply_sender == self.persona_name or str(reply_sender_id) == bot_id or str(reply_sender_id) == "AI"
                 )
@@ -300,7 +311,7 @@ class SelfEvolutionPlugin(Star):
                 at_targets.append(str(getattr(comp, "qq", "")))
 
         # 检查是否at了机器人
-        bot_id = str(getattr(event.get_onebot_platform(), "client_self_id", "") or "")
+        bot_id = self._get_bot_id()
         at_info = ""
         if at_targets:
             if "all" in at_targets or bot_id in at_targets:
@@ -781,8 +792,7 @@ class SelfEvolutionPlugin(Star):
         timestamp = time.strftime("%Y-%m-%d %H:%M")
 
         target_user_id = entity
-        sender = event.get_sender()
-        nickname = sender.get("nickname", "") if sender else ""
+        nickname = event.get_sender_name() or ""
 
         profile_content = f"---\n**{timestamp}**\n{content}"
         existing = await self.profile.load_profile(group_id, target_user_id)

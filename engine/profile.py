@@ -30,10 +30,6 @@ class ProfileManager:
         self._profile_daily_updated = {}
 
     @property
-    def precision_mode(self):
-        return self.plugin.cfg.profile_precision_mode
-
-    @property
     def dropout_enabled(self):
         return self.plugin.cfg.dropout_enabled
 
@@ -237,15 +233,25 @@ class ProfileManager:
 
     async def delete_profile(self, group_id: str, user_id: str) -> str:
         """删除用户画像"""
-        path = self._get_profile_path(group_id, user_id)
         profile_key = f"{group_id}_{user_id}"
-        if path.exists():
-            path.unlink()
-            # 清理缓存
-            self._profile_cache.pop(profile_key, None)
-            self._cache_access_time.pop(profile_key, None)
-            logger.debug(f"[Profile] 已删除用户画像: {profile_key}")
-            return f"已删除用户 {user_id} 的画像。"
+        deleted_count = 0
+
+        # 删除所有匹配的文件：无昵称版本和有昵称版本
+        for pattern in [f"{profile_key}.yaml", f"{profile_key}_*.yaml"]:
+            for path in self.profile_dir.glob(pattern):
+                try:
+                    path.unlink()
+                    deleted_count += 1
+                    logger.debug(f"[Profile] 已删除画像文件: {path.name}")
+                except Exception as e:
+                    logger.warning(f"[Profile] 删除画像失败 {path.name}: {e}")
+
+        # 清理缓存
+        self._profile_cache.pop(profile_key, None)
+        self._cache_access_time.pop(profile_key, None)
+
+        if deleted_count > 0:
+            return f"已删除用户 {user_id} 的画像（{deleted_count}个文件）。"
         return f"用户 {user_id} 不存在画像记录。"
 
     async def list_profiles(self) -> dict:
