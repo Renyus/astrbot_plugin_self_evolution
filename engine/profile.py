@@ -144,12 +144,8 @@ class ProfileManager:
         """从 yaml 文件加载画像内容"""
         try:
             content = path.read_text(encoding="utf-8").strip()
-            # 清理 Markdown 代码块标记
-            content = self._clean_yaml_content(content)
-            data = yaml.safe_load(content)
-            if data and isinstance(data, dict):
-                return data.get("content", "")
-            return content
+            _, body = self._parse_profile_document_text(content)
+            return body
         except Exception as e:
             logger.warning(f"[Profile] 解析画像文件失败 {path}: {e}")
             return ""
@@ -164,6 +160,89 @@ class ProfileManager:
         # 移除结尾的 ```
         content = re.sub(r"\n?```$", "", content)
         return content.strip()
+
+    @staticmethod
+    def _unquote_yaml_scalar(value: str) -> str:
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            return value[1:-1]
+        return value
+
+    def _parse_profile_document_text(self, content: str) -> tuple[dict, str]:
+        """解析画像文档，返回元数据和正文内容。"""
+        cleaned = self._clean_yaml_content(content or "")
+        if not cleaned:
+            return {}, ""
+
+        lines = cleaned.splitlines()
+        block_index = next((i for i, line in enumerate(lines) if line.startswith("content: |")), None)
+        if block_index is not None:
+            metadata = {}
+            for raw_line in lines[:block_index]:
+                if ":" not in raw_line:
+                    continue
+                key, value = raw_line.split(":", 1)
+                metadata[key.strip()] = self._unquote_yaml_scalar(value.strip())
+
+            body_lines = []
+            for raw_line in lines[block_index + 1 :]:
+                if raw_line.startswith("  "):
+                    body_lines.append(raw_line[2:])
+                elif raw_line == "":
+                    body_lines.append("")
+                else:
+                    body_lines.append(raw_line)
+            return metadata, "\n".join(body_lines).rstrip()
+
+        try:
+            data = yaml.safe_load(cleaned)
+        except Exception:
+            return {}, cleaned
+
+        if isinstance(data, dict) and "content" in data:
+            metadata = {k: v for k, v in data.items() if k != "content"}
+            return metadata, str(data.get("content") or "")
+
+        return {}, cleaned
+
+    def _load_profile_document(self, path: Path) -> tuple[dict, str]:
+        content = path.read_text(encoding="utf-8")
+        return self._parse_profile_document_text(content)
+
+    def _serialize_profile_document(self, document: dict) -> str:
+        body = str(document.get("content", "") or "").rstrip()
+        lines = [
+            f'user_id: "{str(document.get("user_id", "") or "")}"',
+            f'scope_id: "{str(document.get("scope_id", "") or "")}"',
+            f'nickname: "{str(document.get("nickname", "") or "")}"',
+            f'updated_at: "{str(document.get("updated_at", "") or "")}"',
+            "content: |-",
+        ]
+
+        if body:
+            lines.extend(f"  {line}" for line in body.splitlines())
+        else:
+            lines.append("  ")
+
+        return "\n".join(lines).rstrip() + "\n"
+
+    def _build_profile_document(
+        self,
+        group_id: str,
+        user_id: str,
+        content: str,
+        nickname: str = "",
+        existing_metadata: dict | None = None,
+    ) -> dict:
+        metadata = dict(existing_metadata or {})
+        resolved_scope_id = str(group_id or metadata.get("scope_id") or metadata.get("group_id") or "")
+        resolved_nickname = str(nickname or metadata.get("nickname") or "未知")
+        return {
+            "user_id": str(user_id),
+            "scope_id": resolved_scope_id,
+            "nickname": resolved_nickname,
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "content": str(content or "").rstrip(),
+        }
 
     async def get_profile_summary(self, group_id: str, user_id: str) -> str:
         """获取画像摘要（用于注入 LLM）- 支持分层失活"""
@@ -229,9 +308,56 @@ class ProfileManager:
                 except OSError as e:
                     logger.warning(f"[Profile] 清理旧画像文件失败 {legacy_path.name}: {e}")
 
-        self._profile_cache[profile_key] = content
+        _, cached_body = self._parse_profile_document_text(content)
+        self._profile_cache[profile_key] = cached_body
         self._cache_access_time[profile_key] = time.time()
         logger.debug(f"[Profile] 已保存用户画像: {path.name} ({len(content)} 字符)")
+
+    async def save_profile_document(
+        self,
+        group_id: str,
+        user_id: str,
+        content: str,
+        nickname: str = "",
+        existing_metadata: dict | None = None,
+    ):
+        """以结构化 YAML 文档格式保存画像。"""
+        document = self._build_profile_document(group_id, user_id, content, nickname, existing_metadata=existing_metadata)
+        await self.save_profile(group_id, user_id, self._serialize_profile_document(document), nickname=nickname)
+
+    async def append_profile_content(self, group_id: str, user_id: str, addition: str, nickname: str = ""):
+        """向画像正文追加内容，并保留结构化 YAML 元数据。"""
+        addition = str(addition or "").strip()
+        if not addition:
+            return
+
+        existing_metadata = {}
+        existing_content = ""
+        profile_candidates = self._get_profile_candidates(group_id, user_id)
+        if profile_candidates:
+            try:
+                existing_metadata, existing_content = self._load_profile_document(profile_candidates[0])
+            except OSError as e:
+                logger.warning(f"[Profile] 读取画像文档失败 {group_id}_{user_id}: {e}")
+
+        segments = []
+        if existing_content.strip():
+            segments.append(existing_content.rstrip())
+        else:
+            segments.append("# 用户印象笔记")
+        segments.append(addition)
+
+        merged_content = "\n".join(segment for segment in segments if segment).strip()
+        if len(merged_content) > 2000:
+            merged_content = merged_content[-2000:]
+
+        await self.save_profile_document(
+            group_id,
+            user_id,
+            merged_content,
+            nickname=nickname or str(existing_metadata.get("nickname") or ""),
+            existing_metadata=existing_metadata,
+        )
 
     async def cleanup_expired_profiles(self, days: int = 90):
         """清理过期画像 - 根据文件修改时间删除长时间未更新的画像"""
@@ -489,11 +615,12 @@ class ProfileManager:
             user_msg_counts = defaultdict(int)
             user_nicknames = {}
             user_contents = defaultdict(list)
+            bot_id = str(self.plugin._get_bot_id() or "") if hasattr(self.plugin, "_get_bot_id") else ""
 
             for msg, parsed_text in zip(messages, parsed_messages, strict=False):
                 sender = msg.get("sender", {})
                 user_id = self._extract_sender_id(msg)
-                if not user_id or user_id == "0":
+                if not user_id or user_id == "0" or (bot_id and user_id == bot_id):
                     continue
                 nickname = sender.get("card") or sender.get("nickname", "未知")
                 if parsed_text:
@@ -609,7 +736,7 @@ class ProfileManager:
                     f"{interested_tag}\n"
                     "请以 YAML 格式输出用户画像，包含以下字段：\n"
                     "- user_id: 用户QQ号\n"
-                    "- group_id: 群号\n"
+                    "- scope_id: 会话范围ID（群号）\n"
                     "- nickname: 用户昵称\n"
                     "- updated_at: 更新时间（格式：YYYY-MM-DD HH:MM:SS）\n"
                     "- content: 用户画像描述（使用Markdown格式，不少于300字）\n"

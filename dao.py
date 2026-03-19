@@ -3,7 +3,7 @@ import hashlib
 import logging
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 from typing import Optional
 
@@ -125,6 +125,14 @@ class SelfEvolutionDAO:
                 summary TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 UNIQUE(group_id, created_at)
+            )
+        """)
+        # 已知会话范围表（用于后台任务在重启后恢复群聊/私聊目标）
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS known_scopes (
+                scope_id TEXT PRIMARY KEY,
+                scope_type TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL
             )
         """)
         # 好感度关系表
@@ -322,17 +330,17 @@ class SelfEvolutionDAO:
             logger.debug(f"[DAO] 已消费会话反思: key={reflection_key}")
 
     @with_db_retry()
-    async def save_group_daily_report(self, group_id: str, summary: str):
+    async def save_group_daily_report(self, group_id: str, summary: str, created_at: str | None = None):
         """保存会话日报"""
         db = await self.get_conn()
         async with self._write_lock:
-            today = time.strftime("%Y-%m-%d")
+            report_date = created_at or datetime.now().astimezone().strftime("%Y-%m-%d")
             await db.execute(
                 "INSERT OR REPLACE INTO group_daily_reports (group_id, summary, created_at) VALUES (?, ?, ?)",
-                (group_id, summary, today),
+                (group_id, summary, report_date),
             )
             await db.commit()
-            logger.debug(f"[DAO] 已保存会话日报: group_id={group_id}, date={today}")
+            logger.debug(f"[DAO] 已保存会话日报: group_id={group_id}, date={report_date}")
 
     @with_db_retry()
     async def get_latest_group_report(self, group_id: str) -> Optional[dict]:
@@ -353,12 +361,44 @@ class SelfEvolutionDAO:
         """获取最近N天的会话日报"""
         db = await self.get_conn()
         async with self._write_lock:
+            cutoff_date = (datetime.now().astimezone().date() - timedelta(days=max(days, 0))).strftime("%Y-%m-%d")
             cursor = await db.execute(
-                "SELECT group_id, summary, created_at FROM group_daily_reports WHERE group_id = ? AND created_at >= date('now', ?) ORDER BY created_at DESC",
-                (group_id, f"-{days} days"),
+                "SELECT group_id, summary, created_at FROM group_daily_reports WHERE group_id = ? AND created_at >= ? ORDER BY created_at DESC",
+                (group_id, cutoff_date),
             )
             rows = await cursor.fetchall()
             return [{"group_id": r[0], "summary": r[1], "created_at": r[2]} for r in rows]
+
+    @with_db_retry()
+    async def touch_known_scope(self, scope_id: str):
+        """记录最近出现过的会话范围，供后台任务恢复使用。"""
+        normalized_scope_id = str(scope_id or "").strip()
+        if not normalized_scope_id:
+            return
+
+        scope_type = "private" if normalized_scope_id.startswith("private_") else "group"
+        last_seen_at = datetime.now().astimezone().isoformat()
+        db = await self.get_conn()
+        async with self._write_lock:
+            await db.execute(
+                "INSERT OR REPLACE INTO known_scopes (scope_id, scope_type, last_seen_at) VALUES (?, ?, ?)",
+                (normalized_scope_id, scope_type, last_seen_at),
+            )
+            await db.commit()
+
+    @with_db_retry()
+    async def list_known_scopes(self, scope_type: str | None = None) -> list[str]:
+        """列出最近见过的会话范围。"""
+        db = await self.get_conn()
+        if scope_type:
+            cursor = await db.execute(
+                "SELECT scope_id FROM known_scopes WHERE scope_type = ? ORDER BY last_seen_at DESC",
+                (scope_type,),
+            )
+        else:
+            cursor = await db.execute("SELECT scope_id FROM known_scopes ORDER BY last_seen_at DESC")
+        rows = await cursor.fetchall()
+        return [str(row[0]) for row in rows if row and row[0]]
 
     @with_db_retry()
     async def get_affinity(self, user_id: str) -> int:

@@ -68,6 +68,35 @@ class ProfileManagerTests(IsolatedAsyncioTestCase):
         self.assertFalse(legacy_b.exists())
         self.assertEqual(canonical.read_text(encoding="utf-8"), "content: fresh-profile")
 
+    async def test_save_profile_caches_body_instead_of_raw_yaml(self):
+        await self.manager.save_profile("100", "200", "content: structured-profile\n", nickname="Alice")
+
+        content = await self.manager.load_profile("100", "200")
+
+        self.assertEqual(content, "structured-profile")
+
+    async def test_append_profile_content_preserves_yaml_metadata(self):
+        canonical = self.manager.profile_dir / "100_200.yaml"
+        canonical.write_text(
+            'user_id: "200"\n'
+            'scope_id: "100"\n'
+            'nickname: "Alice"\n'
+            'updated_at: "2026-03-18 10:00:00"\n'
+            "content: |-\n"
+            "  # 用户印象笔记\n"
+            "  - 喜欢咖啡\n",
+            encoding="utf-8",
+        )
+
+        await self.manager.append_profile_content("100", "200", "- 新增事实", nickname="")
+
+        raw = canonical.read_text(encoding="utf-8")
+        content = await self.manager.load_profile("100", "200")
+        self.assertIn('nickname: "Alice"', raw)
+        self.assertIn('scope_id: "100"', raw)
+        self.assertIn("新增事实", raw)
+        self.assertEqual(content, "# 用户印象笔记\n- 喜欢咖啡\n- 新增事实")
+
     async def test_build_profile_uses_private_friend_history(self):
         async def call_action(action, **kwargs):
             if action == "get_stranger_info":
@@ -111,3 +140,35 @@ class ProfileManagerTests(IsolatedAsyncioTestCase):
         result = await self.manager.build_profile("201", "private_200", mode="create", force=True)
 
         self.assertEqual(result, "私聊画像仅支持当前会话用户。")
+
+    async def test_analyze_and_build_profiles_skips_bot_user(self):
+        provider = SimpleNamespace(
+            text_chat=AsyncMock(
+                side_effect=[
+                    SimpleNamespace(
+                        completion_text='[{"user_id":"3003","nickname":"Alice","reason":"活跃","interested":true}]'
+                    ),
+                    SimpleNamespace(completion_text="content: built-profile\n"),
+                ]
+            )
+        )
+        self.plugin.context = SimpleNamespace(get_using_provider=MagicMock(return_value=provider))
+        self.plugin._get_bot_id = MagicMock(return_value="1001")
+        self.manager.save_profile = AsyncMock()
+
+        messages = [
+            {
+                "sender": {"user_id": "1001", "nickname": "Bot"},
+                "message": [{"type": "text", "data": {"text": "我是机器人"}}],
+            },
+            {
+                "sender": {"user_id": "3003", "nickname": "Alice"},
+                "message": [{"type": "text", "data": {"text": "你好"}}],
+            },
+        ]
+
+        result = await self.manager.analyze_and_build_profiles("100", messages=messages, umo="qq:group:100")
+
+        self.assertIn("1 位用户", result)
+        analyze_prompt = provider.text_chat.await_args_list[0].kwargs["prompt"]
+        self.assertNotIn("QQ: 1001", analyze_prompt)

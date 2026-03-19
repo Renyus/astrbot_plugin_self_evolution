@@ -33,7 +33,11 @@ class SchedulerTasksTests(IsolatedAsyncioTestCase):
             cfg=SimpleNamespace(profile_group_whitelist=[]),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[platform])),
             eavesdropping=SimpleNamespace(active_users={}),
-            dao=SimpleNamespace(init_db=AsyncMock(), recover_all_affinity=AsyncMock()),
+            dao=SimpleNamespace(
+                init_db=AsyncMock(),
+                recover_all_affinity=AsyncMock(),
+                list_known_scopes=AsyncMock(return_value=[]),
+            ),
             daily_batch=SimpleNamespace(
                 run_daily_batch=AsyncMock(
                     return_value={"groups_processed": 1, "users_processed": 2, "reports_saved": 1}
@@ -51,7 +55,11 @@ class SchedulerTasksTests(IsolatedAsyncioTestCase):
         plugin = SimpleNamespace(
             cfg=SimpleNamespace(profile_group_whitelist=[]),
             eavesdropping=SimpleNamespace(active_users={"private_7001": {}, "2001": {}}),
-            dao=SimpleNamespace(init_db=AsyncMock(), recover_all_affinity=AsyncMock()),
+            dao=SimpleNamespace(
+                init_db=AsyncMock(),
+                recover_all_affinity=AsyncMock(),
+                list_known_scopes=AsyncMock(return_value=[]),
+            ),
             daily_batch=SimpleNamespace(
                 run_daily_batch=AsyncMock(
                     return_value={"groups_processed": 2, "users_processed": 1, "reports_saved": 2}
@@ -63,6 +71,29 @@ class SchedulerTasksTests(IsolatedAsyncioTestCase):
 
         plugin.daily_batch.run_daily_batch.assert_awaited_once_with(["private_7001", "2001"])
         plugin.dao.recover_all_affinity.assert_awaited_once_with(recovery_amount=2)
+
+    async def test_scheduled_reflection_appends_known_private_scopes_after_restart(self):
+        bot = SimpleNamespace(call_action=AsyncMock(return_value={"data": [{"group_id": 2001}]}))
+        platform = SimpleNamespace(get_client=lambda: bot)
+        plugin = SimpleNamespace(
+            cfg=SimpleNamespace(profile_group_whitelist=["3001"]),
+            context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[platform])),
+            eavesdropping=SimpleNamespace(active_users={}),
+            dao=SimpleNamespace(
+                init_db=AsyncMock(),
+                recover_all_affinity=AsyncMock(),
+                list_known_scopes=AsyncMock(return_value=["private_7001"]),
+            ),
+            daily_batch=SimpleNamespace(
+                run_daily_batch=AsyncMock(
+                    return_value={"groups_processed": 2, "users_processed": 1, "reports_saved": 2}
+                )
+            ),
+        )
+
+        await tasks.scheduled_reflection(plugin)
+
+        plugin.daily_batch.run_daily_batch.assert_awaited_once_with(["3001", "private_7001"])
 
     async def test_scheduled_profile_build_passes_cached_group_umo(self):
         plugin = SimpleNamespace(

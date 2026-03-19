@@ -48,3 +48,13 @@ class SelfEvolutionDAOTests(IsolatedAsyncioTestCase):
         await self.dao.recover_all_affinity(5)
 
         self.assertEqual(await self.dao.get_affinity("42"), 15)
+
+    async def test_touch_known_scope_persists_private_scope(self):
+        await self.dao.touch_known_scope("private_7001")
+        await self.dao.touch_known_scope("2001")
+
+        private_scopes = await self.dao.list_known_scopes(scope_type="private")
+        all_scopes = await self.dao.list_known_scopes()
+
+        self.assertEqual(private_scopes, ["private_7001"])
+        self.assertEqual(all_scopes, ["2001", "private_7001"])

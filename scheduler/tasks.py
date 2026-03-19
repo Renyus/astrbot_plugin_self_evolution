@@ -7,21 +7,40 @@ import logging
 logger = logging.getLogger("astrbot")
 
 
+def _dedupe_scopes(scopes):
+    deduped = []
+    for scope_id in scopes:
+        normalized_scope_id = str(scope_id or "").strip()
+        if normalized_scope_id and normalized_scope_id not in deduped:
+            deduped.append(normalized_scope_id)
+    return deduped
+
+
+async def _fetch_known_private_scopes(plugin):
+    dao = getattr(plugin, "dao", None)
+    if dao and hasattr(dao, "list_known_scopes"):
+        return await dao.list_known_scopes(scope_type="private")
+    return []
+
+
 async def scheduled_reflection(plugin):
     """每日批处理任务 - 会话摘要生成 + 活跃用户画像更新 + 好感度恢复"""
     logger.info("[SelfEvolution] 每日批处理任务开始...")
 
     await plugin.dao.init_db()
 
+    target_groups = []
     whitelist = getattr(plugin.cfg, "profile_group_whitelist", [])
     if whitelist:
-        target_groups = whitelist
+        target_groups.extend(str(group_id) for group_id in whitelist)
     else:
-        target_groups = []
         if hasattr(plugin, "eavesdropping") and hasattr(plugin.eavesdropping, "active_users"):
-            target_groups = list(plugin.eavesdropping.active_users)
+            target_groups.extend(list(plugin.eavesdropping.active_users))
         if not target_groups:
-            target_groups = await _fetch_groups_from_platform(plugin)
+            target_groups.extend(await _fetch_groups_from_platform(plugin))
+
+    target_groups.extend(await _fetch_known_private_scopes(plugin))
+    target_groups = _dedupe_scopes(target_groups)
 
     if target_groups:
         try:

@@ -46,7 +46,7 @@ PRIVATE_SCOPE_PREFIX = "private_"
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "CognitionCore 7.0 数字生命。",
-    "Ver 2.7.0",
+    "Ver 2.8.5",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
@@ -122,6 +122,7 @@ class SelfEvolutionPlugin(Star):
         self._interject_history = {}  # 群插嘴历史 {群号: {"last_time": timestamp, "last_msg_id": str}}
         self._group_umo_cache = {}  # 最近见过的群会话来源 {group_id: unified_msg_origin}
         self._private_umo_cache = {}  # 最近见过的私聊会话来源 {private_user_id: unified_msg_origin}
+        self._scope_registry_touch_cache = {}  # 会话范围持久化防抖 {scope_id: last_touch_timestamp}
 
     def remember_group_umo(self, group_id, umo: str | None, user_id=None):
         """Remember the latest unified message origin for a group or private scope."""
@@ -145,6 +146,20 @@ class SelfEvolutionPlugin(Star):
         if scope_id.startswith(PRIVATE_SCOPE_PREFIX):
             return self._private_umo_cache.get(scope_id)
         return self._group_umo_cache.get(scope_id)
+
+    async def touch_known_scope(self, scope_id: str | None):
+        """Persist recently seen scopes for background tasks, with a small debounce to avoid hot writes."""
+        normalized_scope_id = str(scope_id or "").strip()
+        if not normalized_scope_id or not hasattr(self, "dao"):
+            return
+
+        now = time.time()
+        last_touch = self._scope_registry_touch_cache.get(normalized_scope_id, 0)
+        if now - last_touch < 300:
+            return
+
+        self._scope_registry_touch_cache[normalized_scope_id] = now
+        await self.dao.touch_known_scope(normalized_scope_id)
 
     def _setup_debug_logging(self):
         """根据配置设置 debug 日志模式"""
@@ -223,6 +238,7 @@ class SelfEvolutionPlugin(Star):
             getattr(event, "unified_msg_origin", None),
             event.get_sender_id(),
         )
+        await self.touch_known_scope(memory_scope_id)
         await self.memory.sync_scope_kb_binding(memory_scope_id, getattr(event, "unified_msg_origin", None))
         session_id = event.session_id
         msg_text = await ensure_event_message_text(event, self.dao)
@@ -442,15 +458,13 @@ class SelfEvolutionPlugin(Star):
                 for fact in facts.split("|"):
                     fact = fact.strip()
                     if fact:
-                        profile_note = f"【反思提炼】{fact}"
-                        existing = await self.profile.load_profile(profile_scope_id, event.get_sender_id())
-                        if existing:
-                            updated = existing + f"\n- {profile_note}"
-                        else:
-                            updated = f"# 用户印象笔记\n- {profile_note}"
-                        if len(updated) > 2000:
-                            updated = updated[-2000:]
-                        await self.profile.save_profile(profile_scope_id, event.get_sender_id(), updated)
+                        profile_note = f"- 【反思提炼】{fact}"
+                        await self.profile.append_profile_content(
+                            profile_scope_id,
+                            event.get_sender_id(),
+                            profile_note,
+                            nickname=event.get_sender_name() or "",
+                        )
                         logger.debug(f"[Reflection] 反思事实已写入画像: {fact[:30]}...")
 
         # 框架人格由框架自动注入，不再手动追加
@@ -472,6 +486,7 @@ class SelfEvolutionPlugin(Star):
         group_id = event.get_group_id()
         self.remember_group_umo(group_id, getattr(event, "unified_msg_origin", None), event.get_sender_id())
         memory_scope_id = self._resolve_profile_scope_id(group_id, event.get_sender_id())
+        await self.touch_known_scope(memory_scope_id)
         await self.memory.sync_scope_kb_binding(memory_scope_id, getattr(event, "unified_msg_origin", None))
 
         # 检查群级别闭嘴（直接拦截，不处理任何逻辑）
@@ -823,14 +838,12 @@ class SelfEvolutionPlugin(Star):
             return "私聊场景仅支持记录当前会话用户。"
 
         profile_content = f"---\n**{timestamp}**\n{content}"
-        existing = await self.profile.load_profile(profile_scope_id, target_user_id)
-        if existing:
-            updated = existing + "\n" + profile_content
-        else:
-            updated = f"# 用户印象笔记\n{profile_content}"
-        if len(updated) > 2000:
-            updated = updated[-2000:] + "\n(...早期记录已截断)"
-        await self.profile.save_profile(profile_scope_id, target_user_id, updated)
+        await self.profile.append_profile_content(
+            profile_scope_id,
+            target_user_id,
+            profile_content,
+            nickname=event.get_sender_name() if target_user_id == sender_id else "",
+        )
         return f"已更新用户 {target_user_id} 的{('偏好' if category == 'user_preference' else '画像')}。"
 
     @filter.llm_tool(name="get_user_messages")

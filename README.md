@@ -62,9 +62,15 @@ AstrBot 插件 `astrbot_plugin_self_evolution`。
 
 - [engine/reflection.py](./engine/reflection.py)
 
+每日批处理生成的会话日报也会严格按前一自然日（00:00-24:00）取消息，而不是简单截取最近若干条历史记录。
+
 ### 4. 长期会话总结
 
-插件会定时拉取群聊或私聊消息，生成会话总结，并写入 AstrBot 知识库。
+插件会在计划时间汇总前一自然日（00:00-24:00）的群聊或私聊消息，生成会话总结，并写入 AstrBot 知识库。
+
+如果某一天的总结被重复执行，插件会覆盖同一天的旧总结，而不是继续往知识库里堆重复文档。
+
+私聊 scope 会被持久化记录，因此即使插件重启，后续的每日总结和每日批处理也不会因为 30 秒活跃窗口失效而丢掉这些私聊会话。
 
 这部分总结用于配合 AstrBot 的知识库召回能力，承担“长期背景记忆”的角色。
 
@@ -268,7 +274,7 @@ AstrBot 插件 `astrbot_plugin_self_evolution`。
 
 | 任务 | 作用 |
 |------|------|
-| `SelfEvolution_DailyReflection` | 每日批处理，生成会话日报并刷新画像、恢复好感度 |
+| `SelfEvolution_DailyReflection` | 每日批处理，按前一自然日生成会话日报并刷新画像、恢复好感度 |
 | `SelfEvolution_MemorySummary` | 每日会话总结 |
 | `SelfEvolution_ProfileBuild` | 自动画像构建 |
 | `SelfEvolution_ProfileCleanup` | 清理过期画像 |
@@ -285,8 +291,8 @@ AstrBot 面板里可见的配置很多，下面只列最常用、最影响行为
 | 配置 | 默认值 | 说明 |
 |------|--------|------|
 | `memory_kb_name` | `self_evolution_memory` | 基础知识库名称 |
-| `memory_msg_count` | `500` | 每次总结读取的消息数 |
-| `memory_summary_schedule` | `0 3 * * *` | 每日会话总结时间 |
+| `memory_msg_count` | `500` | 每次翻历史记录的分页大小，也是单轮分段总结的消息上限 |
+| `memory_summary_schedule` | `0 3 * * *` | 每天执行“前一自然日会话总结”的时间 |
 
 ### 用户画像
 
@@ -323,7 +329,7 @@ AstrBot 面板里可见的配置很多，下面只列最常用、最影响行为
 
 | 配置 | 默认值 | 说明 |
 |------|--------|------|
-| `reflection_schedule` | `0 2 * * *` | 每日批处理时间 |
+| `reflection_schedule` | `0 2 * * *` | 每天执行“前一自然日会话日报和画像刷新”的时间 |
 | `inject_group_history` | `true` | 是否注入群历史 |
 | `group_history_count` | `10` | 注入多少条群历史 |
 | `debug_log_enabled` | `false` | 是否输出详细调试日志 |
