@@ -167,6 +167,10 @@ class PluginConfig:
         return self._parse_bool(self._config.get("interject_local_filter_enabled"), True)
 
     @property
+    def interject_require_at(self):
+        return self._parse_bool(self._config.get("interject_require_at"), True)
+
+    @property
     def interject_urgency_threshold(self):
         return int(self._config.get("interject_urgency_threshold", 80))
 

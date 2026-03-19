@@ -8,7 +8,10 @@ from pathlib import Path
 
 import yaml
 
+from .context_injection import parse_message_chain
+
 logger = logging.getLogger("astrbot")
+PRIVATE_SCOPE_PREFIX = "private_"
 
 
 class ProfileManager:
@@ -43,12 +46,47 @@ class ProfileManager:
         return [k.strip() for k in keywords.split(",")]
 
     def _get_profile_path(self, group_id: str, user_id: str, nickname: str = "") -> Path:
-        if nickname:
-            import re
-
-            safe_nickname = re.sub(r'[<>:"/\\|?*]', "", nickname)[:20]
-            return self.profile_dir / f"{group_id}_{user_id}_{safe_nickname}.yaml"
         return self.profile_dir / f"{group_id}_{user_id}.yaml"
+
+    def _get_legacy_profile_pattern(self, group_id: str, user_id: str) -> str:
+        return f"{group_id}_{user_id}_*.yaml"
+
+    def _get_profile_candidates(self, group_id: str, user_id: str) -> list[Path]:
+        canonical_path = self._get_profile_path(group_id, user_id)
+        candidates = []
+
+        if canonical_path.exists():
+            candidates.append(canonical_path)
+
+        legacy_files = sorted(
+            self.profile_dir.glob(self._get_legacy_profile_pattern(group_id, user_id)),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        for legacy_path in legacy_files:
+            if legacy_path not in candidates:
+                candidates.append(legacy_path)
+
+        return candidates
+
+    @staticmethod
+    def _is_private_scope(scope_id: str) -> bool:
+        return str(scope_id).startswith(PRIVATE_SCOPE_PREFIX)
+
+    @staticmethod
+    def _get_private_scope_user_id(scope_id: str) -> str:
+        scope_id = str(scope_id or "")
+        if not scope_id.startswith(PRIVATE_SCOPE_PREFIX):
+            return ""
+        return scope_id[len(PRIVATE_SCOPE_PREFIX) :]
+
+    @staticmethod
+    def _extract_sender_id(msg: dict) -> str:
+        sender = msg.get("sender", {}) or {}
+        sender_id = sender.get("user_id")
+        if sender_id is None:
+            sender_id = msg.get("user_id", "")
+        return str(sender_id or "")
 
     def _is_core_info(self, line: str) -> bool:
         """判断是否为核心信息（永不丢失）"""
@@ -87,23 +125,10 @@ class ProfileManager:
             logger.debug(f"[Profile] 从缓存加载画像: {profile_key}")
             return self._profile_cache[profile_key]
 
-        path = self._get_profile_path(group_id, user_id)
-        if path.exists():
+        profile_paths = self._get_profile_candidates(group_id, user_id)
+        if profile_paths:
             try:
-                content = self._load_profile_from_file(path)
-                if content:
-                    self._profile_cache[profile_key] = content
-                    self._cache_access_time[profile_key] = time.time()
-                    logger.debug(f"[Profile] 从磁盘加载画像: {profile_key} ({len(content)} 字符)")
-                return content
-            except OSError as e:
-                logger.warning(f"[Profile] 读取画像失败 {profile_key}: {e}")
-
-        pattern = f"{group_id}_{user_id}_*.yaml"
-        matching_files = list(self.profile_dir.glob(pattern))
-        if matching_files:
-            try:
-                content = self._load_profile_from_file(matching_files[0])
+                content = self._load_profile_from_file(profile_paths[0])
                 if content:
                     self._profile_cache[profile_key] = content
                     self._cache_access_time[profile_key] = time.time()
@@ -187,7 +212,7 @@ class ProfileManager:
         return result
 
     async def save_profile(self, group_id: str, user_id: str, content: str, nickname: str = ""):
-        """保存用户画像（YAML 格式，直接保存 LLM 返回的 YAML）"""
+        """保存用户画像（YAML 格式，统一写入稳定文件名）"""
         profile_key = f"{group_id}_{user_id}"
         self._cleanup_expired_cache()
 
@@ -196,6 +221,13 @@ class ProfileManager:
         # 清理 Markdown 代码块标记，防止 LLM 返回 ```yaml 格式
         content = self._clean_yaml_content(content)
         path.write_text(content, encoding="utf-8")
+
+        for legacy_path in self.profile_dir.glob(self._get_legacy_profile_pattern(group_id, user_id)):
+            if legacy_path != path:
+                try:
+                    legacy_path.unlink()
+                except OSError as e:
+                    logger.warning(f"[Profile] 清理旧画像文件失败 {legacy_path.name}: {e}")
 
         self._profile_cache[profile_key] = content
         self._cache_access_time[profile_key] = time.time()
@@ -262,7 +294,14 @@ class ProfileManager:
             "total_users": len(files),
         }
 
-    async def build_profile(self, user_id: str, group_id: str, mode: str = "update", force: bool = False) -> str:
+    async def build_profile(
+        self,
+        user_id: str,
+        group_id: str,
+        mode: str = "update",
+        force: bool = False,
+        umo: str | None = None,
+    ) -> str:
         """
         从 NapCat 获取用户在群里的消息，构建/更新画像
 
@@ -273,9 +312,16 @@ class ProfileManager:
             force: 是否强制更新（忽略每日限制）
         """
 
-        logger.debug(f"[Profile] 构建画像: 用户={user_id}, 群={group_id}, 模式={mode}, 强制={force}")
+        scope_id = str(group_id)
+        is_private_scope = self._is_private_scope(scope_id)
+        private_user_id = self._get_private_scope_user_id(scope_id)
 
-        daily_key = f"{group_id}_{user_id}"
+        logger.debug(f"[Profile] 构建画像: 用户={user_id}, 范围={scope_id}, 模式={mode}, 强制={force}")
+
+        if is_private_scope and private_user_id and str(user_id) != private_user_id:
+            return "私聊画像仅支持当前会话用户。"
+
+        daily_key = f"{scope_id}_{user_id}"
 
         # 每日更新限制检查
         if not force:
@@ -286,7 +332,7 @@ class ProfileManager:
                 return "今日已更新"
 
         # 冷却时间检查
-        cooldown_key = f"{group_id}_{user_id}"
+        cooldown_key = f"{scope_id}_{user_id}"
         last_build = self._profile_build_cooldown.get(cooldown_key, 0)
         cooldown_seconds = self.plugin.cfg.profile_cooldown_minutes * 60
         if time.time() - last_build < cooldown_seconds and not force:
@@ -310,56 +356,70 @@ class ProfileManager:
 
             # 获取用户昵称（用于文件名）
             try:
-                member_info = await bot.call_action(
-                    "get_group_member_info", group_id=int(group_id), user_id=int(user_id)
-                )
-                member_nickname = member_info.get("card") or member_info.get("nickname", "未知")
+                if is_private_scope:
+                    member_info = await bot.call_action("get_stranger_info", user_id=int(user_id), no_cache=False)
+                    member_nickname = (
+                        member_info.get("remark")
+                        or member_info.get("nick")
+                        or member_info.get("nickname", "未知")
+                    )
+                else:
+                    member_info = await bot.call_action(
+                        "get_group_member_info", group_id=int(scope_id), user_id=int(user_id)
+                    )
+                    member_nickname = member_info.get("card") or member_info.get("nickname", "未知")
             except Exception:
                 member_nickname = "未知"
 
             msg_count = self.plugin.cfg.profile_msg_count
-            result = await bot.call_action("get_group_msg_history", group_id=int(group_id), count=msg_count)
+            if is_private_scope:
+                friend_user_id = private_user_id or str(user_id)
+                result = await bot.call_action("get_friend_msg_history", user_id=int(friend_user_id), count=msg_count)
+            else:
+                result = await bot.call_action("get_group_msg_history", group_id=int(scope_id), count=msg_count)
 
             messages = result.get("messages", [])
             if not messages:
-                return f"群 {group_id} 无消息记录"
-
-            from .context_injection import parse_message_chain
+                if is_private_scope:
+                    return f"私聊 {private_user_id or user_id} 无消息记录"
+                return f"群 {scope_id} 无消息记录"
 
             user_messages = []
             nickname = member_nickname
             for msg in messages:
-                if str(msg.get("user_id")) == str(user_id):
+                if self._extract_sender_id(msg) == str(user_id):
                     msg_text = await parse_message_chain(msg, self.plugin)
                     if msg_text:
                         user_messages.append(msg_text)
                         sender = msg.get("sender", {})
-                        nickname = sender.get("nickname", "未知")
+                        nickname = sender.get("card") or sender.get("nickname", nickname)
 
             if not user_messages:
-                return f"用户 {user_id} 在群 {group_id} 中无消息记录"
+                location = "私聊" if is_private_scope else f"群 {scope_id}"
+                return f"用户 {user_id} 在{location}中无消息记录"
 
             logger.debug(f"[Profile] 获取到 {len(user_messages)} 条用户消息")
 
             existing_note = ""
             if mode == "update":
-                existing_note = await self.load_profile(group_id, user_id)
+                existing_note = await self.load_profile(scope_id, user_id)
                 existing_note = existing_note[:500] if existing_note else "(暂无)"
 
             prompt = (
                 f"你是记忆助手。请根据对话分析用户特征。\n"
                 f"目标用户：{nickname} (QQ: {user_id})\n"
+                f"会话范围：{scope_id}\n"
                 f"{'旧笔记：' + existing_note + '\n' if mode == 'update' else ''}"
-                f"用户消息：\n" + "\n".join(user_messages) + "\n"
+                f"{'私聊消息' if is_private_scope else '群聊消息'}：\n" + "\n".join(user_messages) + "\n"
                 "请以 YAML 格式输出用户画像，包含以下字段：\n"
                 "- user_id: 用户QQ号\n"
-                "- group_id: 群号\n"
+                "- scope_id: 会话范围ID（群号或 private_xxx）\n"
                 "- nickname: 用户昵称\n"
                 "- updated_at: 更新时间（格式：YYYY-MM-DD HH:MM:SS）\n"
                 "- content: 用户画像描述（使用Markdown格式，不少于500字）\n"
             )
 
-            llm_provider = self.plugin.context.get_using_provider("qq")
+            llm_provider = self.plugin.context.get_using_provider(umo=umo)
             if not llm_provider:
                 return "无法获取 LLM Provider"
 
@@ -374,7 +434,7 @@ class ProfileManager:
             if not new_note:
                 return "生成画像失败，请重试"
 
-            await self.save_profile(group_id, user_id, new_note, nickname)
+            await self.save_profile(scope_id, user_id, new_note, nickname)
             # 更新冷却时间
             self._profile_build_cooldown[cooldown_key] = time.time()
             # 更新每日记录
@@ -386,7 +446,7 @@ class ProfileManager:
             logger.warning(f"[Profile] 构建画像失败: {e}")
             return f"构建画像失败: {e}"
 
-    async def analyze_and_build_profiles(self, group_id: str, messages: list = None) -> str:
+    async def analyze_and_build_profiles(self, group_id: str, messages: list = None, umo: str | None = None) -> str:
         """
         自动分析群消息，找出活跃/感兴趣的用户，并自动构建画像
 
@@ -423,23 +483,24 @@ class ProfileManager:
             if not messages:
                 return "群消息为空"
 
+            parsed_messages = await asyncio.gather(*[parse_message_chain(msg, self.plugin) for msg in messages])
+
             # 统计用户消息数量
             user_msg_counts = defaultdict(int)
             user_nicknames = {}
             user_contents = defaultdict(list)
 
-            for msg in messages:
+            for msg, parsed_text in zip(messages, parsed_messages, strict=False):
                 sender = msg.get("sender", {})
-                user_id = str(sender.get("user_id", ""))
+                user_id = self._extract_sender_id(msg)
                 if not user_id or user_id == "0":
                     continue
-                nickname = sender.get("nickname", "未知")
-                content = msg.get("message", "")
-                if content:
+                nickname = sender.get("card") or sender.get("nickname", "未知")
+                if parsed_text:
                     user_msg_counts[user_id] += 1
                     if user_id not in user_nicknames:
                         user_nicknames[user_id] = nickname
-                    user_contents[user_id].append(f"{nickname}: {content}")
+                    user_contents[user_id].append(parsed_text)
 
             if not user_msg_counts:
                 return "无法分析用户消息"
@@ -471,7 +532,7 @@ class ProfileManager:
                 "3. 只返回JSON数组，不要其他内容"
             )
 
-            llm_provider = self.plugin.context.get_using_provider("qq")
+            llm_provider = self.plugin.context.get_using_provider(umo=umo)
             if not llm_provider:
                 return "无法获取 LLM Provider"
 

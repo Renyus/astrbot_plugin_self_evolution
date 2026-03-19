@@ -410,9 +410,12 @@ class SelfEvolutionDAO:
                 (recovery_amount,),
             )
             await db.commit()
+            self._affinity_cache.clear()
+            self._affinity_cache_time.clear()
 
     @with_db_retry()
     async def reset_affinity(self, user_id: str, score: int = 50):
+        user_id = str(user_id)
         db = await self.get_conn()
         async with self._write_lock:
             await db.execute(
@@ -426,6 +429,7 @@ class SelfEvolutionDAO:
                 ),
             )
             await db.commit()
+            await self._set_cached_affinity(user_id, score)
 
     @with_db_retry()
     async def get_pending_evolutions(self, limit: int, offset: int):
@@ -523,7 +527,8 @@ class SelfEvolutionDAO:
         db = await self.get_conn()
         async with self._db_lock:
             cursor = await db.execute(
-                "SELECT id, uuid, group_id, user_id, base64_data FROM stickers WHERE tags = '' OR tags IS NULL LIMIT ?",
+                "SELECT id, uuid, group_id, user_id, base64_data, created_at "
+                "FROM stickers WHERE tags = '' OR tags IS NULL ORDER BY id ASC LIMIT ?",
                 (limit,),
             )
             rows = await cursor.fetchall()
@@ -534,6 +539,7 @@ class SelfEvolutionDAO:
                     "group_id": row["group_id"],
                     "user_id": row["user_id"],
                     "base64_data": row["base64_data"],
+                    "created_at": row["created_at"],
                 }
                 for row in rows
             ]

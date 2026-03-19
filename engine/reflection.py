@@ -8,6 +8,7 @@ import time
 from typing import Optional
 
 logger = logging.getLogger("astrbot")
+PRIVATE_SCOPE_PREFIX = "private_"
 
 SESSION_REFLECTION_PROMPT = """你是一个善于自我反省的AI。请回顾以下对话，提炼出有价值的自我校准信息。
 
@@ -26,9 +27,9 @@ SESSION_REFLECTION_PROMPT = """你是一个善于自我反省的AI。请回顾�
     "cognitive_bias": "需要纠正的认知偏差（如果有）"
 }}"""
 
-GROUP_DAILY_REPORT_PROMPT = """你是一个群聊分析师。请分析以下群聊记录，生成一份简明的日报。
+GROUP_DAILY_REPORT_PROMPT = """你是一个聊天分析师。请分析以下{chat_type}记录，生成一份简明的日报。
 
-群聊记录：
+聊天记录：
 {messages}
 
 请分析并输出：
@@ -47,7 +48,7 @@ GROUP_DAILY_REPORT_PROMPT = """你是一个群聊分析师。请分析以下群�
     "notable_events": ["重要事件1", "重要事件2"]
 }}
 
-如果群聊记录为空或不足以分析，返回：
+如果聊天记录为空或不足以分析，返回：
 {{
     "topic": "无",
     "emotion": "平静",
@@ -63,7 +64,7 @@ class SessionReflection:
     def __init__(self, plugin):
         self.plugin = plugin
 
-    async def generate_session_reflection(self, conversation_history: str) -> dict:
+    async def generate_session_reflection(self, conversation_history: str, umo: str | None = None) -> dict:
         """
         生成单会话反思
 
@@ -78,7 +79,7 @@ class SessionReflection:
             }
         """
         try:
-            provider = self.plugin.context.get_using_provider()
+            provider = self.plugin.context.get_using_provider(umo=umo)
             if not provider:
                 logger.warning("[Reflection] 无法获取LLM Provider")
                 return {}
@@ -164,7 +165,25 @@ class DailyBatchProcessor:
     def __init__(self, plugin):
         self.plugin = plugin
 
-    async def generate_group_daily_report(self, group_id: str, messages: list) -> dict:
+    @staticmethod
+    def _is_private_scope(scope_id: str) -> bool:
+        return str(scope_id).startswith(PRIVATE_SCOPE_PREFIX)
+
+    @staticmethod
+    def _get_private_scope_user_id(scope_id: str) -> str:
+        scope_id = str(scope_id or "")
+        if not scope_id.startswith(PRIVATE_SCOPE_PREFIX):
+            return ""
+        return scope_id[len(PRIVATE_SCOPE_PREFIX) :]
+
+    def _get_scope_umo(self, scope_id: str) -> str | None:
+        if hasattr(self.plugin, "get_scope_umo"):
+            return self.plugin.get_scope_umo(scope_id)
+        if hasattr(self.plugin, "get_group_umo") and not self._is_private_scope(scope_id):
+            return self.plugin.get_group_umo(scope_id)
+        return None
+
+    async def generate_group_daily_report(self, group_id: str, messages: list, umo: str | None = None) -> dict:
         """
         生成群日报
 
@@ -191,12 +210,13 @@ class DailyBatchProcessor:
                 return {"topic": "无", "emotion": "平静", "disputes": "无", "active_members": [], "notable_events": []}
 
             msg_content = "\n".join(formatted[:100])
-            provider = self.plugin.context.get_using_provider()
+            provider = self.plugin.context.get_using_provider(umo=umo)
             if not provider:
                 logger.warning("[Reflection] 无法获取LLM Provider")
                 return {}
 
-            prompt = GROUP_DAILY_REPORT_PROMPT.format(messages=msg_content)
+            chat_type = "私聊" if self._is_private_scope(group_id) else "群聊"
+            prompt = GROUP_DAILY_REPORT_PROMPT.format(messages=msg_content, chat_type=chat_type)
             res = await provider.text_chat(prompt=prompt, contexts=[])
 
             if not res or not res.completion_text:
@@ -222,7 +242,20 @@ class DailyBatchProcessor:
     async def save_group_daily_report(self, group_id: str, report: dict) -> bool:
         """保存群日报到数据库"""
         try:
-            summary = f"话题: {report.get('topic', '无')}\n情绪: {report.get('emotion', '平静')}\n争议: {report.get('disputes', '无')}\n活跃成员: {', '.join(report.get('active_members', []))}\n重要事件: {', '.join(report.get('notable_events', []))}"
+            scope_type = "私聊" if self._is_private_scope(group_id) else "群聊"
+            extra_scope = (
+                f"用户ID: {self._get_private_scope_user_id(group_id)}\n" if self._is_private_scope(group_id) else ""
+            )
+            summary = (
+                f"类型: {scope_type}\n"
+                f"范围ID: {group_id}\n"
+                f"{extra_scope}"
+                f"话题: {report.get('topic', '无')}\n"
+                f"情绪: {report.get('emotion', '平静')}\n"
+                f"争议: {report.get('disputes', '无')}\n"
+                f"活跃成员: {', '.join(report.get('active_members', []))}\n"
+                f"重要事件: {', '.join(report.get('notable_events', []))}"
+            )
             await self.plugin.dao.save_group_daily_report(group_id, summary)
             logger.debug(f"[Reflection] 群日报已保存: group_id={group_id}")
             return True
@@ -230,7 +263,9 @@ class DailyBatchProcessor:
             logger.warning(f"[Reflection] 保存群日报失败: {e}")
             return False
 
-    async def process_active_user_profiles(self, group_id: str, messages: list, top_n: int = 10) -> int:
+    async def process_active_user_profiles(
+        self, group_id: str, messages: list, top_n: int = 10, umo: str | None = None
+    ) -> int:
         """
         处理活跃用户画像
 
@@ -245,14 +280,20 @@ class DailyBatchProcessor:
         try:
             from collections import Counter
 
-            user_counts = Counter()
-            for msg in messages:
-                user_id = str(msg.get("user_id", ""))
-                if user_id:
-                    user_counts[user_id] += 1
+            if self._is_private_scope(group_id):
+                private_user_id = self._get_private_scope_user_id(group_id)
+                top_users = [private_user_id] if private_user_id else []
+                logger.debug(f"[Reflection] 私聊{group_id}目标用户: {top_users}")
+            else:
+                user_counts = Counter()
+                for msg in messages:
+                    sender = msg.get("sender", {}) or {}
+                    user_id = str(sender.get("user_id") or msg.get("user_id") or "")
+                    if user_id:
+                        user_counts[user_id] += 1
 
-            top_users = [uid for uid, _ in user_counts.most_common(top_n)]
-            logger.debug(f"[Reflection] 群{group_id}活跃用户: {top_users}")
+                top_users = [uid for uid, _ in user_counts.most_common(top_n)]
+                logger.debug(f"[Reflection] 群{group_id}活跃用户: {top_users}")
 
             profile_manager = getattr(self.plugin, "profile", None)
             if not profile_manager:
@@ -262,7 +303,7 @@ class DailyBatchProcessor:
             processed = 0
             for user_id in top_users:
                 try:
-                    await profile_manager.build_profile(user_id, group_id, mode="update", force=False)
+                    await profile_manager.build_profile(user_id, group_id, mode="update", force=False, umo=umo)
                     processed += 1
                 except Exception as e:
                     logger.debug(f"[Reflection] 更新用户{user_id}画像失败: {e}")
@@ -290,18 +331,25 @@ class DailyBatchProcessor:
 
             for group_id in group_ids:
                 try:
-                    res = await bot.call_action("get_group_msg_history", group_id=int(group_id), count=100)
+                    if self._is_private_scope(group_id):
+                        private_user_id = self._get_private_scope_user_id(group_id)
+                        if not private_user_id:
+                            continue
+                        res = await bot.call_action("get_friend_msg_history", user_id=int(private_user_id), count=100)
+                    else:
+                        res = await bot.call_action("get_group_msg_history", group_id=int(group_id), count=100)
                     messages = res.get("messages", [])
+                    group_umo = self._get_scope_umo(group_id)
 
                     if not messages:
                         continue
 
-                    report = await self.generate_group_daily_report(group_id, messages)
+                    report = await self.generate_group_daily_report(group_id, messages, umo=group_umo)
                     if report:
                         await self.save_group_daily_report(group_id, report)
                         result["reports_saved"] += 1
 
-                    users_processed = await self.process_active_user_profiles(group_id, messages)
+                    users_processed = await self.process_active_user_profiles(group_id, messages, umo=group_umo)
                     result["users_processed"] += users_processed
 
                     result["groups_processed"] += 1

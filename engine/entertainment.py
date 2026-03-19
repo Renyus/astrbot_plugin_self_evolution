@@ -168,7 +168,7 @@ class EntertainmentEngine:
                 logger.warning("[Sticker] 获取 tool_manager 失败")
                 return False
 
-            mcp_runtime = tool_manager._mcp_server_runtime
+            mcp_runtime = tool_manager.mcp_server_runtime_view
             if not mcp_runtime:
                 logger.warning("[Sticker] 没有可用的 MCP 服务")
                 return False

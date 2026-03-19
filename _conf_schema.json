@@ -194,6 +194,13 @@
         "type": "bool",
         "default": true
     },
+    "interject_require_at": {
+        "title": "Require @ mention for interject",
+        "description": "Only continue proactive interject analysis when the latest message mentions the bot or @all.",
+        "hint": "Default true for compatibility. Disable it if you want the bot to participate more proactively.",
+        "type": "bool",
+        "default": true
+    },
     "interject_urgency_threshold": {
         "title": "插嘴紧迫度阈值",
         "description": "LLM返回的urgency_score必须超过此阈值才执行插嘴",

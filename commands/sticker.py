@@ -35,7 +35,8 @@ async def handle_sticker(event, plugin, action: str = "list", param: str = ""):
 
         result = [f"【未打标签表情包】（共 {len(untagged)} 张）\n"]
         for s in untagged:
-            result.append(f"UUID:{s['uuid']} | 用户:{s['user_id']} | 时间:{s['created_at'][:19]}")
+            created_at = (s.get("created_at") or "")[:19] or "未知"
+            result.append(f"UUID:{s['uuid']} | 用户:{s['user_id']} | 时间:{created_at}")
         result.append("\n删除指令：/sticker delete <UUID>")
         return "\n".join(result)
 
