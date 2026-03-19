@@ -42,7 +42,7 @@ class MemoryManager:
         logger.debug("[Memory] 开始每日群聊总结...")
 
         try:
-            groups = self._get_target_groups()
+            groups = await self._get_target_groups()
             if not groups:
                 logger.debug("[Memory] 无目标群，跳过总结")
                 return

@@ -175,7 +175,6 @@ class SelfEvolutionPlugin(Star):
         return cleaned
 
     def _post_init(self):
-        self.san_system.initialize()
         logger.info(
             f"[SelfEvolution] === 插件初始化完成 | 模式: {'审核' if self.review_mode else '自动'} | 元编程: {self.allow_meta_programming} | SAN: {self.san_system.value}/{self.san_system.max_value} ==="
         )
@@ -197,6 +196,7 @@ class SelfEvolutionPlugin(Star):
 
     async def initialize(self) -> None:
         await self.dao.init_db()
+        self.san_system.initialize()
         self._load_prompts_injection()
 
     @filter.on_plugin_unloaded()
@@ -792,7 +792,6 @@ class SelfEvolutionPlugin(Star):
         timestamp = time.strftime("%Y-%m-%d %H:%M")
 
         target_user_id = entity
-        nickname = event.get_sender_name() or ""
 
         profile_content = f"---\n**{timestamp}**\n{content}"
         existing = await self.profile.load_profile(group_id, target_user_id)
@@ -802,7 +801,7 @@ class SelfEvolutionPlugin(Star):
             updated = f"# 用户印象笔记\n{profile_content}"
         if len(updated) > 2000:
             updated = updated[-2000:] + "\n(...早期记录已截断)"
-        await self.profile.save_profile(group_id, target_user_id, updated, nickname)
+        await self.profile.save_profile(group_id, target_user_id, updated)
         return f"已更新用户 {target_user_id} 的{('偏好' if category == 'user_preference' else '画像')}。"
 
     @filter.llm_tool(name="get_user_messages")
