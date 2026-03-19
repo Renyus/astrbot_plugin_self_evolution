@@ -5,6 +5,7 @@ import time
 import uuid
 from datetime import datetime
 from functools import wraps
+from typing import Optional
 
 import aiosqlite
 
