@@ -156,7 +156,7 @@ class SANSystem:
         logger.debug("[SAN] 开始分析群状态...")
 
         try:
-            listened_groups = self._get_listened_groups()
+            listened_groups = await self._get_listened_groups()
             if not listened_groups:
                 logger.debug("[SAN] 无监听的群，跳过分析")
                 return
@@ -177,7 +177,7 @@ class SANSystem:
         except Exception as e:
             logger.warning(f"[SAN] 群分析异常: {e}")
 
-    def _get_listened_groups(self):
+    async def _get_listened_groups(self):
         """获取需要监听的群列表"""
         # 方式1: 白名单配置
         whitelist = getattr(self.plugin.cfg, "profile_group_whitelist", [])
@@ -186,12 +186,38 @@ class SANSystem:
             return whitelist
         # 方式2: eavesdropping active_users
         if hasattr(self.plugin, "eavesdropping") and hasattr(self.plugin.eavesdropping, "active_users"):
-            groups = [g for g in self.plugin.eavesdropping.active_users.keys() if not g.startswith("private_")]
+            groups = [g for g in self.plugin.eavesdropping.active_users if not g.startswith("private_")]
             if groups:
                 logger.debug(f"[SAN] 使用 eavesdropping 活跃群列表: {groups}")
                 return groups
         # 方式3: 通过 platform 获取 bot 加入的群列表
-        return []
+        return await self._fetch_groups_from_platform()
+
+    async def _fetch_groups_from_platform(self):
+        try:
+            platform_insts = self.plugin.context.platform_manager.platform_insts
+            if not platform_insts:
+                return []
+
+            platform = platform_insts[0]
+            if not hasattr(platform, "get_client"):
+                return []
+
+            bot = platform.get_client()
+            if not bot:
+                return []
+
+            result = await bot.call_action("get_group_list")
+            if isinstance(result, list):
+                groups_data = result
+            elif isinstance(result, dict):
+                groups_data = result.get("data", [])
+            else:
+                groups_data = []
+            return [str(g.get("group_id", "")) for g in groups_data if g.get("group_id")]
+        except Exception as e:
+            logger.debug(f"[SAN] 获取群列表失败: {e}")
+            return []
 
     async def _analyze_group(self, group_id: str) -> int:
         """分析单个群的状态，返回 SAN 值变化"""
@@ -201,7 +227,8 @@ class SANSystem:
                 drain = self.low_activity_drain
                 return drain if drain is not None else 0
 
-            analysis = await self._llm_analyze(messages)
+            group_umo = self.plugin.get_group_umo(group_id) if hasattr(self.plugin, "get_group_umo") else None
+            analysis = await self._llm_analyze(messages, umo=group_umo)
             if not analysis:
                 return 0
 
@@ -247,13 +274,13 @@ class SANSystem:
             logger.warning(f"[SAN] 获取群消息失败: {e}")
             return []
 
-    async def _llm_analyze(self, messages: list) -> dict:
+    async def _llm_analyze(self, messages: list, umo: str | None = None) -> dict:
         """调用 LLM 分析群状态"""
         if not messages:
             return None
 
         try:
-            llm_provider = self.plugin.context.get_using_provider("qq")
+            llm_provider = self.plugin.context.get_using_provider(umo=umo)
             if not llm_provider:
                 logger.warning("[SAN] 无法获取 LLM Provider")
                 return None
@@ -264,7 +291,7 @@ class SANSystem:
             res = await llm_provider.text_chat(
                 prompt=prompt,
                 contexts=[],
-                system_prompt="你是一个群聊分析助手，只输出 JSON，不要其他内容。",
+                system_prompt="你是一个会话分析助手，只输出 JSON，不要其他内容。",
             )
 
             text = res.completion_text.strip()

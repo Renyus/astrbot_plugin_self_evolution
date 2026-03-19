@@ -8,7 +8,7 @@ logger = logging.getLogger("astrbot")
 
 
 async def scheduled_reflection(plugin):
-    """每日批处理任务 - 群摘要生成 + 活跃用户画像更新 + 好感度恢复"""
+    """每日批处理任务 - 会话摘要生成 + 活跃用户画像更新 + 好感度恢复"""
     logger.info("[SelfEvolution] 每日批处理任务开始...")
 
     await plugin.dao.init_db()
@@ -16,21 +16,23 @@ async def scheduled_reflection(plugin):
     whitelist = getattr(plugin.cfg, "profile_group_whitelist", [])
     if whitelist:
         target_groups = whitelist
-    elif hasattr(plugin, "eavesdropping") and hasattr(plugin.eavesdropping, "active_users"):
-        target_groups = [g for g in plugin.eavesdropping.active_users.keys() if not g.startswith("private_")]
     else:
         target_groups = []
+        if hasattr(plugin, "eavesdropping") and hasattr(plugin.eavesdropping, "active_users"):
+            target_groups = list(plugin.eavesdropping.active_users)
+        if not target_groups:
+            target_groups = await _fetch_groups_from_platform(plugin)
 
     if target_groups:
         try:
             result = await plugin.daily_batch.run_daily_batch(target_groups)
             logger.info(
-                f"[SelfEvolution] 每日批处理完成: 群{result['groups_processed']}个, 用户{result['users_processed']}个, 报告{result['reports_saved']}份"
+                f"[SelfEvolution] 每日批处理完成: 会话{result['groups_processed']}个, 用户{result['users_processed']}个, 报告{result['reports_saved']}份"
             )
         except Exception as e:
             logger.error(f"[SelfEvolution] 每日批处理失败: {e}")
     else:
-        logger.debug("[SelfEvolution] 无目标群，跳过批处理")
+        logger.debug("[SelfEvolution] 无目标会话，跳过批处理")
 
     await plugin.dao.recover_all_affinity(recovery_amount=2)
     logger.debug('[SelfEvolution] 已执行每日"大赦天下"：所有负面评分用户好感度已小幅回升。')
@@ -59,10 +61,10 @@ async def scheduled_san_analyze(plugin):
 
 
 async def scheduled_memory_summary(plugin):
-    """每日群聊总结任务"""
-    logger.debug("[Memory] 开始每日群聊总结...")
+    """每日会话总结任务"""
+    logger.debug("[Memory] 开始每日会话总结...")
     await plugin.memory.daily_summary()
-    logger.debug("[Memory] 每日群聊总结任务完成。")
+    logger.debug("[Memory] 每日会话总结任务完成。")
 
 
 async def scheduled_interject(plugin):
@@ -77,7 +79,7 @@ async def scheduled_interject(plugin):
             groups = whitelist
         # 方式2: eavesdropping active_users
         elif plugin.eavesdropping.active_users:
-            groups = [g for g in plugin.eavesdropping.active_users.keys() if not g.startswith("private_")]
+            groups = [g for g in plugin.eavesdropping.active_users if not g.startswith("private_")]
             logger.debug(f"[Interject] 使用 eavesdropping 活跃群列表: {groups}")
         # 方式3: 通过 platform 获取 bot 加入的群列表
         else:
@@ -99,8 +101,18 @@ async def scheduled_interject(plugin):
 async def _fetch_groups_from_platform(plugin):
     """从 platform 获取 bot 加入的群列表"""
     try:
-        platform = plugin.context.platform_manager.platform_insts[0]
+        platform_insts = plugin.context.platform_manager.platform_insts
+        if not platform_insts:
+            return []
+
+        platform = platform_insts[0]
+        if not hasattr(platform, "get_client"):
+            return []
+
         bot = platform.get_client()
+        if not bot:
+            return []
+
         result = await bot.call_action("get_group_list")
         if isinstance(result, list):
             groups_data = result
@@ -173,7 +185,8 @@ async def scheduled_profile_build(plugin):
 
             for group_id in batch:
                 try:
-                    await plugin.profile.analyze_and_build_profiles(str(group_id))
+                    group_umo = plugin.get_group_umo(group_id) if hasattr(plugin, "get_group_umo") else None
+                    await plugin.profile.analyze_and_build_profiles(str(group_id), umo=group_umo)
                 except Exception as e:
                     logger.warning(f"[Profile] 群 {group_id} 画像构建失败: {e}")
 

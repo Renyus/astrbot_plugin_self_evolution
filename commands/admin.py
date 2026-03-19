@@ -63,7 +63,7 @@ async def handle_db(event, plugin, action: str = "", param: str = ""):
         table_cn = {
             "pending_evolutions": "待审核进化",
             "session_reflections": "会话反思",
-            "group_daily_reports": "群日报",
+            "group_daily_reports": "会话日报",
             "user_relationships": "用户关系",
             "user_interactions": "用户互动",
             "stickers": "表情包",

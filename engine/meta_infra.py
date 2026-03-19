@@ -121,7 +121,13 @@ class MetaInfra:
         except OSError as e:
             logger.warning(f"[SelfEvolution] 清理陈旧隔离文件发生操作系统异常: {e}")
 
-    async def update_plugin_source(self, new_code: str, description: str, target_file: str = "main.py") -> str:
+    async def update_plugin_source(
+        self,
+        new_code: str,
+        description: str,
+        target_file: str = "main.py",
+        umo: str | None = None,
+    ) -> str:
         """
         Level 4: 元编程。针对本插件提出代码修改建议。
         支持多智能体对抗辩论机制。
@@ -144,7 +150,7 @@ class MetaInfra:
         debate_enabled = self.plugin.cfg.debate_enabled
 
         if debate_enabled:
-            debate_result = await self._run_debate(new_code, description, target_file)
+            debate_result = await self._run_debate(new_code, description, target_file, umo=umo)
             if not debate_result["passed"]:
                 return debate_result["message"]
 
@@ -184,7 +190,9 @@ class MetaInfra:
             "⚠️【管理员须知】：请对 LLM 生成的代码进行肉眼复审后再人工覆盖。"
         )
 
-    async def _run_debate(self, new_code: str, description: str, target_file: str) -> dict:
+    async def _run_debate(
+        self, new_code: str, description: str, target_file: str, umo: str | None = None
+    ) -> dict:
         """
         多智能体对抗辩论流程
         主控 Agent (黑塔) vs 多审查 Agent (可配置)
@@ -206,8 +214,7 @@ class MetaInfra:
                 debate_agents = []
 
         context = self.plugin.context
-        platform_id = "qq"
-        provider = context.get_using_provider(platform_id)
+        provider = context.get_using_provider(umo=umo)
 
         if not provider:
             logger.warning("[SelfEvolution] 多智能体对抗：无法获取 LLM Provider，跳过审查")

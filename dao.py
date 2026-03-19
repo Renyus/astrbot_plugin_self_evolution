@@ -117,7 +117,7 @@ class SelfEvolutionDAO:
                 consumed INTEGER NOT NULL DEFAULT 0
             )
         """)
-        # 群日报表（每日批处理）
+        # 会话日报表（沿用 group_daily_reports 表名以兼容旧数据）
         await db.execute("""
             CREATE TABLE IF NOT EXISTS group_daily_reports (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -323,7 +323,7 @@ class SelfEvolutionDAO:
 
     @with_db_retry()
     async def save_group_daily_report(self, group_id: str, summary: str):
-        """保存群日报"""
+        """保存会话日报"""
         db = await self.get_conn()
         async with self._write_lock:
             today = time.strftime("%Y-%m-%d")
@@ -332,11 +332,11 @@ class SelfEvolutionDAO:
                 (group_id, summary, today),
             )
             await db.commit()
-            logger.debug(f"[DAO] 已保存群日报: group_id={group_id}, date={today}")
+            logger.debug(f"[DAO] 已保存会话日报: group_id={group_id}, date={today}")
 
     @with_db_retry()
     async def get_latest_group_report(self, group_id: str) -> Optional[dict]:
-        """获取最新的群日报"""
+        """获取最新的会话日报"""
         db = await self.get_conn()
         async with self._write_lock:
             cursor = await db.execute(
@@ -350,7 +350,7 @@ class SelfEvolutionDAO:
 
     @with_db_retry()
     async def get_group_reports(self, group_id: str, days: int = 7) -> list:
-        """获取最近N天的群日报"""
+        """获取最近N天的会话日报"""
         db = await self.get_conn()
         async with self._write_lock:
             cursor = await db.execute(
@@ -410,9 +410,12 @@ class SelfEvolutionDAO:
                 (recovery_amount,),
             )
             await db.commit()
+            self._affinity_cache.clear()
+            self._affinity_cache_time.clear()
 
     @with_db_retry()
     async def reset_affinity(self, user_id: str, score: int = 50):
+        user_id = str(user_id)
         db = await self.get_conn()
         async with self._write_lock:
             await db.execute(
@@ -426,6 +429,7 @@ class SelfEvolutionDAO:
                 ),
             )
             await db.commit()
+            await self._set_cached_affinity(user_id, score)
 
     @with_db_retry()
     async def get_pending_evolutions(self, limit: int, offset: int):
@@ -523,7 +527,8 @@ class SelfEvolutionDAO:
         db = await self.get_conn()
         async with self._db_lock:
             cursor = await db.execute(
-                "SELECT id, uuid, group_id, user_id, base64_data FROM stickers WHERE tags = '' OR tags IS NULL LIMIT ?",
+                "SELECT id, uuid, group_id, user_id, base64_data, created_at "
+                "FROM stickers WHERE tags = '' OR tags IS NULL ORDER BY id ASC LIMIT ?",
                 (limit,),
             )
             rows = await cursor.fetchall()
@@ -534,6 +539,7 @@ class SelfEvolutionDAO:
                     "group_id": row["group_id"],
                     "user_id": row["user_id"],
                     "base64_data": row["base64_data"],
+                    "created_at": row["created_at"],
                 }
                 for row in rows
             ]

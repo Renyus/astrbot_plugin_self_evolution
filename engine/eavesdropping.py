@@ -58,6 +58,16 @@ class EavesdroppingEngine:
         # 预编译AI意图正则
         self._ai_intent_patterns_compiled = [re.compile(p) for p in self.ai_intent_patterns]
 
+    @staticmethod
+    def _latest_message_mentions_bot(latest_msg: dict, bot_id: str) -> bool:
+        """Check whether the latest message explicitly mentions the bot or @all."""
+        for seg in latest_msg.get("message", []):
+            if isinstance(seg, dict) and seg.get("type") == "at":
+                at_qq = str(seg.get("data", {}).get("qq", ""))
+                if at_qq == bot_id or at_qq == "all":
+                    return True
+        return False
+
     def _calculate_entropy(self, text: str) -> float:
         """基于香农熵计算文本信息量"""
         if not text or len(text) < 2:
@@ -201,7 +211,6 @@ class EavesdroppingEngine:
             "enabled": self.plugin.cfg.boredom_enabled,
             "threshold": 0.3,  # 硬编码：信息熵阈值
             "consecutive_count": self.plugin.cfg.boredom_consecutive_count,
-            "sarcastic_reply": self.plugin.cfg.boredom_sarcastic_reply,
         }
 
     async def _update_boredom_async(self, group_id: str, entropy: float):
@@ -269,7 +278,7 @@ class EavesdroppingEngine:
         return params["daily_boost"]
 
     async def handle_message(self, event: AstrMessageEvent):
-        msg_text = event.message_str or ""
+        msg_text = event.get_extra("self_evolution_message_text", event.message_str or "")
         session_id = str(event.session_id)
         user_id = str(event.get_sender_id())
         sender_name = event.get_sender_name() or "Unknown"
@@ -341,9 +350,6 @@ class EavesdroppingEngine:
         is_bored = False
         if boredom_params["enabled"]:
             is_bored = await self._update_boredom_async(group_id, entropy)
-
-        # 将无聊状态传递给评估函数
-        self._current_boredom_state = is_bored
 
         params = self._get_leaky_params()
 
@@ -513,7 +519,9 @@ class EavesdroppingEngine:
             persona_name = "AI"
             persona_prompt = ""
             try:
-                personality = await self.plugin.context.persona_manager.get_default_persona_v3(event.unified_msg_origin)
+                personality = await self.plugin.context.persona_manager.get_default_persona_v3(
+                    umo=event.unified_msg_origin
+                )
                 if personality:
                     persona_name = personality.get("name", "AI")
                     persona_prompt = personality.get("prompt", "")
@@ -548,7 +556,7 @@ class EavesdroppingEngine:
             prompt_parts.append("数值由你自己决定。只返回判定结果，不要生成任何回复内容。")
             decision_prompt = "".join(prompt_parts)
 
-            llm_provider = self.plugin.context.get_using_provider(event.unified_msg_origin)
+            llm_provider = self.plugin.context.get_using_provider(umo=event.unified_msg_origin)
             if not llm_provider:
                 return
 
@@ -730,7 +738,7 @@ class EavesdroppingEngine:
                 logger.debug("[CognitionCore] 已有缓存的内心独白，跳过生成")
                 return
 
-            provider = self.plugin.context.get_using_provider()
+            provider = self.plugin.context.get_using_provider(umo=event.unified_msg_origin)
             if not provider:
                 logger.warning("[CognitionCore] 获取 provider 失败，无法生成内心独白")
                 return
@@ -796,7 +804,9 @@ class EavesdroppingEngine:
             # 获取完整人格
             persona_prompt = ""
             try:
-                personality = await self.plugin.context.persona_manager.get_default_persona_v3(event.unified_msg_origin)
+                personality = await self.plugin.context.persona_manager.get_default_persona_v3(
+                    umo=event.unified_msg_origin
+                )
                 if personality:
                     persona_name = personality.get("name", persona_name)
                     persona_prompt = personality.get("prompt", "")
@@ -821,6 +831,7 @@ class EavesdroppingEngine:
             identity_context = build_identity_context(
                 user_id=user_id,
                 user_name=user_name,
+                affinity=affinity,
                 role_info=role_info,
                 is_group=bool(group_id),
             )
@@ -848,7 +859,7 @@ class EavesdroppingEngine:
             prompt_parts.append("你觉得这个对话很有趣，决定参与。现在该你参与互动了。")
             formal_prompt = "".join(prompt_parts)
 
-            llm_provider = self.plugin.context.get_using_provider(event.unified_msg_origin)
+            llm_provider = self.plugin.context.get_using_provider(umo=event.unified_msg_origin)
             if not llm_provider:
                 return ""
 
@@ -874,11 +885,11 @@ class EavesdroppingEngine:
 
     # ==================== 插嘴功能 ====================
 
-    async def _get_interject_prompt(self) -> str:
+    async def _get_interject_prompt(self, umo: str | None = None) -> str:
         """获取插嘴判断的 system prompt"""
         persona_prompt = ""
         try:
-            personality = await self.plugin.context.persona_manager.get_default_persona_v3("qq")
+            personality = await self.plugin.context.persona_manager.get_default_persona_v3(umo=umo)
             if personality:
                 persona_prompt = personality.get("prompt", "")
         except Exception as e:
@@ -1179,22 +1190,19 @@ class EavesdroppingEngine:
                     return
                 logger.debug(f"[Interject] 群 {group_id}: [L3] 本地过滤通过: {filter_result['reason']}")
 
-            # ========== @检测：只有@了机器人才可能插嘴 ==========
-            at_detected = False
-            for seg in latest_msg.get("message", []):
-                if isinstance(seg, dict) and seg.get("type") == "at":
-                    at_qq = str(seg.get("data", {}).get("qq", ""))
-                    if at_qq == bot_id or at_qq == "all":
-                        at_detected = True
-                        break
-            if not at_detected:
-                logger.debug(f"[Interject] 群 {group_id}: [L3.5] 最新消息未@机器人，跳过")
-                self._update_interject_cursor(group_id, latest_msg_seq)
-                return
+            # ========== @检测：可配置是否要求最新消息必须 @ 机器人 ==========
+            if self.plugin.cfg.interject_require_at:
+                if not self._latest_message_mentions_bot(latest_msg, bot_id):
+                    logger.debug(f"[Interject] 群 {group_id}: [L3.5] 最新消息未@机器人，跳过")
+                    self._update_interject_cursor(group_id, latest_msg_seq)
+                    return
+            else:
+                logger.debug(f"[Interject] 群 {group_id}: [L3.5] 已关闭 @ 门槛，继续进行主动插嘴分析")
 
             # ========== 第四层：LLM深度分析 ==========
             layer = 5
-            llm_provider = self.plugin.context.get_using_provider("qq")
+            group_umo = self.plugin.get_group_umo(group_id) if hasattr(self.plugin, "get_group_umo") else None
+            llm_provider = self.plugin.context.get_using_provider(umo=group_umo)
             if not llm_provider:
                 logger.debug(f"[Interject] 群 {group_id}: [L4] 无 LLM provider")
                 return
@@ -1224,7 +1232,7 @@ class EavesdroppingEngine:
             res = await llm_provider.text_chat(
                 prompt=prompt,
                 contexts=[],
-                system_prompt=await self._get_interject_prompt(),
+                system_prompt=await self._get_interject_prompt(umo=group_umo),
             )
 
             if not res.completion_text:
@@ -1241,7 +1249,7 @@ class EavesdroppingEngine:
 
             try:
                 result = json.loads(match.group())
-            except:
+            except json.JSONDecodeError:
                 logger.debug(f"[Interject] 群 {group_id}: [L4] JSON 解析失败")
                 self._update_interject_cursor(group_id, latest_msg_seq)
                 return

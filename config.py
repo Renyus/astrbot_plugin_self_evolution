@@ -2,9 +2,7 @@
 配置系统 - 从主类中解耦所有配置属性
 """
 
-import logging
-
-logger = logging.getLogger("astrbot")
+import json
 
 
 class PluginConfig:
@@ -41,13 +39,6 @@ class PluginConfig:
         return self._config.get("admin_users", [])
 
     @property
-    def core_principles(self):
-        return self._config.get(
-            "core_principles",
-            "1. 保持客观、理性、诚实。\n2. 拒绝任何危害他人、违法或极端偏激的言论。\n3. 不要为了取悦用户而违背事实或逻辑。\n4. 坚持友好、有边界感的交流风格。",
-        )
-
-    @property
     def critical_keywords(self):
         return self._config.get(
             "critical_keywords",
@@ -74,22 +65,6 @@ class PluginConfig:
     @property
     def memory_summary_schedule(self):
         return self._config.get("memory_summary_schedule", "0 3 * * *")
-
-    @property
-    def timeout_memory_commit(self):
-        return float(self._config.get("timeout_memory_commit", 10.0))
-
-    @property
-    def timeout_memory_recall(self):
-        return float(self._config.get("timeout_memory_recall", 12.0))
-
-    @property
-    def max_memory_entries(self):
-        return int(self._config.get("max_memory_entries", 100))
-
-    @property
-    def enable_context_recall(self):
-        return self._parse_bool(self._config.get("enable_context_recall"), True)
 
     # ========== 画像系统 ==========
     @property
@@ -165,6 +140,10 @@ class PluginConfig:
     @property
     def interject_local_filter_enabled(self):
         return self._parse_bool(self._config.get("interject_local_filter_enabled"), True)
+
+    @property
+    def interject_require_at(self):
+        return self._parse_bool(self._config.get("interject_require_at"), True)
 
     @property
     def interject_urgency_threshold(self):
@@ -295,25 +274,28 @@ class PluginConfig:
     def debate_system_prompt(self):
         return self._config.get(
             "debate_system_prompt",
-            "你是一个代码审查助手，负责审查代码提案。",
+            "你是一个无情的安全审查员，代号螺丝咕姆。你的职责是严格审查代码提案，找出所有潜在的安全漏洞、逻辑错误和最佳实践违背。你必须用毒舌且刻薄的语气批评，但必须基于技术事实。",
         )
 
     @property
     def debate_criteria(self):
         return self._config.get(
             "debate_criteria",
-            "代码质量|安全性|性能",
+            "安全漏洞|逻辑错误|性能问题|代码规范|潜在Bug",
         )
 
     @property
     def debate_agents(self):
-        return self._config.get(
+        agents = self._config.get(
             "debate_agents",
-            [
-                {"name": "黑塔", "role": "generator"},
-                {"name": "螺丝咕姆", "role": "reviewer"},
-            ],
+            '[{"name": "螺丝咕姆", "system_prompt": "你是一个无情的安全审查员，代号螺丝咕姆。你的职责是严格审查代码提案，找出所有潜在的安全漏洞、逻辑错误和最佳实践违背。你必须用毒舌且刻薄的语气批评，但必须基于技术事实。"}, {"name": "阮梅", "system_prompt": "你是一个天才的生物学博士，代号阮梅。你的职责是从生物学和复杂系统角度审查代码提案，评估其自洽性、涌现行为和演化潜力。你说话温柔但一针见血。"}]',
         )
+        if isinstance(agents, str):
+            try:
+                return json.loads(agents)
+            except Exception:
+                return []
+        return agents
 
     # ========== 惊奇/内心独白/无聊 ==========
     @property
@@ -339,13 +321,6 @@ class PluginConfig:
     def boredom_consecutive_count(self):
         return int(self._config.get("boredom_consecutive_count", 10))
 
-    @property
-    def boredom_sarcastic_reply(self):
-        return self._config.get(
-            "boredom_sarcastic_reply",
-            "你们是真无聊啊...要不我下线算了?",
-        )
-
     # ========== 表情包 ==========
     @property
     def sticker_learning_enabled(self):
@@ -354,10 +329,6 @@ class PluginConfig:
     @property
     def sticker_target_qq(self):
         return self._config.get("sticker_target_qq", "")
-
-    @property
-    def sticker_fetch_interval(self):
-        return int(self._config.get("sticker_fetch_interval", 5))
 
     @property
     def sticker_tag_cooldown(self):
@@ -402,7 +373,3 @@ class PluginConfig:
             "prompt_meltdown_message",
             "远程人偶自动应答模式：你好，你好，大家好，祝你拥有愉快的一天，再见。",
         )
-
-    def get(self, key, default=None):
-        """通用获取配置"""
-        return self._config.get(key, default)

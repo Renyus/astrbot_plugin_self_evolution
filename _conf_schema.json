@@ -18,13 +18,6 @@
         "type": "list",
         "default": []
     },
-    "core_principles": {
-        "title": "核心价值观/安全锚点",
-        "description": "机器人的底线原则。",
-        "hint": "即使在进化时也必须遵守：\n1. 保持客观、理性、诚实。\n2. 拒绝危害他人、违法或极端偏激。\n3. 不违背事实或逻辑。\n4. 友好、有边界感。",
-        "type": "string",
-        "default": "1. 保持客观、理性、诚实。\n2. 拒绝任何危害他人、违法或极端偏激的言论。\n3. 不要为了取悦用户而违背事实或逻辑。\n4. 坚持友好、有边界感的交流风格。"
-    },
     "critical_keywords": {
         "title": "意图预扫描关键词",
         "description": "命中时立即触发互动意愿评估。",
@@ -40,11 +33,11 @@
         "default": false
     },
     "reflection_schedule": {
-        "title": "自我反省计划 (Cron)",
-        "description": "Bot 自动自省的时间表。",
-        "hint": "Cron 表达式，默认每天凌晨 3 点：0 3 * * *",
+        "title": "每日批处理计划 (Cron)",
+        "description": "Bot 自动执行日报、画像刷新与好感度恢复的时间表。",
+        "hint": "Cron 表达式，默认每天凌晨 2 点：0 2 * * *",
         "type": "string",
-        "default": "0 3 * * *"
+        "default": "0 2 * * *"
     },
 
     "memory_kb_name": {
@@ -55,41 +48,16 @@
     },
     "memory_msg_count": {
         "title": "每日总结消息数",
-        "description": "每日群聊总结时获取的消息数量。",
+        "description": "每日会话总结时获取的消息数量。",
         "type": "int",
         "default": 500
     },
     "memory_summary_schedule": {
         "title": "每日总结计划 (Cron)",
-        "description": "定时执行群聊总结的时间表。",
+        "description": "定时执行会话总结的时间表。",
         "hint": "Cron 表达式，默认每天凌晨 3 点：0 3 * * *",
         "type": "string",
         "default": "0 3 * * *"
-    },
-    "timeout_memory_commit": {
-        "title": "存入记忆超时(秒)",
-        "description": "写入知识库的超时时间。",
-        "type": "float",
-        "default": 10.0
-    },
-    "timeout_memory_recall": {
-        "title": "读取记忆超时(秒)",
-        "description": "读取知识库的超时时间。",
-        "type": "float",
-        "default": 12.0
-    },
-    "max_memory_entries": {
-        "title": "记忆库最大条目数",
-        "description": "知识库最多存储的记忆条数。",
-        "hint": "超过时自动删除最旧的记忆，默认 100。",
-        "type": "int",
-        "default": 100
-    },
-    "enable_context_recall": {
-        "title": "启用上下文追踪",
-        "description": "用户引用AI话时注入上下文",
-        "type": "bool",
-        "default": true
     },
 
     "profile_msg_count": {
@@ -146,6 +114,13 @@
         "type": "int",
         "default": 30
     },
+    "core_info_keywords": {
+        "title": "核心信息关键词",
+        "description": "在画像摘要里永不丢失的关键信息提示词。",
+        "hint": "用逗号分隔，如：我是谁,我的名字,我的身份",
+        "type": "string",
+        "default": "我是谁,我的名字,我的身份,我的职责"
+    },
 
     "interject_enabled": {
         "title": "启用主动插嘴",
@@ -156,9 +131,9 @@
     "interject_whitelist": {
         "title": "插嘴白名单群",
         "description": "指定要检查的群号",
-        "hint": "多个群号用逗号分隔，如: 123456789,987654321",
-        "type": "string",
-        "default": ""
+        "hint": "群号列表，如：[123456789, 987654321]",
+        "type": "list",
+        "default": []
     },
     "interject_interval": {
         "title": "插嘴检查间隔",
@@ -191,6 +166,13 @@
     "interject_local_filter_enabled": {
         "title": "启用本地轻量级过滤",
         "description": "在调用LLM前先用本地规则过滤，减少LLM调用次数",
+        "type": "bool",
+        "default": true
+    },
+    "interject_require_at": {
+        "title": "Require @ mention for interject",
+        "description": "Only continue proactive interject analysis when the latest message mentions the bot or @all.",
+        "hint": "Default true for compatibility. Disable it if you want the bot to participate more proactively.",
         "type": "bool",
         "default": true
     },
@@ -275,6 +257,49 @@
         "type": "int",
         "default": 20
     },
+    "san_auto_analyze_enabled": {
+        "title": "启用自动SAN分析",
+        "description": "开启后会定时分析群聊状态并动态调整 SAN。",
+        "type": "bool",
+        "default": true
+    },
+    "san_analyze_interval": {
+        "title": "SAN分析间隔",
+        "description": "每隔多久分析一次群聊状态。",
+        "hint": "单位：分钟，默认 30",
+        "type": "int",
+        "default": 30
+    },
+    "san_msg_count_per_group": {
+        "title": "SAN分析消息数",
+        "description": "每个群分析时获取的消息条数。",
+        "type": "int",
+        "default": 50
+    },
+    "san_high_activity_boost": {
+        "title": "高活跃加成",
+        "description": "高活跃且状态良好时增加的 SAN。",
+        "type": "int",
+        "default": 5
+    },
+    "san_low_activity_drain": {
+        "title": "低活跃消耗",
+        "description": "低活跃时减少的 SAN。",
+        "type": "int",
+        "default": -3
+    },
+    "san_positive_vibe_bonus": {
+        "title": "正面情绪加成",
+        "description": "检测到积极氛围时增加的 SAN。",
+        "type": "int",
+        "default": 3
+    },
+    "san_negative_vibe_penalty": {
+        "title": "负面情绪惩罚",
+        "description": "检测到负面氛围时减少的 SAN。",
+        "type": "int",
+        "default": -5
+    },
 
     "leaky_integrator_enabled": {
         "title": "启用欲望积分器",
@@ -294,8 +319,8 @@
         "title": "欲望触发阈值",
         "description": "欲望值突破此值时触发互动意愿。",
         "hint": "建议 3-5，欲望初始值 2.0",
-        "type": "float",
-        "default": 4.0
+        "type": "int",
+        "default": 5
     },
     "interest_boost": {
         "title": "兴趣话题增益",
@@ -338,7 +363,7 @@
         "description": "边缘兴趣标签被随机屏蔽的概率。",
         "hint": "0-1 之间，建议 0.1-0.2",
         "type": "float",
-        "default": 0.15
+        "default": 0.2
     },
 
     "debate_enabled": {
@@ -389,7 +414,7 @@
         "description": "触发高惊奇度的关键词列表。",
         "hint": "用 | 分隔，如：我错了|原来如此|没想到",
         "type": "string",
-        "default": "我错了|原来如此|没想到|居然|竟然|震惊|原来是这样|我去|牛逼|绝了|笑死|笑到|服了|长见识了|原来是这个意思"
+        "default": "突然|惊讶|没想到|居然"
     },
     "inner_monologue_enabled": {
         "title": "启用内心独白",
@@ -409,13 +434,7 @@
         "title": "连续无聊计数",
         "description": "连续多少条低信息量消息后触发无聊状态。",
         "type": "int",
-        "default": 5
-    },
-    "boredom_sarcastic_reply": {
-        "title": "无聊时输出傲慢回复",
-        "description": "当被 @ 时，是否输出傲慢的拒绝回复。",
-        "type": "bool",
-        "default": true
+        "default": 10
     },
 
     "sticker_learning_enabled": {
@@ -431,13 +450,6 @@
         "hint": "如：123456789,987654321",
         "type": "string",
         "default": ""
-    },
-    "sticker_fetch_interval": {
-        "title": "偷图频率(分钟)",
-        "description": "每隔多久检查一次新表情包",
-        "hint": "默认 5 分钟",
-        "type": "int",
-        "default": 5
     },
     "sticker_tag_cooldown": {
         "title": "打标签冷却时间(分钟)",
@@ -502,5 +514,11 @@
         "hint": "用于防止 prompt 超出 LLM context 限制，默认 2000",
         "type": "int",
         "default": 2000
+    },
+    "prompt_meltdown_message": {
+        "title": "熔断回复文本",
+        "description": "当用户好感度降到 0 时强制返回的固定回复。",
+        "type": "string",
+        "default": "远程人偶自动应答模式：你好，你好，大家好，祝你拥有愉快的一天，再见。"
     }
 }

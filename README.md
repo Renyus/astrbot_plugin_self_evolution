@@ -1,6 +1,6 @@
 # 自我进化 -- AstrBot 认知增强插件
 
-**版本**: Ver 2.6.0 | **内核**: CognitionCore 7.0 | **协议**: CC BY-NC 4.0
+**版本**: Ver 2.7.0 | **内核**: CognitionCore 7.0 | **协议**: CC BY-NC 4.0
 
 交流群: 1087272376
 
@@ -10,7 +10,7 @@
 
 自我进化是一个面向 AstrBot 平台的认知增强插件。它赋予 AI 主动环境感知、长期记忆、用户画像、情感建模和自主互动意愿等能力，让 AI 从被动的问答工具升级为具备持续"生命感"的智能体。
 
-插件的核心设计思想是"定时批量处理 + NapCat API 深度整合"：利用 NapCat API 直接获取群消息进行画像构建、群聊总结、SAN 分析等工作，实时交互保持轻量级响应。
+插件的核心设计思想是"定时批量处理 + NapCat API 深度整合"：利用 NapCat API 直接获取群聊/私聊消息进行画像构建、会话总结、SAN 分析等工作，实时交互保持轻量级响应。
 
 ---
 
@@ -21,7 +21,7 @@
 | SAN 精力值系统 | 定时分析群状态，动态调整 AI 精力值 | 启用 |
 | 用户画像 | 手动/自动创建和更新用户画像 | 启用 |
 | 自动画像构建 | 定时分析群活跃用户，AI 自主判断是否值得构建画像 | 启用 |
-| 每日群聊总结 | 定时获取群消息，LLM 总结后存入知识库 | 启用 |
+| 每日会话总结 | 定时获取群聊/私聊消息，LLM 总结后存入知识库 | 启用 |
 | 好感度系统 | 用户情感评分与熔断机制 | 启用 |
 | 欲望积分器 | 模拟人类情绪波动，触发主动插嘴 | 启用 |
 | 主动插嘴 | 定时检查群氛围，AI 自主决定是否插嘴 | 关闭（默认） |
@@ -67,7 +67,7 @@ astrbot_plugin_self_evolution/
 |-- engine/
 |   |-- __init__.py              # 模块导出
 |   |-- eavesdropping.py          # 欲望积分器、主动插嘴
-|   |-- memory.py                 # 每日群聊总结
+|   |-- memory.py                 # 每日会话总结
 |   |-- profile.py               # 用户画像管理
 |   |-- persona.py               # 人格进化管理
 |   |-- meta_infra.py            # 元编程基础设施
@@ -119,12 +119,12 @@ astrbot_plugin_self_evolution/
 
 ### 2. 用户画像系统
 
-基于 NapCat API 获取用户在群里的消息记录，手动/自动创建画像。
+基于 NapCat API 获取用户在群聊或私聊里的消息记录，手动/自动创建画像。
 
 **触发方式**：
-- `/create [用户ID]` - 手动创建画像
-- `/update [用户ID]` - 手动更新画像
-- `/view [用户ID]` - 查看画像
+- `/create [用户ID]` - 手动创建画像（私聊仅支持当前会话用户）
+- `/update [用户ID]` - 手动更新画像（私聊仅支持当前会话用户）
+- `/view [用户ID]` - 查看画像（私聊仅支持当前会话用户）
 
 **权限规则**：
 - 普通用户：只能操作自己的画像
@@ -147,16 +147,16 @@ AI 自主判断哪些用户值得构建画像。
 - `auto_profile_enabled` - 是否启用
 - `auto_profile_schedule` - 定时计划
 
-### 4. 每日群聊总结
+### 4. 每日会话总结
 
-定时获取群消息，LLM 总结后存入知识库。
+定时获取群聊/私聊消息，LLM 总结后存入知识库。
 
 **触发时间**：每天凌晨（可配置）
 
 **工作流程**：
-1. 获取所有监听群的消息
+1. 获取所有监听的群聊/私聊会话消息
 2. 使用 `parse_message_chain()` 正确解析消息链
-3. 调用 LLM 生成群聊总结
+3. 调用 LLM 生成会话总结
 4. 存入知识库
 
 ### 5. 好感度系统
@@ -277,9 +277,9 @@ AI 自主修改系统提示词，支持管理员审核。
 | `/reflect` | 手动触发自我反省 |
 | `/affinity` | 查看当前好感度 |
 | `/今日老婆` | 随机抽取今日老婆 |
-| `/view [用户ID]` | 查看画像（普通用户只能看自己） |
-| `/create [用户ID]` | 创建画像（普通用户只能给自己创建） |
-| `/update [用户ID]` | 更新画像（普通用户只能更新自己） |
+| `/view [用户ID]` | 查看画像（普通用户只能看自己；私聊仅支持当前会话用户） |
+| `/create [用户ID]` | 创建画像（普通用户只能给自己创建；私聊仅支持当前会话用户） |
+| `/update [用户ID]` | 更新画像（普通用户只能更新自己；私聊仅支持当前会话用户） |
 | `/shut [分钟]` | 让 AI 停止回复 |
 
 ### 管理员指令
@@ -306,9 +306,9 @@ AI 自主修改系统提示词，支持管理员审核。
 
 | 工具 | 说明 |
 |------|------|
-| `get_user_profile` | 获取用户画像 |
-| `upsert_cognitive_memory` | 存储记忆（仅支持用户画像类别） |
-| `get_user_messages` | 获取用户在群里的历史消息 |
+| `get_user_profile` | 获取用户画像（群聊/私聊均可，私聊读取当前会话用户画像） |
+| `upsert_cognitive_memory` | 存储记忆（仅支持用户画像类别；私聊仅支持当前会话用户） |
+| `get_user_messages` | 获取用户历史消息（群聊/私聊均可，私聊仅支持当前会话用户） |
 
 ### 情感系统
 
@@ -386,7 +386,7 @@ AI 自主修改系统提示词，支持管理员审核。
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `memory_kb_name` | string | self_evolution_memory | 知识库名称 |
-| `memory_msg_count` | int | 500 | 总结消息数 |
+| `memory_msg_count` | int | 500 | 每次会话总结读取的消息数 |
 | `memory_summary_schedule` | string | 0 3 * * * | 总结计划 |
 
 ### 欲望积分器
@@ -408,14 +408,20 @@ AI 自主修改系统提示词，支持管理员审核。
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `interject_enabled` | bool | false | 启用主动插嘴 |
-| `interject_check_interval` | int | 1 | 检查间隔（分钟） |
-| `group_history_count` | int | 20 | 获取消息数 |
+| `interject_interval` | int | 30 | 检查间隔（分钟） |
 | `interject_analyze_count` | int | 15 | 分析消息数 |
 | `interject_min_msg_count` | int | 10 | 最小新增消息数 |
+| `interject_silence_timeout` | int | 15 | 留白检测时间（秒） |
+| `interject_require_at` | bool | true | 是否要求最新消息必须 @ 机器人或 @all 才继续主动插嘴分析 |
 | `interject_cooldown` | int | 30 | 冷却时间（分钟） |
 | `interject_whitelist` | list | [] | 插嘴白名单群号 |
+| `interject_local_filter_enabled` | bool | true | 启用本地轻量级过滤 |
+| `interject_urgency_threshold` | int | 80 | 触发插嘴的紧迫度阈值 |
+| `interject_dry_run` | bool | false | 影子模式，只打日志不实际发送 |
+| `interject_random_bypass_rate` | float | 0.1 | 本地过滤未命中时随机放行概率 |
 | `disable_framework_contexts` | bool | false | 禁用框架上下文 |
-| `inject_group_history` | bool | false | 注入群历史消息 |
+| `inject_group_history` | bool | true | 注入群历史消息 |
+| `group_history_count` | int | 10 | 注入群历史消息数量 |
 
 ### 分层失活
 
@@ -439,8 +445,10 @@ AI 自主修改系统提示词，支持管理员审核。
 |------|------|--------|------|
 | `sticker_learning_enabled` | bool | false | 启用表情包学习 |
 | `sticker_target_qq` | string | "" | 学习对象 QQ 号 |
-| `sticker_fetch_interval` | int | 5 | 获取间隔（分钟） |
 | `sticker_tag_cooldown` | int | 5 | 打标签间隔（分钟） |
+| `sticker_daily_limit` | int | 50 | 每日学习上限 |
+| `sticker_total_limit` | int | 100 | 总库存上限 |
+| `sticker_send_cooldown` | int | 30 | 发表情包冷却时间（分钟） |
 
 ### 基础配置
 
@@ -448,8 +456,11 @@ AI 自主修改系统提示词，支持管理员审核。
 |------|------|--------|------|
 | `persona_name` | string | 黑塔 | 机器人名称 |
 | `admin_users` | list | [] | 管理员列表 |
-| `reflection_schedule` | string | 0 2 * * * | 自省计划 |
+| `critical_keywords` | string | 黑塔\|空间站... | 意图预扫描关键词 |
+| `reflection_schedule` | string | 0 2 * * * | 每日批处理计划 |
+| `debug_log_enabled` | bool | false | 输出调试日志 |
 | `max_prompt_injection_length` | int | 2000 | Prompt 注入最大长度 |
+| `prompt_meltdown_message` | string | 远程人偶自动应答模式... | 好感度熔断时的固定回复 |
 
 ---
 
@@ -459,8 +470,8 @@ AI 自主修改系统提示词，支持管理员审核。
 
 | 任务名 | 默认时间 | 说明 |
 |--------|----------|------|
-| SelfEvolution_DailyReflection | 0 2 * * * | 每日自省标记 |
-| SelfEvolution_MemorySummary | 0 3 * * * | 每日群聊总结 |
+| SelfEvolution_DailyReflection | 0 2 * * * | 每日批处理（会话日报、画像刷新、好感度恢复） |
+| SelfEvolution_MemorySummary | 0 3 * * * | 每日会话总结 |
 | SelfEvolution_ProfileCleanup | 0 4 * * * | 清理过期画像 |
 | SelfEvolution_ProfileBuild | 0 0 * * * | 自动画像构建 |
 | SelfEvolution_SANAnalyze | */30 * * * | SAN 精力分析 |

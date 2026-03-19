@@ -59,15 +59,15 @@ async def register_tasks(plugin):
             )
             logger.info(f"[SelfEvolution] 已注册自动画像构建任务: {profile_cron}")
 
-        # 注册每日自省任务
+        # 注册每日批处理任务
         await cron_mgr.add_basic_job(
             name="SelfEvolution_DailyReflection",
             cron_expression=plugin.reflection_schedule,
             handler=lambda: scheduled_reflection(plugin),
-            description="自我进化插件：每日定时深度自省标记。",
+            description="自我进化插件：每日批量生成会话日报并刷新画像/好感度。",
             persistent=True,
         )
-        logger.info(f"[SelfEvolution] 已注册定时自省任务: {plugin.reflection_schedule}")
+        logger.info(f"[SelfEvolution] 已注册每日批处理任务: {plugin.reflection_schedule}")
 
         # 注册表情包打标签任务（每 N 分钟）
         if plugin.cfg.sticker_learning_enabled:
@@ -95,13 +95,13 @@ async def register_tasks(plugin):
             )
             logger.info(f"[SelfEvolution] 已注册 SAN 分析任务: {san_cron}")
 
-        # 注册每日群聊总结任务
+        # 注册每日会话总结任务
         summary_cron = plugin.cfg.memory_summary_schedule
         await cron_mgr.add_basic_job(
             name="SelfEvolution_MemorySummary",
             cron_expression=summary_cron,
             handler=lambda: scheduled_memory_summary(plugin),
-            description="自我进化插件：定时总结群聊消息。",
+            description="自我进化插件：定时总结群聊/私聊消息。",
             persistent=True,
         )
         logger.info(f"[SelfEvolution] 已注册每日总结任务: {summary_cron}")
