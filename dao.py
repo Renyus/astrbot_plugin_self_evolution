@@ -310,25 +310,27 @@ class SelfEvolutionDAO:
             return cursor.rowcount > 0
 
     @with_db_retry()
-    async def save_session_reflection(self, session_id: str, note: str, facts: str = "", bias: str = ""):
-        """保存会话反思"""
+    async def save_session_reflection(self, session_id: str, user_id: str, note: str, facts: str = "", bias: str = ""):
+        """保存会话反思（使用session_id + user_id作为复合键，避免群聊串用户）"""
         db = await self.get_conn()
+        reflection_key = f"{session_id}_{user_id}"
         async with self._write_lock:
             await db.execute(
                 "INSERT OR REPLACE INTO session_reflections (session_id, note, facts, bias, created_at, consumed) VALUES (?, ?, ?, ?, ?, 0)",
-                (session_id, note, facts, bias, time.strftime("%Y-%m-%d %H:%M:%S")),
+                (reflection_key, note, facts, bias, time.strftime("%Y-%m-%d %H:%M:%S")),
             )
             await db.commit()
-            logger.debug(f"[DAO] 已保存会话反思: session_id={session_id}")
+            logger.debug(f"[DAO] 已保存会话反思: key={reflection_key}")
 
     @with_db_retry()
-    async def get_session_reflection(self, session_id: str) -> Optional[dict]:
-        """获取未消费的会话反思"""
+    async def get_session_reflection(self, session_id: str, user_id: str) -> Optional[dict]:
+        """获取未消费的会话反思（使用session_id + user_id作为复合键）"""
         db = await self.get_conn()
+        reflection_key = f"{session_id}_{user_id}"
         async with self._write_lock:
             cursor = await db.execute(
                 "SELECT session_id, note, facts, bias, created_at FROM session_reflections WHERE session_id = ? AND consumed = 0",
-                (session_id,),
+                (reflection_key,),
             )
             row = await cursor.fetchone()
             if row:
@@ -336,16 +338,17 @@ class SelfEvolutionDAO:
             return None
 
     @with_db_retry()
-    async def delete_session_reflection(self, session_id: str):
+    async def delete_session_reflection(self, session_id: str, user_id: str):
         """删除（消费）会话反思"""
         db = await self.get_conn()
+        reflection_key = f"{session_id}_{user_id}"
         async with self._write_lock:
             await db.execute(
                 "UPDATE session_reflections SET consumed = 1 WHERE session_id = ?",
-                (session_id,),
+                (reflection_key,),
             )
             await db.commit()
-            logger.debug(f"[DAO] 已消费会话反思: session_id={session_id}")
+            logger.debug(f"[DAO] 已消费会话反思: key={reflection_key}")
 
     @with_db_retry()
     async def save_group_daily_report(self, group_id: str, summary: str):
@@ -722,7 +725,8 @@ class SelfEvolutionDAO:
 
         tables = [
             "pending_evolutions",
-            "pending_reflections",
+            "session_reflections",
+            "group_daily_reports",
             "user_relationships",
             "stickers",
         ]
@@ -746,7 +750,8 @@ class SelfEvolutionDAO:
 
         tables = [
             "pending_evolutions",
-            "pending_reflections",
+            "session_reflections",
+            "group_daily_reports",
             "user_relationships",
             "stickers",
         ]

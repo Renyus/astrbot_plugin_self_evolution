@@ -62,7 +62,8 @@ async def handle_db(event, plugin, action: str = "", param: str = ""):
         stats = await dao.get_db_stats()
         table_cn = {
             "pending_evolutions": "待审核进化",
-            "pending_reflections": "待反思",
+            "session_reflections": "会话反思",
+            "group_daily_reports": "群日报",
             "user_relationships": "用户关系",
             "user_interactions": "用户互动",
             "stickers": "表情包",

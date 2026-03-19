@@ -110,12 +110,13 @@ class SessionReflection:
             logger.warning(f"[Reflection] 生成会话反思异常: {e}")
             return {}
 
-    async def save_session_reflection(self, session_id: str, reflection: dict) -> bool:
+    async def save_session_reflection(self, session_id: str, user_id: str, reflection: dict) -> bool:
         """
         保存会话反思到数据库
 
         Args:
             session_id: 会话ID
+            user_id: 用户ID
             reflection: 反思结果 dict
 
         Returns:
@@ -126,28 +127,31 @@ class SessionReflection:
             facts = "|".join(reflection.get("explicit_facts", []))
             bias = reflection.get("cognitive_bias", "")
 
-            await self.plugin.dao.save_session_reflection(session_id=session_id, note=note, facts=facts, bias=bias)
-            logger.debug(f"[Reflection] 会话反思已保存: session_id={session_id}")
+            await self.plugin.dao.save_session_reflection(
+                session_id=session_id, user_id=user_id, note=note, facts=facts, bias=bias
+            )
+            logger.debug(f"[Reflection] 会话反思已保存: session_id={session_id}, user_id={user_id}")
             return True
         except Exception as e:
             logger.warning(f"[Reflection] 保存会话反思失败: {e}")
             return False
 
-    async def get_and_consume_session_reflection(self, session_id: str) -> Optional[dict]:
+    async def get_and_consume_session_reflection(self, session_id: str, user_id: str) -> Optional[dict]:
         """
         获取并消费会话反思（一次性）
 
         Args:
             session_id: 会话ID
+            user_id: 用户ID
 
         Returns:
             反思dict，如果无反思则返回None
         """
         try:
-            reflection = await self.plugin.dao.get_session_reflection(session_id)
+            reflection = await self.plugin.dao.get_session_reflection(session_id, user_id)
             if reflection:
-                await self.plugin.dao.delete_session_reflection(session_id)
-                logger.debug(f"[Reflection] 会话反思已消费: session_id={session_id}")
+                await self.plugin.dao.delete_session_reflection(session_id, user_id)
+                logger.debug(f"[Reflection] 会话反思已消费: session_id={session_id}, user_id={user_id}")
             return reflection
         except Exception as e:
             logger.warning(f"[Reflection] 获取会话反思失败: {e}")

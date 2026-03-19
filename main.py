@@ -439,7 +439,8 @@ class SelfEvolutionPlugin(Star):
 
         # 7. 会话反思注入（单会话内省）
         session_id = event.session_id
-        reflection = await self.session_reflection.get_and_consume_session_reflection(session_id)
+        user_id = event.get_sender_id()
+        reflection = await self.session_reflection.get_and_consume_session_reflection(session_id, str(user_id))
         if reflection:
             note = reflection.get("note", "")
             facts = reflection.get("facts", "")
@@ -608,7 +609,7 @@ class SelfEvolutionPlugin(Star):
                 from .engine.context_injection import parse_message_chain
 
                 formatted = []
-                for msg in reversed(messages[-20:]):
+                for msg in messages[:20]:
                     text = await parse_message_chain(msg, self)
                     if text:
                         formatted.append(text)
@@ -618,7 +619,7 @@ class SelfEvolutionPlugin(Star):
 
             reflection = await self.session_reflection.generate_session_reflection(conversation_history)
             if reflection:
-                await self.session_reflection.save_session_reflection(session_id, reflection)
+                await self.session_reflection.save_session_reflection(session_id, str(user_id), reflection)
                 note = reflection.get("self_correction", "")
                 facts = reflection.get("explicit_facts", [])
                 result_msg = f"认知蒸馏已完成。自我校准：{note[:50]}..."
