@@ -76,8 +76,8 @@ context_templates:
 
   # 画像更新提示
   profile_update: |
-    用户在表达偏好或身份信息变化，请主动调用 update_user_profile 工具更新该用户的印象笔记。
-    用户对某事物的认知发生了重要变化，请调用 update_user_profile 工具记录。
+    用户在表达偏好或身份信息变化，请主动调用 upsert_cognitive_memory 工具更新该用户的印象笔记。
+    用户对某事物的认知发生了重要变化，请调用 upsert_cognitive_memory 工具记录。
 
 # ==============================================================
 # 插嘴功能提示词

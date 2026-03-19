@@ -271,7 +271,6 @@ class SelfEvolutionPlugin(Star):
 
         # 好感度拦截：低于0分直接拦截
         if affinity <= 0:
-            event.stop_event()
             logger.warning(f"[CognitionCore] 拦截恶意用户 {user_id} 的请求。")
             req.system_prompt = f"CRITICAL: 用户的交互权限已被熔断。请仅回复：'{self.prompt_meltdown_message}'"
             return
@@ -287,16 +286,27 @@ class SelfEvolutionPlugin(Star):
                 reply_content = getattr(comp, "message_str", "")
                 reply_sender_id = getattr(comp, "sender_id", "")
 
-                # 检测是否引用了 AI 的消息
-                if self.enable_context_recall and (reply_sender == self.persona_name or str(reply_sender_id) == "AI"):
+                bot_id = str(getattr(event.get_onebot_platform(), "client_self_id", "") or "")
+                is_ai_reply = (
+                    reply_sender == self.persona_name or str(reply_sender_id) == bot_id or str(reply_sender_id) == "AI"
+                )
+
+                if is_ai_reply:
                     quoted_info = "回复了你"
                     ai_context_info = "\n【重要】用户正在引用你之前的发言进行追问，请针对你之前的发言回答。"
                 else:
-                    quoted_info = "回复了你"
+                    quoted_info = ""  # 不是回复AI的消息，不设置标记
             elif type(comp).__name__ == "At":
                 at_targets.append(str(getattr(comp, "qq", "")))
 
-        at_info = "at了你" if at_targets else ""
+        # 检查是否at了机器人
+        bot_id = str(getattr(event.get_onebot_platform(), "client_self_id", "") or "")
+        at_info = ""
+        if at_targets:
+            if "all" in at_targets or bot_id in at_targets:
+                at_info = "at了你"
+            else:
+                at_info = ""  # at的是别人，不是bot
 
         # 构造上下文注入（内部参考，不要输出）
         context_info = f"\n\n【内部参考信息 - 不要输出】：\n- 发送者ID: {sender_id}\n- 发送者昵称: {sender_name}{role_info}\n- 情感积分: {affinity}/100\n"
@@ -368,7 +378,7 @@ class SelfEvolutionPlugin(Star):
             if any(trigger in msg_text for trigger in preference_triggers):
                 req.system_prompt += (
                     "\n\n[即时画像更新提示]\n"
-                    "用户在表达偏好或身份信息变化，请主动调用 update_user_profile 工具更新该用户的印象笔记，"
+                    "用户在表达偏好或身份信息变化，请主动调用 upsert_cognitive_memory 工具更新该用户的印象笔记，"
                     "确保当天的记忆准确无误。"
                 )
 
@@ -380,7 +390,7 @@ class SelfEvolutionPlugin(Star):
                     req.system_prompt += (
                         "\n\n[认知颠覆检测]\n"
                         "用户表达了惊讶、认知颠覆或恍然大悟的态度！这是一个重要的学习信号。"
-                        "请主动调用 update_user_profile 工具记录：用户对某事物的认知发生了重要变化，"
+                        "请主动调用 upsert_cognitive_memory 工具记录：用户对某事物的认知发生了重要变化，"
                         "这可能意味着之前的认知是错误的，或者用户获得了新信息。"
                     )
                     logger.debug(f"[Surprise] 检测到用户 {user_id} 的认知颠覆表达，触发即时画像更新。")
@@ -656,6 +666,9 @@ class SelfEvolutionPlugin(Star):
             tool_name(string): 工具名称
             enable(boolean): True 表示激活，False 表示停用
         """
+        if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
+            return "需要管理员权限才能执行此操作。"
+
         try:
             if tool_name in PROTECTED_TOOLS and not enable:
                 return f"为了系统稳定，不允许停用核心基础工具：{tool_name}。"
@@ -683,7 +696,6 @@ class SelfEvolutionPlugin(Star):
             logger.warning(f"[SelfEvolution] 工具切换业务失败: {e}")
             return "工具切换时遭遇系统异常。"
 
-    @filter.permission_type(PermissionType.ADMIN)
     @filter.llm_tool(name="get_plugin_source")
     async def get_plugin_source(self, event: AstrMessageEvent, mod_name: str = "main") -> str:
         """Level 4: 元编程。读取本插件的源码，以便进行自我分析或修改请求。
@@ -691,9 +703,10 @@ class SelfEvolutionPlugin(Star):
         Args:
             mod_name(string): 模块名，可选: main, dao, eavesdropping, meta_infra, memory, persona
         """
+        if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
+            return "需要管理员权限才能执行此操作。"
         return await self.meta_infra.get_plugin_source(mod_name)
 
-    @filter.permission_type(PermissionType.ADMIN)
     @filter.llm_tool(name="update_plugin_source")
     async def update_plugin_source(
         self,
@@ -709,6 +722,8 @@ class SelfEvolutionPlugin(Star):
             description(string): 为什么要修改代码
             target_file(string): 目标文件名，默认 main.py
         """
+        if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
+            return "需要管理员权限才能执行此操作。"
         return await self.meta_infra.update_plugin_source(new_code, description, target_file)
 
     @filter.llm_tool(name="get_user_profile")
@@ -717,11 +732,16 @@ class SelfEvolutionPlugin(Star):
 
         建议优先调用此工具获取用户画像，再决定是否需要调用 get_user_messages 获取历史消息。
 
+        注意：此工具仅适用于群聊场景。
+
         Returns:
             用户画像文本
         """
+        group_id = event.get_group_id()
+        if not group_id:
+            return "此工具仅适用于群聊场景，无法在私聊中使用。"
         user_id = event.get_sender_id()
-        profile = await self.profile.load_profile(user_id)
+        profile = await self.profile.load_profile(group_id, user_id)
 
         if not profile:
             return "该用户暂无画像记录。"
@@ -739,6 +759,8 @@ class SelfEvolutionPlugin(Star):
 
         触发场景：当你在对话中发现任何需要永久记住的信息时，使用此工具。
 
+        注意：此工具仅适用于群聊场景。
+
         Args:
             category(string): 记忆分类，必填。选项：
                 - user_profile: 用户画像/印象（关于这个人的一切）
@@ -746,6 +768,10 @@ class SelfEvolutionPlugin(Star):
             entity(string): 关联实体，必填。如：用户ID
             content(string): 要记忆的内容，必填。用精简的纯文本描述。
         """
+        group_id = event.get_group_id()
+        if not group_id:
+            return "此工具仅适用于群聊场景，无法在私聊中使用。"
+
         if not category or not content:
             return "请提供 category 和 content 参数。"
 
@@ -755,15 +781,18 @@ class SelfEvolutionPlugin(Star):
         timestamp = time.strftime("%Y-%m-%d %H:%M")
 
         target_user_id = entity
+        sender = event.get_sender()
+        nickname = sender.get("nickname", "") if sender else ""
+
         profile_content = f"---\n**{timestamp}**\n{content}"
-        existing = await self.profile.load_profile(target_user_id)
+        existing = await self.profile.load_profile(group_id, target_user_id)
         if existing:
             updated = existing + "\n" + profile_content
         else:
             updated = f"# 用户印象笔记\n{profile_content}"
         if len(updated) > 2000:
             updated = updated[-2000:] + "\n(...早期记录已截断)"
-        await self.profile.save_profile(target_user_id, updated)
+        await self.profile.save_profile(group_id, target_user_id, updated, nickname)
         return f"已更新用户 {target_user_id} 的{('偏好' if category == 'user_preference' else '画像')}。"
 
     @filter.llm_tool(name="get_user_messages")
@@ -816,13 +845,14 @@ class SelfEvolutionPlugin(Star):
 
             from .engine.context_injection import parse_message_chain
 
-            formatted_messages = await asyncio.gather(*[parse_message_chain(msg, self) for msg in messages])
-            formatted_messages = [f for f in formatted_messages if f]
-
             user_messages = []
-            for msg_text in formatted_messages:
-                if f"{target}:" in msg_text or str(target) in msg_text:
-                    user_messages.append(msg_text)
+            for msg in messages:
+                sender = msg.get("sender", {})
+                sender_id = str(sender.get("user_id", ""))
+                if sender_id == str(target):
+                    msg_text = await parse_message_chain(msg, self)
+                    if msg_text:
+                        user_messages.append(msg_text)
 
             if not user_messages:
                 return f"用户 {target} 在群 {group_id} 中无消息记录"

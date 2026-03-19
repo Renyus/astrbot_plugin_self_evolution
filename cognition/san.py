@@ -237,15 +237,11 @@ class SANSystem:
             )
 
             messages = result.get("messages", [])
-            formatted = []
-            for msg in messages:
-                sender = msg.get("sender", {})
-                nickname = sender.get("nickname", "未知")
-                message = msg.get("message", "")
-                if message:
-                    formatted.append(f"{nickname}: {message}")
+            import asyncio
+            from ..engine.context_injection import parse_message_chain
 
-            return formatted
+            formatted = await asyncio.gather(*[parse_message_chain(msg, self.plugin) for msg in messages])
+            return [f for f in formatted if f]
 
         except Exception as e:
             logger.warning(f"[SAN] 获取群消息失败: {e}")

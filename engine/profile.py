@@ -211,7 +211,7 @@ class ProfileManager:
             cutoff_time = time.time() - (days * 86400)
             deleted_count = 0
 
-            for profile_path in self.profile_dir.glob("user_*.md"):
+            for profile_path in self.profile_dir.glob("*.yaml"):
                 try:
                     if profile_path.stat().st_mtime < cutoff_time:
                         profile_path.unlink()
@@ -318,15 +318,17 @@ class ProfileManager:
             if not messages:
                 return f"群 {group_id} 无消息记录"
 
+            from .context_injection import parse_message_chain
+
             user_messages = []
-            nickname = member_nickname  # 默认使用群名片/昵称
+            nickname = member_nickname
             for msg in messages:
                 if str(msg.get("user_id")) == str(user_id):
-                    sender = msg.get("sender", {})
-                    nickname = sender.get("nickname", "未知")
-                    content = msg.get("message", "")
-                    if content:
-                        user_messages.append(f"{nickname}: {content}")
+                    msg_text = await parse_message_chain(msg, self.plugin)
+                    if msg_text:
+                        user_messages.append(msg_text)
+                        sender = msg.get("sender", {})
+                        nickname = sender.get("nickname", "未知")
 
             if not user_messages:
                 return f"用户 {user_id} 在群 {group_id} 中无消息记录"

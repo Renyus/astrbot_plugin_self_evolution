@@ -81,13 +81,8 @@ class MemoryManager:
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-                    # 如果在异步环境中，创建任务
-                    async def fetch():
-                        result = await bot.call_action("get_group_list")
-                        return self._parse_group_list(result)
-
-                    # 同步调用，返回空列表
-                    return []
+                    result = asyncio.run(bot.call_action("get_group_list"))
+                    return self._parse_group_list(result)
                 else:
                     result = asyncio.run(bot.call_action("get_group_list"))
                     return self._parse_group_list(result)

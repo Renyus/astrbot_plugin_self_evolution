@@ -281,15 +281,11 @@ class EavesdroppingEngine:
         if is_private:
             buffer_key = f"private_{user_id}"
             label = f"私聊 {user_id}"
+            group_id_for_active = f"private_{user_id}"  # 用于active_users的key
         else:
             buffer_key = str(group_id)
             label = f"群 {group_id}"
-
-        if not group_id:
-            group_id = user_id
-            is_private = True
-
-        group_id = str(group_id)
+            group_id_for_active = str(group_id)
 
         # === 图片检测：作为发言意愿加分项 ===
         image_boost = 0.0
@@ -314,8 +310,8 @@ class EavesdroppingEngine:
         funnel_triggered = await self._check_funnel_trigger(event)
 
         if funnel_triggered:
-            await self._mark_user_active_async(group_id, user_id)
-            logger.debug(f"[漏斗] 用户 {user_id} 在群 {group_id} 被标记为活跃")
+            await self._mark_user_active_async(group_id_for_active, user_id)
+            logger.debug(f"[漏斗] 用户 {user_id} 在群 {group_id_for_active} 被标记为活跃")
 
         # 清理过期的活跃用户（每100条消息清理一次）
         self._msg_counter = getattr(self, "_msg_counter", 0) + 1
@@ -465,7 +461,14 @@ class EavesdroppingEngine:
             logger.debug(f"[CognitionCore] 欲望已触发，观察中 {consecutive_replies}/{cooldown_messages} ({label})")
         else:
             if session_id not in self.processing_sessions:
-                session_buffer = self.session_buffers.get(buffer_key, {})
+                session_buffer = self.session_buffers.get(buffer_key)
+                if not session_buffer:
+                    session_buffer = {
+                        "messages": [],
+                        "eavesdrop_count": 0,
+                        "threshold": self.plugin.cfg.eavesdrop_message_threshold,
+                    }
+                    self.session_buffers[buffer_key] = session_buffer
                 msg_count = len(session_buffer.get("messages", []))
                 dynamic_threshold = session_buffer.get("threshold", self.plugin.cfg.eavesdrop_message_threshold)
 
@@ -494,6 +497,7 @@ class EavesdroppingEngine:
             session_buffer = self.session_buffers.get(lookup_key)
             if not session_buffer:
                 session_buffer = {"messages": [], "token_count": 0}
+                self.session_buffers[lookup_key] = session_buffer
 
             buffer = session_buffer.get("messages", [])
             snap_len = len(buffer)
@@ -706,7 +710,7 @@ class EavesdroppingEngine:
     async def _decrease_san(self, event: AstrMessageEvent, value: int):
         """降低SAN精力值"""
         try:
-            san = getattr(self.plugin, "san", None)
+            san = getattr(self.plugin, "san_system", None)
             if san and hasattr(san, "consume"):
                 await san.consume(value)
                 logger.debug(f"[CognitionCore] 无聊判定，降低SAN: -{value}")
@@ -757,6 +761,8 @@ class EavesdroppingEngine:
                 if buffer_key not in self.session_buffers:
                     self.session_buffers[buffer_key] = {}
                 self.session_buffers[buffer_key]["inner_monologue"] = monologue
+                # 设置到 event 对象上，让 main.py 能够读取
+                setattr(event, "_inner_monologue", monologue)
 
                 logger.debug(f"[CognitionCore] 内心独白已缓存(内存): {monologue[:50]}...")
             else:
