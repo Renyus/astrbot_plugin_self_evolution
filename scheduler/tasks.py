@@ -58,7 +58,7 @@ async def scheduled_interject(plugin):
             groups = whitelist
         # 方式2: eavesdropping active_users
         elif plugin.eavesdropping.active_users:
-            groups = list(plugin.eavesdropping.active_users.keys())
+            groups = [g for g in plugin.eavesdropping.active_users.keys() if not g.startswith("private_")]
             logger.debug(f"[Interject] 使用 eavesdropping 活跃群列表: {groups}")
         # 方式3: 通过 platform 获取 bot 加入的群列表
         else:

@@ -55,7 +55,7 @@ class MemoryManager:
         except Exception as e:
             logger.error(f"[Memory] 每日群聊总结异常: {e}", exc_info=True)
 
-    def _get_target_groups(self):
+    async def _get_target_groups(self):
         """获取需要总结的群列表"""
         # 方式1: 白名单配置
         whitelist = getattr(self.plugin.cfg, "profile_group_whitelist", [])
@@ -64,28 +64,21 @@ class MemoryManager:
             return whitelist
         # 方式2: eavesdropping active_users
         if hasattr(self.plugin, "eavesdropping") and hasattr(self.plugin.eavesdropping, "active_users"):
-            groups = list(self.plugin.eavesdropping.active_users.keys())
+            groups = [g for g in self.plugin.eavesdropping.active_users.keys() if not g.startswith("private_")]
             if groups:
                 logger.debug(f"[Memory] 使用 eavesdropping 活跃群列表: {groups}")
                 return groups
         # 方式3: 通过 platform 获取 bot 加入的群列表
-        return self._fetch_groups_from_platform()
+        return await self._fetch_groups_from_platform()
 
-    def _fetch_groups_from_platform(self):
+    async def _fetch_groups_from_platform(self):
         """从 platform 获取 bot 加入的群列表"""
-        import asyncio
-
         try:
             platform = self.plugin.context.platform_manager.platform_insts[0]
             bot = platform.get_client()
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    result = asyncio.run(bot.call_action("get_group_list"))
-                    return self._parse_group_list(result)
-                else:
-                    result = asyncio.run(bot.call_action("get_group_list"))
-                    return self._parse_group_list(result)
+                result = await bot.call_action("get_group_list")
+                return self._parse_group_list(result)
             except Exception:
                 return []
         except Exception as e:
