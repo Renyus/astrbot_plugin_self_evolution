@@ -3,4 +3,9 @@ __pycache__/
 .git/
 *.zip
 /.venv
+.venv/
+.pytest_cache/
+.ruff_cache/
+tests/.tmp/
+docs/astrbot_framework_analysis.md
 /.idea
