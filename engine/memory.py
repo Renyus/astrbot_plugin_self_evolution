@@ -3,6 +3,7 @@
 """
 
 import asyncio
+import hashlib
 import logging
 import time
 from datetime import datetime
@@ -30,6 +31,7 @@ class MemoryManager:
 
     def __init__(self, plugin):
         self.plugin = plugin
+        self._kb_create_lock = asyncio.Lock()
 
     @property
     def memory_kb_name(self):
@@ -67,6 +69,161 @@ class MemoryManager:
         if not scope_id.startswith(PRIVATE_SCOPE_PREFIX):
             return ""
         return scope_id[len(PRIVATE_SCOPE_PREFIX) :]
+
+    def _get_scope_kb_token(self, scope_id: str) -> str:
+        scope_id = str(scope_id or "")
+        if self._is_private_scope(scope_id):
+            private_user_id = self._get_private_scope_user_id(scope_id) or "unknown"
+            return f"p_{private_user_id}"
+        return f"g_{scope_id}"
+
+    def _get_scope_kb_name(self, scope_id: str) -> str:
+        base_name = str(self.memory_kb_name or "self_evolution_memory")
+        suffix = f"__scope__{self._get_scope_kb_token(scope_id)}"
+        kb_name = f"{base_name}{suffix}"
+        if len(kb_name) <= 100:
+            return kb_name
+        digest = hashlib.sha1(str(scope_id).encode("utf-8")).hexdigest()[:10]
+        trimmed_base = base_name[: max(1, 100 - len("__scope__") - len(digest))].rstrip("_-")
+        return f"{trimmed_base}__scope__{digest}"
+
+    async def _ensure_scope_kb(self, scope_id: str):
+        """确保某个 scope 对应的隔离知识库存在。"""
+        kb_manager = getattr(self.plugin.context, "kb_manager", None)
+        if not kb_manager:
+            logger.warning("[Memory] 无法获取知识库管理器")
+            return None
+
+        scope_kb_name = self._get_scope_kb_name(scope_id)
+        kb_helper = await kb_manager.get_kb_by_name(scope_kb_name)
+        if kb_helper:
+            return kb_helper
+
+        template_helper = await kb_manager.get_kb_by_name(self.memory_kb_name)
+        if not template_helper:
+            logger.warning(f"[Memory] 基础知识库 {self.memory_kb_name} 不存在，无法创建 scope 知识库")
+            return None
+
+        template_kb = template_helper.kb
+        if not getattr(template_kb, "embedding_provider_id", None):
+            logger.warning(f"[Memory] 基础知识库 {self.memory_kb_name} 缺少 embedding_provider_id，无法复用")
+            return None
+
+        async with self._kb_create_lock:
+            kb_helper = await kb_manager.get_kb_by_name(scope_kb_name)
+            if kb_helper:
+                return kb_helper
+
+            logger.info(f"[Memory] 创建会话隔离知识库: {scope_kb_name}")
+            return await kb_manager.create_kb(
+                kb_name=scope_kb_name,
+                description=f"Self-Evolution 会话总结隔离知识库 ({scope_id})",
+                emoji=getattr(template_kb, "emoji", "📚"),
+                embedding_provider_id=template_kb.embedding_provider_id,
+                rerank_provider_id=getattr(template_kb, "rerank_provider_id", None),
+                chunk_size=getattr(template_kb, "chunk_size", 512),
+                chunk_overlap=getattr(template_kb, "chunk_overlap", 50),
+                top_k_dense=getattr(template_kb, "top_k_dense", 50),
+                top_k_sparse=getattr(template_kb, "top_k_sparse", 50),
+                top_m_final=getattr(template_kb, "top_m_final", 5),
+            )
+
+    async def _resolve_active_kb_names_for_umo(self, umo: str):
+        """解析当前会话正在使用的知识库列表与检索参数。"""
+        from astrbot.core import sp
+
+        kb_manager = getattr(self.plugin.context, "kb_manager", None)
+        if not kb_manager:
+            return [], 5, {}, "none"
+
+        config = self.plugin.context.get_config(umo=umo) if hasattr(self.plugin.context, "get_config") else {}
+        global_kb_names = list(config.get("kb_names", []) or [])
+        global_top_k = config.get("kb_final_top_k", 5)
+        session_config = await sp.session_get(umo, "kb_config", default={}) or {}
+
+        if session_config.get("_self_evolution_scope_binding"):
+            return global_kb_names, global_top_k, session_config, "plugin_bound"
+
+        if "kb_ids" in session_config:
+            kb_ids = session_config.get("kb_ids", []) or []
+            if not kb_ids:
+                return [], session_config.get("top_k", global_top_k), session_config, "session_disabled"
+
+            kb_names = []
+            for kb_id in kb_ids:
+                kb_helper = await kb_manager.get_kb(kb_id)
+                if kb_helper:
+                    kb_names.append(kb_helper.kb.kb_name)
+            return kb_names, session_config.get("top_k", global_top_k), session_config, "session_custom"
+
+        return global_kb_names, global_top_k, session_config, "global"
+
+    async def sync_scope_kb_binding(self, scope_id: str, umo: str | None):
+        """将当前会话的知识库配置绑定到对应 scope 的隔离知识库。"""
+        if not scope_id or not umo:
+            return
+
+        try:
+            kb_manager = getattr(self.plugin.context, "kb_manager", None)
+            if not kb_manager:
+                return
+
+            from astrbot.core import sp
+
+            active_kb_names, top_k, session_config, source = await self._resolve_active_kb_names_for_umo(str(umo))
+            base_kb_name = self.memory_kb_name
+            scope_kb_name = self._get_scope_kb_name(scope_id)
+
+            if source == "session_disabled":
+                return
+
+            if base_kb_name not in active_kb_names and scope_kb_name not in active_kb_names:
+                if session_config.get("_self_evolution_scope_binding"):
+                    await sp.session_remove(str(umo), "kb_config")
+                return
+
+            scope_kb_helper = await self._ensure_scope_kb(scope_id)
+            if not scope_kb_helper:
+                return
+
+            desired_kb_names = []
+            for kb_name in active_kb_names:
+                if kb_name == base_kb_name:
+                    desired_kb_names.append(scope_kb_name)
+                else:
+                    desired_kb_names.append(kb_name)
+
+            if scope_kb_name not in desired_kb_names:
+                desired_kb_names.append(scope_kb_name)
+
+            deduped_names = []
+            for kb_name in desired_kb_names:
+                if kb_name not in deduped_names:
+                    deduped_names.append(kb_name)
+
+            desired_kb_ids = []
+            for kb_name in deduped_names:
+                kb_helper = await kb_manager.get_kb_by_name(kb_name)
+                if kb_helper:
+                    desired_kb_ids.append(kb_helper.kb.kb_id)
+
+            new_session_config = {
+                "kb_ids": desired_kb_ids,
+                "top_k": top_k,
+                "_self_evolution_scope_binding": True,
+                "_self_evolution_memory_base": base_kb_name,
+                "_self_evolution_scope_id": str(scope_id),
+            }
+
+            if session_config == new_session_config:
+                return
+
+            await sp.session_put(str(umo), "kb_config", new_session_config)
+            logger.debug(
+                f"[Memory] 已绑定会话知识库: umo={umo}, scope={scope_id}, kbs={deduped_names}"
+            )
+        except Exception as e:
+            logger.warning(f"[Memory] 同步会话知识库绑定失败: {e}")
 
     async def _get_target_scopes(self):
         """获取需要总结的会话范围列表"""
@@ -225,11 +382,10 @@ class MemoryManager:
     async def _save_to_knowledge_base(self, scope_id: str, summary: str):
         """保存总结到知识库"""
         try:
-            kb_manager = self.plugin.context.kb_manager
-            kb_helper = await asyncio.wait_for(kb_manager.get_kb_by_name(self.memory_kb_name), timeout=10.0)
+            kb_helper = await asyncio.wait_for(self._ensure_scope_kb(scope_id), timeout=10.0)
 
             if not kb_helper:
-                logger.warning(f"[Memory] 知识库 {self.memory_kb_name} 不存在")
+                logger.warning(f"[Memory] 会话 {scope_id} 的隔离知识库不可用")
                 return
 
             chat_type = "私聊" if self._is_private_scope(scope_id) else "群聊"
@@ -266,19 +422,31 @@ class MemoryManager:
 
         try:
             kb_manager = self.plugin.context.kb_manager
-            kb_helper = await asyncio.wait_for(kb_manager.get_kb_by_name(self.memory_kb_name), timeout=5.0)
+            kb_names = []
+            scope_kb_name = self._get_scope_kb_name(group_id)
+            scope_kb_helper = await asyncio.wait_for(kb_manager.get_kb_by_name(scope_kb_name), timeout=5.0)
+            if scope_kb_helper:
+                kb_names.append(scope_kb_name)
 
-            if not kb_helper:
+            base_kb_helper = await asyncio.wait_for(kb_manager.get_kb_by_name(self.memory_kb_name), timeout=5.0)
+            if base_kb_helper:
+                kb_names.append(self.memory_kb_name)
+
+            if not kb_names:
                 return f"知识库 {self.memory_kb_name} 不存在"
 
-            results = await asyncio.wait_for(
-                kb_manager.retrieve(
-                    query=f"范围ID: {group_id}",
-                    kb_names=[self.memory_kb_name],
-                    top_m_final=3,
-                ),
-                timeout=5.0,
-            )
+            results = None
+            for kb_name in kb_names:
+                results = await asyncio.wait_for(
+                    kb_manager.retrieve(
+                        query=f"范围ID: {group_id}",
+                        kb_names=[kb_name],
+                        top_m_final=3,
+                    ),
+                    timeout=5.0,
+                )
+                if results and results.get("results"):
+                    break
 
             if not results or not results.get("results"):
                 return f"会话 {group_id} 暂无总结"
@@ -294,26 +462,39 @@ class MemoryManager:
         """清空会话总结"""
         logger.debug(f"[Memory] 清空总结: {group_id}, confirm={confirm}")
 
+        if not group_id:
+            return "请指定要清空的会话范围ID"
+
         if not confirm:
             return "请传入 confirm=true 确认要清空总结"
 
         try:
             kb_manager = self.plugin.context.kb_manager
-            kb_helper = await asyncio.wait_for(kb_manager.get_kb_by_name(self.memory_kb_name), timeout=5.0)
-
-            if not kb_helper:
-                return f"知识库 {self.memory_kb_name} 不存在"
-
-            docs = await kb_helper.list_documents()
-            if not docs:
-                return "知识库已经是空的了"
-
             deleted_count = 0
-            for doc in docs:
-                doc_id = getattr(doc, "doc_id", None)
-                if doc_id:
-                    await kb_helper.delete_document(doc_id)
-                    deleted_count += 1
+            scope_kb_name = self._get_scope_kb_name(group_id)
+
+            scope_kb_helper = await asyncio.wait_for(kb_manager.get_kb_by_name(scope_kb_name), timeout=5.0)
+            if scope_kb_helper:
+                docs = await scope_kb_helper.list_documents()
+                for doc in docs:
+                    doc_id = getattr(doc, "doc_id", None)
+                    if doc_id:
+                        await scope_kb_helper.delete_document(doc_id)
+                        deleted_count += 1
+
+            base_kb_helper = await asyncio.wait_for(kb_manager.get_kb_by_name(self.memory_kb_name), timeout=5.0)
+            if base_kb_helper:
+                legacy_prefix = f"summary_{group_id}_"
+                docs = await base_kb_helper.list_documents()
+                for doc in docs:
+                    doc_id = getattr(doc, "doc_id", None)
+                    doc_name = getattr(doc, "doc_name", "")
+                    if doc_id and doc_name.startswith(legacy_prefix):
+                        await base_kb_helper.delete_document(doc_id)
+                        deleted_count += 1
+
+            if deleted_count == 0:
+                return f"会话 {group_id} 暂无可删除的总结"
 
             return f"已成功删除 {deleted_count} 条总结"
 

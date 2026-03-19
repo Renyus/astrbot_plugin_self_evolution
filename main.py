@@ -217,11 +217,13 @@ class SelfEvolutionPlugin(Star):
         级别: Level 3+
         """
         user_id = event.get_sender_id()
+        memory_scope_id = self._resolve_profile_scope_id(event.get_group_id(), user_id)
         self.remember_group_umo(
             event.get_group_id(),
             getattr(event, "unified_msg_origin", None),
             event.get_sender_id(),
         )
+        await self.memory.sync_scope_kb_binding(memory_scope_id, getattr(event, "unified_msg_origin", None))
         session_id = event.session_id
         msg_text = await ensure_event_message_text(event, self.dao)
 
@@ -469,6 +471,8 @@ class SelfEvolutionPlugin(Star):
         """CognitionCore 7.0: 被动监听 - 滑动上下文窗口"""
         group_id = event.get_group_id()
         self.remember_group_umo(group_id, getattr(event, "unified_msg_origin", None), event.get_sender_id())
+        memory_scope_id = self._resolve_profile_scope_id(group_id, event.get_sender_id())
+        await self.memory.sync_scope_kb_binding(memory_scope_id, getattr(event, "unified_msg_origin", None))
 
         # 检查群级别闭嘴（直接拦截，不处理任何逻辑）
         if group_id and group_id in self._shut_until_by_group:
