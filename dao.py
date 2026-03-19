@@ -105,13 +105,34 @@ class SelfEvolutionDAO:
                 UNIQUE(group_id, user_id, base64_data)
             )
         """)
-        # 反思标记表
+        # 会话反思表（单会话内省）
         await db.execute("""
-            CREATE TABLE IF NOT EXISTS pending_reflections (
+            CREATE TABLE IF NOT EXISTS session_reflections (
                 session_id TEXT PRIMARY KEY,
-                is_pending INTEGER NOT NULL DEFAULT 1
+                note TEXT,
+                facts TEXT,
+                bias TEXT,
+                created_at TEXT NOT NULL,
+                consumed INTEGER NOT NULL DEFAULT 0
             )
         """)
+        # 群日报表（每日批处理）
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS group_daily_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(group_id, created_at)
+            )
+        """)
+        # 迁移旧表：如果存在 pending_reflections，保留数据但不推荐使用
+        try:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS pending_reflections_old AS SELECT * FROM pending_reflections
+            """)
+        except:
+            pass  # 表不存在或已迁移
         # 好感度关系表
         await db.execute("""
             CREATE TABLE IF NOT EXISTS user_relationships (
@@ -267,6 +288,7 @@ class SelfEvolutionDAO:
 
     @with_db_retry()
     async def set_pending_reflection(self, session_id: str, is_pending: bool):
+        logger.warning("[DAO] set_pending_reflection 已废弃，请使用 save_session_reflection")
         db = await self.get_conn()
         async with self._write_lock:
             await db.execute(
@@ -277,6 +299,7 @@ class SelfEvolutionDAO:
 
     @with_db_retry()
     async def pop_pending_reflection(self, session_id: str) -> bool:
+        logger.warning("[DAO] pop_pending_reflection 已废弃，请使用 get_session_reflection + delete_session_reflection")
         db = await self.get_conn()
         async with self._write_lock:
             cursor = await db.execute(
@@ -285,6 +308,83 @@ class SelfEvolutionDAO:
             )
             await db.commit()
             return cursor.rowcount > 0
+
+    @with_db_retry()
+    async def save_session_reflection(self, session_id: str, note: str, facts: str = "", bias: str = ""):
+        """保存会话反思"""
+        db = await self.get_conn()
+        async with self._write_lock:
+            await db.execute(
+                "INSERT OR REPLACE INTO session_reflections (session_id, note, facts, bias, created_at, consumed) VALUES (?, ?, ?, ?, ?, 0)",
+                (session_id, note, facts, bias, time.strftime("%Y-%m-%d %H:%M:%S")),
+            )
+            await db.commit()
+            logger.debug(f"[DAO] 已保存会话反思: session_id={session_id}")
+
+    @with_db_retry()
+    async def get_session_reflection(self, session_id: str) -> Optional[dict]:
+        """获取未消费的会话反思"""
+        db = await self.get_conn()
+        async with self._write_lock:
+            cursor = await db.execute(
+                "SELECT session_id, note, facts, bias, created_at FROM session_reflections WHERE session_id = ? AND consumed = 0",
+                (session_id,),
+            )
+            row = await cursor.fetchone()
+            if row:
+                return {"session_id": row[0], "note": row[1], "facts": row[2], "bias": row[3], "created_at": row[4]}
+            return None
+
+    @with_db_retry()
+    async def delete_session_reflection(self, session_id: str):
+        """删除（消费）会话反思"""
+        db = await self.get_conn()
+        async with self._write_lock:
+            await db.execute(
+                "UPDATE session_reflections SET consumed = 1 WHERE session_id = ?",
+                (session_id,),
+            )
+            await db.commit()
+            logger.debug(f"[DAO] 已消费会话反思: session_id={session_id}")
+
+    @with_db_retry()
+    async def save_group_daily_report(self, group_id: str, summary: str):
+        """保存群日报"""
+        db = await self.get_conn()
+        async with self._write_lock:
+            today = time.strftime("%Y-%m-%d")
+            await db.execute(
+                "INSERT OR REPLACE INTO group_daily_reports (group_id, summary, created_at) VALUES (?, ?, ?)",
+                (group_id, summary, today),
+            )
+            await db.commit()
+            logger.debug(f"[DAO] 已保存群日报: group_id={group_id}, date={today}")
+
+    @with_db_retry()
+    async def get_latest_group_report(self, group_id: str) -> Optional[dict]:
+        """获取最新的群日报"""
+        db = await self.get_conn()
+        async with self._write_lock:
+            cursor = await db.execute(
+                "SELECT group_id, summary, created_at FROM group_daily_reports WHERE group_id = ? ORDER BY created_at DESC LIMIT 1",
+                (group_id,),
+            )
+            row = await cursor.fetchone()
+            if row:
+                return {"group_id": row[0], "summary": row[1], "created_at": row[2]}
+            return None
+
+    @with_db_retry()
+    async def get_group_reports(self, group_id: str, days: int = 7) -> list:
+        """获取最近N天的群日报"""
+        db = await self.get_conn()
+        async with self._write_lock:
+            cursor = await db.execute(
+                "SELECT group_id, summary, created_at FROM group_daily_reports WHERE group_id = ? AND created_at >= date('now', ?) ORDER BY created_at DESC",
+                (group_id, f"-{days} days"),
+            )
+            rows = await cursor.fetchall()
+            return [{"group_id": r[0], "summary": r[1], "created_at": r[2]} for r in rows]
 
     @with_db_retry()
     async def get_affinity(self, user_id: str) -> int:

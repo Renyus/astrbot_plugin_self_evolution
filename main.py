@@ -97,8 +97,13 @@ class SelfEvolutionPlugin(Star):
             self.entertainment = EntertainmentEngine(self)
             # 认知系统模块
             self.san_system = SANSystem(self)
+            # 反思模块
+            from .engine.reflection import SessionReflection, DailyBatchProcessor
+
+            self.session_reflection = SessionReflection(self)
+            self.daily_batch = DailyBatchProcessor(self)
             logger.info(
-                "[SelfEvolution] 核心组件 (DAO, Eavesdropping, Entertainment, ImageCache, MetaInfra, Memory, Persona, Profile, SAN, Config) 初始化完成。"
+                "[SelfEvolution] 核心组件 (DAO, Eavesdropping, Entertainment, ImageCache, MetaInfra, Memory, Persona, Profile, SAN, Reflection) 初始化完成。"
             )
         except Exception as e:
             logger.error(f"[SelfEvolution] 核心组件初始化失败: {e}")
@@ -432,11 +437,40 @@ class SelfEvolutionPlugin(Star):
             except Exception as e:
                 logger.warning(f"[InnerMonologue] 注入内心独白失败: {e}")
 
-        # 7. 反思标记处理
+        # 7. 会话反思注入（单会话内省）
         session_id = event.session_id
-        is_pending = await self.dao.pop_pending_reflection(session_id)
-        if is_pending:
-            logger.info(f"[SelfEvolution] 反思待处理标记已触发，会话: {session_id}")
+        reflection = await self.session_reflection.get_and_consume_session_reflection(session_id)
+        if reflection:
+            note = reflection.get("note", "")
+            facts = reflection.get("facts", "")
+            bias = reflection.get("bias", "")
+            injection_parts = []
+            if note:
+                injection_parts.append(f"【自我校准】{note}")
+            if bias:
+                injection_parts.append(f"【认知偏差纠正】{bias}")
+            if injection_parts:
+                reflection_injection = "\n".join(injection_parts)
+                req.system_prompt += f"\n\n{reflection_injection}\n"
+                logger.info(f"[Reflection] 会话反思已注入: {note[:50]}...")
+            if facts and len(facts) > 3:
+                from .engine.profile import ProfileManager
+
+                group_id = event.get_group_id()
+                if group_id:
+                    for fact in facts.split("|"):
+                        fact = fact.strip()
+                        if fact:
+                            profile_note = f"【反思提炼】{fact}"
+                            existing = await self.profile.load_profile(group_id, event.get_sender_id())
+                            if existing:
+                                updated = existing + f"\n- {profile_note}"
+                            else:
+                                updated = f"# 用户印象笔记\n- {profile_note}"
+                            if len(updated) > 2000:
+                                updated = updated[-2000:]
+                            await self.profile.save_profile(group_id, event.get_sender_id(), updated)
+                            logger.debug(f"[Reflection] 反思事实已写入画像: {fact[:30]}...")
 
         # 框架人格由框架自动注入，不再手动追加
         # 先截断过长的注入内容，避免超出 token 限制
@@ -556,9 +590,46 @@ class SelfEvolutionPlugin(Star):
     async def manual_reflect(self, event: AstrMessageEvent):
         """
         手动触发一次自我反省。
+        反思结果会在下次对话时注入到AI的思考中。
         """
-        await self.dao.set_pending_reflection(event.session_id, True)
-        yield event.plain_result("认知蒸馏协议已就绪，将在下一次对话时执行深度实体提取。")
+        session_id = event.session_id
+        group_id = event.get_group_id()
+        user_id = event.get_sender_id()
+
+        try:
+            messages = []
+            if group_id:
+                platform = self.context.platform_manager.platform_insts[0]
+                bot = platform.get_client()
+                result = await bot.call_action("get_group_msg_history", group_id=int(group_id), count=50)
+                messages = result.get("messages", [])
+
+            if messages:
+                from .engine.context_injection import parse_message_chain
+
+                formatted = []
+                for msg in reversed(messages[-20:]):
+                    text = await parse_message_chain(msg, self)
+                    if text:
+                        formatted.append(text)
+                conversation_history = "\n".join(formatted)
+            else:
+                conversation_history = event.message_str or "（无历史记录）"
+
+            reflection = await self.session_reflection.generate_session_reflection(conversation_history)
+            if reflection:
+                await self.session_reflection.save_session_reflection(session_id, reflection)
+                note = reflection.get("self_correction", "")
+                facts = reflection.get("explicit_facts", [])
+                result_msg = f"认知蒸馏已完成。自我校准：{note[:50]}..."
+                if facts:
+                    result_msg += f"\n已提炼 {len(facts)} 条事实将记入画像。"
+                yield event.plain_result(result_msg)
+            else:
+                yield event.plain_result("认知蒸馏失败，请稍后再试。")
+        except Exception as e:
+            logger.warning(f"[Reflection] /reflect 命令异常: {e}")
+            yield event.plain_result(f"认知蒸馏异常: {e}")
 
     @filter.llm_tool(name="evolve_persona")
     async def evolve_persona(self, event: AstrMessageEvent, new_system_prompt: str, reason: str) -> str:

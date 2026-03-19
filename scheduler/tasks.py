@@ -8,11 +8,30 @@ logger = logging.getLogger("astrbot")
 
 
 async def scheduled_reflection(plugin):
-    """定时任务回调函数 - 做梦机制"""
-    plugin.daily_reflection_pending = True
-    logger.debug("[SelfEvolution] 每日反思定时任务已触发，将在下一次对话时顺带执行深层内省。")
+    """每日批处理任务 - 群摘要生成 + 活跃用户画像更新 + 好感度恢复"""
+    logger.info("[SelfEvolution] 每日批处理任务开始...")
 
     await plugin.dao.init_db()
+
+    whitelist = getattr(plugin.cfg, "profile_group_whitelist", [])
+    if whitelist:
+        target_groups = whitelist
+    elif hasattr(plugin, "eavesdropping") and hasattr(plugin.eavesdropping, "active_users"):
+        target_groups = [g for g in plugin.eavesdropping.active_users.keys() if not g.startswith("private_")]
+    else:
+        target_groups = []
+
+    if target_groups:
+        try:
+            result = await plugin.daily_batch.run_daily_batch(target_groups)
+            logger.info(
+                f"[SelfEvolution] 每日批处理完成: 群{result['groups_processed']}个, 用户{result['users_processed']}个, 报告{result['reports_saved']}份"
+            )
+        except Exception as e:
+            logger.error(f"[SelfEvolution] 每日批处理失败: {e}")
+    else:
+        logger.debug("[SelfEvolution] 无目标群，跳过批处理")
+
     await plugin.dao.recover_all_affinity(recovery_amount=2)
     logger.debug('[SelfEvolution] 已执行每日"大赦天下"：所有负面评分用户好感度已小幅回升。')
 
