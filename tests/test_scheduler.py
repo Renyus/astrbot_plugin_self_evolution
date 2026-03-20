@@ -15,7 +15,7 @@ class SchedulerTasksTests(IsolatedAsyncioTestCase):
         bot = SimpleNamespace(call_action=AsyncMock(return_value={"data": [{"group_id": 1001}, {"group_id": "1002"}]}))
         platform = SimpleNamespace(get_client=lambda: bot)
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(interject_whitelist=[]),
+            cfg=SimpleNamespace(target_group_scopes=[]),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[platform])),
             eavesdropping=SimpleNamespace(active_users={}, interject_check_group=AsyncMock()),
         )

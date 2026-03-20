@@ -130,13 +130,6 @@
         "type": "bool",
         "default": false
     },
-    "interject_whitelist": {
-        "title": "插嘴白名单群",
-        "description": "指定要检查的群号",
-        "hint": "群号列表，如：[123456789, 987654321]",
-        "type": "list",
-        "default": []
-    },
     "interject_interval": {
         "title": "插嘴检查间隔",
         "description": "每隔多久检查一次是否需要插嘴。",

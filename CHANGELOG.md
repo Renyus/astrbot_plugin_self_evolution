@@ -11,6 +11,12 @@
 
 ## [Unreleased]
 
+## [2.8.6] - 2026-03-20
+
+### Changed
+
+- 统一 `target_group_scopes` 配置项，移除重复的 `interject_whitelist`，现主动插嘴、记忆、画像构建、SAN 值分析均使用同一目标群列表。
+
 ## [2.8.5] - 2026-03-19
 
 ### Added

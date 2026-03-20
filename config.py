@@ -115,13 +115,6 @@ class PluginConfig:
         return self._parse_bool(self._config.get("interject_enabled"), False)
 
     @property
-    def interject_whitelist(self):
-        whitelist = self._config.get("interject_whitelist", [])
-        if isinstance(whitelist, str):
-            whitelist = [g.strip() for g in whitelist.split(",") if g.strip()]
-        return whitelist
-
-    @property
     def interject_interval(self):
         return int(self._config.get("interject_interval", 30))
 

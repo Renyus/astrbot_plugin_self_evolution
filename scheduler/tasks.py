@@ -92,7 +92,7 @@ async def scheduled_interject(plugin):
 
     try:
         # 方式1: 白名单配置
-        whitelist = plugin.cfg.interject_whitelist
+        whitelist = plugin.cfg.target_group_scopes
         if whitelist:
             logger.debug(f"[Interject] 使用白名单群列表: {whitelist}")
             groups = whitelist

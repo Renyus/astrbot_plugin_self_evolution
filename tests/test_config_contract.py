@@ -67,7 +67,6 @@ class ConfigContractTests(TestCase):
             "san_low_activity_drain": "int",
             "san_positive_vibe_bonus": "int",
             "san_negative_vibe_penalty": "int",
-            "interject_whitelist": "list",
         }
 
         for key, expected_type in expected_types.items():
