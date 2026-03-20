@@ -318,7 +318,6 @@ AstrBot 面板里可见的配置很多，下面只列最常用、最影响行为
 | `interject_min_msg_count` | `10` | 最少新增消息数 |
 | `interject_require_at` | `true` | 是否要求最新消息必须 `@` 机器人 |
 | `interject_cooldown` | `30` | 冷却时间分钟数 |
-| `interject_whitelist` | `[]` | 白名单群列表；空列表表示不过滤 |
 
 ### SAN
 

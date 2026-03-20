@@ -45,7 +45,7 @@ class EavesdroppingInterjectTests(IsolatedAsyncioTestCase):
             get_using_provider=get_using_provider,
         )
         cfg = SimpleNamespace(
-            interject_whitelist=[],
+            target_group_scopes=[],
             group_history_count=5,
             interject_cooldown=0,
             interject_silence_timeout=0,
@@ -101,9 +101,7 @@ class EavesdroppingInterjectTests(IsolatedAsyncioTestCase):
         )
 
     async def test_get_interject_prompt_uses_cached_umo_for_persona_lookup(self):
-        persona_manager = SimpleNamespace(
-            get_default_persona_v3=AsyncMock(return_value={"prompt": "persona prompt"})
-        )
+        persona_manager = SimpleNamespace(get_default_persona_v3=AsyncMock(return_value={"prompt": "persona prompt"}))
         plugin = SimpleNamespace(
             context=SimpleNamespace(persona_manager=persona_manager),
             persona_name="Bot",

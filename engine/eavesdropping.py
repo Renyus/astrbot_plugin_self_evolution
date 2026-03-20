@@ -1073,7 +1073,7 @@ class EavesdroppingEngine:
                 return
 
             # 检查白名单
-            whitelist = self.plugin.cfg.interject_whitelist
+            whitelist = getattr(self.plugin.cfg, "target_group_scopes", [])
             if whitelist and group_id not in [str(g) for g in whitelist]:
                 logger.debug(f"[Interject] 群 {group_id}: [L1] 不在白名单，跳过")
                 return
