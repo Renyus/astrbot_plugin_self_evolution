@@ -207,8 +207,7 @@ class MemoryManager:
         for message in messages:
             message_chars = max(1, len(message))
             should_flush = current_chunk and (
-                len(current_chunk) >= max_messages_per_chunk
-                or current_chars + message_chars > SUMMARY_CHUNK_CHAR_LIMIT
+                len(current_chunk) >= max_messages_per_chunk or current_chars + message_chars > SUMMARY_CHUNK_CHAR_LIMIT
             )
             if should_flush:
                 chunks.append(current_chunk)
@@ -363,9 +362,7 @@ class MemoryManager:
                 return
 
             await sp.session_put(str(umo), "kb_config", new_session_config)
-            logger.debug(
-                f"[Memory] 已绑定会话知识库: umo={umo}, scope={scope_id}, kbs={deduped_names}"
-            )
+            logger.debug(f"[Memory] 已绑定会话知识库: umo={umo}, scope={scope_id}, kbs={deduped_names}")
         except Exception as e:
             logger.warning(f"[Memory] 同步会话知识库绑定失败: {e}")
 
@@ -374,7 +371,7 @@ class MemoryManager:
         scopes = []
 
         # 方式1: 白名单配置（仅约束群聊）
-        whitelist = getattr(self.plugin.cfg, "profile_group_whitelist", [])
+        whitelist = getattr(self.plugin.cfg, "target_group_scopes", [])
         if whitelist:
             logger.debug(f"[Memory] 使用白名单群列表: {whitelist}")
             scopes.extend(str(group_id) for group_id in whitelist)
@@ -548,9 +545,7 @@ class MemoryManager:
         """兼容旧调用，按 scope 获取消息。"""
         return await self._fetch_scope_messages(group_id)
 
-    async def _llm_summarize(
-        self, messages: list, umo: str | None = None, summary_date: str | None = None
-    ) -> str:
+    async def _llm_summarize(self, messages: list, umo: str | None = None, summary_date: str | None = None) -> str:
         """调用 LLM 总结消息"""
         try:
             llm_provider = self.plugin.context.get_using_provider(umo=umo)

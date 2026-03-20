@@ -30,7 +30,7 @@ async def scheduled_reflection(plugin):
     await plugin.dao.init_db()
 
     target_groups = []
-    whitelist = getattr(plugin.cfg, "profile_group_whitelist", [])
+    whitelist = getattr(plugin.cfg, "target_group_scopes", [])
     if whitelist:
         target_groups.extend(str(group_id) for group_id in whitelist)
     else:
@@ -179,7 +179,7 @@ async def scheduled_profile_build(plugin):
         return
 
     try:
-        whitelist = plugin.cfg.profile_group_whitelist
+        whitelist = plugin.cfg.target_group_scopes
         if not whitelist:
             logger.debug("[Profile] 白名单为空，使用 bot 加入的群列表")
             groups = await _fetch_groups_from_platform(plugin)

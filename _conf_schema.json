@@ -81,10 +81,10 @@
         "type": "bool",
         "default": true
     },
-    "profile_group_whitelist": {
-        "title": "画像构建白名单群号",
-        "description": "指定要构建画像的群号列表。",
-        "hint": "群号列表，如：[123456789, 987654321]",
+    "target_group_scopes": {
+        "title": "目标群范围",
+        "description": "指定要处理画像、记忆、插嘴的群",
+        "hint": "群号列表，如：[123456789, 987654321]，留空自动获取",
         "type": "list",
         "default": []
     },

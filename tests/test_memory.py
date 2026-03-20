@@ -40,7 +40,7 @@ class MemoryManagerTests(IsolatedAsyncioTestCase):
 
     async def test_get_target_scopes_keeps_private_active_sessions(self):
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(profile_group_whitelist=[]),
+            cfg=SimpleNamespace(target_group_scopes=[]),
             eavesdropping=SimpleNamespace(active_users={"6001": {}, "private_7001": {}}),
             dao=SimpleNamespace(list_known_scopes=AsyncMock(return_value=[])),
         )
@@ -52,7 +52,7 @@ class MemoryManagerTests(IsolatedAsyncioTestCase):
 
     async def test_get_target_scopes_appends_persisted_private_sessions(self):
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(profile_group_whitelist=["6001"]),
+            cfg=SimpleNamespace(target_group_scopes=["6001"]),
             dao=SimpleNamespace(list_known_scopes=AsyncMock(return_value=["private_7001"])),
         )
         manager = MemoryManager(plugin)
@@ -121,14 +121,16 @@ class MemoryManagerTests(IsolatedAsyncioTestCase):
             cfg=SimpleNamespace(memory_msg_count=20),
             context=SimpleNamespace(
                 platform_manager=SimpleNamespace(platform_insts=[SimpleNamespace(get_client=lambda: bot)])
-            )
+            ),
         )
         manager = MemoryManager(plugin)
 
         messages = await manager._fetch_scope_messages("private_7001", reference_dt=reference_dt)
 
         self.assertEqual(messages, ["Alice: hello"])
-        bot.call_action.assert_awaited_once_with("get_friend_msg_history", user_id=7001, count=plugin.cfg.memory_msg_count)
+        bot.call_action.assert_awaited_once_with(
+            "get_friend_msg_history", user_id=7001, count=plugin.cfg.memory_msg_count
+        )
 
     async def test_fetch_scope_messages_collects_previous_day_across_multiple_pages(self):
         reference_dt = self._shanghai_dt(2026, 3, 19, 10, 0)
@@ -314,7 +316,10 @@ class MemoryManagerTests(IsolatedAsyncioTestCase):
             cfg=SimpleNamespace(memory_kb_name="self_evolution_memory"),
             context=SimpleNamespace(
                 kb_manager=kb_manager,
-                get_config=lambda umo=None: {"kb_names": ["self_evolution_memory", "company_docs"], "kb_final_top_k": 4},
+                get_config=lambda umo=None: {
+                    "kb_names": ["self_evolution_memory", "company_docs"],
+                    "kb_final_top_k": 4,
+                },
             ),
         )
         manager = MemoryManager(plugin)

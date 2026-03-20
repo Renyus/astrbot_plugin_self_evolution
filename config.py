@@ -80,8 +80,8 @@ class PluginConfig:
         return self._parse_bool(self._config.get("enable_profile_update"), True)
 
     @property
-    def profile_group_whitelist(self):
-        whitelist = self._config.get("profile_group_whitelist", [])
+    def target_group_scopes(self):
+        whitelist = self._config.get("target_group_scopes", [])
         if isinstance(whitelist, str):
             whitelist = [g.strip() for g in whitelist.split(",") if g.strip()]
         return whitelist
