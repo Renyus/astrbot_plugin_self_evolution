@@ -89,7 +89,7 @@ class EntertainmentEngine:
 
             raw_msg = getattr(event, "raw_message", None)
             image_sub_types = {}
-            if raw_msg and isinstance(raw_msg, dict):
+            if raw_msg and hasattr(raw_msg, "get"):
                 for seg in raw_msg.get("message", []):
                     if seg.get("type") == "image":
                         img_data = seg.get("data", {})
