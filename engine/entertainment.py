@@ -243,6 +243,9 @@ class EntertainmentEngine:
                 if runtime and runtime.client:
                     mcp_client = runtime.client
                     logger.debug(f"[Sticker] 准备调用 MCP 客户端: {server_name}")
+                    logger.debug(
+                        f"[Sticker] MCP 调用参数: image_source={temp_file_path}, file_exists={os.path.exists(temp_file_path)}, file_size={os.path.getsize(temp_file_path) if os.path.exists(temp_file_path) else 0}"
+                    )
                     try:
                         from datetime import timedelta
 
