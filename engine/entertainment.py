@@ -88,19 +88,23 @@ class EntertainmentEngine:
             if not message_obj or not hasattr(message_obj, "message"):
                 return False
 
-            raw_msg = getattr(event, "raw_message", None)
+            raw_msg = getattr(event.message_obj, "raw_message", None)
+            logger.debug(f"[Sticker] raw_msg from message_obj: type={type(raw_msg)}")
             image_sub_types: dict[str, int] = {}
-            if raw_msg:
-                raw_msg_list = raw_msg.get("message") if isinstance(raw_msg, dict) else None
+            if raw_msg and hasattr(raw_msg, "get"):
+                raw_msg_list = raw_msg.get("message")
+                logger.debug(f"[Sticker] raw_msg_list: {raw_msg_list}")
                 if raw_msg_list:
                     for seg in raw_msg_list:
-                        seg_type = seg.get("type") if isinstance(seg, dict) else None
-                        if seg_type == "image":
-                            seg_data = seg.get("data", {}) if isinstance(seg, dict) else {}
-                            img_file = seg_data.get("file", "") if isinstance(seg_data, dict) else ""
-                            img_sub_type = seg_data.get("sub_type", 0) if isinstance(seg_data, dict) else 0
-                            if img_file:
-                                image_sub_types[img_file] = img_sub_type
+                        if isinstance(seg, dict):
+                            seg_type = seg.get("type")
+                            if seg_type == "image":
+                                seg_data = seg.get("data", {})
+                                img_file = seg_data.get("file", "") if isinstance(seg_data, dict) else ""
+                                img_sub_type = seg_data.get("sub_type", 0) if isinstance(seg_data, dict) else 0
+                                if img_file:
+                                    image_sub_types[img_file] = img_sub_type
+                                    logger.debug(f"[Sticker] found image: file={img_file}, sub_type={img_sub_type}")
 
             for comp in message_obj.message:
                 if not isinstance(comp, Image):
