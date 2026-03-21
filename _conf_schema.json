@@ -471,6 +471,13 @@
         "type": "int",
         "default": 30
     },
+    "sticker_send_threshold": {
+        "title": "发表情包触发阈值",
+        "description": "LLM请求发送表情包的概率阈值，0-100，越高越容易发送",
+        "hint": "默认 50，设为 0 则禁用发送",
+        "type": "int",
+        "default": 50
+    },
     "sticker_freq_threshold": {
         "title": "表情包频率阈值",
         "description": "表情包判定频率阈值",

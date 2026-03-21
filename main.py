@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import random
 import time
 
 import yaml
@@ -1021,6 +1022,11 @@ class SelfEvolutionPlugin(Star):
         if not await self.entertainment.should_send_sticker():
             cooldown = self.cfg.sticker_send_cooldown
             yield event.plain_result(f"冷却中，请 {cooldown} 分钟后再试")
+            return
+
+        threshold = self.cfg.sticker_send_threshold
+        if threshold > 0 and random.randint(0, 100) >= threshold:
+            logger.debug(f"[Sticker] 触发阈值未达标，跳过: threshold={threshold}, roll={random.randint(0, 100)}")
             return
 
         sticker = None
