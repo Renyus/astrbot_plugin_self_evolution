@@ -253,7 +253,7 @@ class EntertainmentEngine:
                             "understand_image",
                             {
                                 "prompt": "请用一句话描述这张图片的内容，然后提取3-5个关键词标签（用|分隔）。输出格式：描述：<一句话描述> 标签：<tag1|tag2|tag3>",
-                                "image_source": temp_file_path,
+                                "image_url": temp_file_path,
                             },
                             timedelta(seconds=60),
                         )
