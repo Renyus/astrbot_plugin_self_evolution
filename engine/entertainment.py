@@ -243,6 +243,9 @@ class EntertainmentEngine:
                 if runtime and runtime.client:
                     mcp_client = runtime.client
                     logger.debug(f"[Sticker] 准备调用 MCP 客户端: {server_name}")
+                    logger.debug(
+                        f"[Sticker] MCP 调用参数: image_source={temp_file_path}, file_exists={os.path.exists(temp_file_path)}, file_size={os.path.getsize(temp_file_path) if os.path.exists(temp_file_path) else 0}"
+                    )
                     try:
                         from datetime import timedelta
 
@@ -250,7 +253,7 @@ class EntertainmentEngine:
                             "understand_image",
                             {
                                 "prompt": "请用一句话描述这张图片的内容，然后提取3-5个关键词标签（用|分隔）。输出格式：描述：<一句话描述> 标签：<tag1|tag2|tag3>",
-                                "image_source": temp_file_path,
+                                "image_url": temp_file_path,
                             },
                             timedelta(seconds=60),
                         )
