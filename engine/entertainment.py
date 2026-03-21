@@ -91,19 +91,16 @@ class EntertainmentEngine:
             raw_msg = getattr(event, "raw_message", None)
             image_sub_types: dict[str, int] = {}
             if raw_msg:
-                raw_msg_list = getattr(raw_msg, "message", None) or []
-                for seg in raw_msg_list:
-                    if isinstance(seg, dict):
-                        seg_type = seg.get("type")
-                        seg_data = seg.get("data", {})
-                    else:
-                        seg_type = getattr(seg, "type", None)
-                        seg_data = getattr(seg, "data", {}) or {}
-                    if seg_type == "image":
-                        img_file = seg_data.get("file", "")
-                        img_sub_type = seg_data.get("sub_type", 0)
-                        if img_file:
-                            image_sub_types[img_file] = img_sub_type
+                raw_msg_list = raw_msg.get("message") if isinstance(raw_msg, dict) else None
+                if raw_msg_list:
+                    for seg in raw_msg_list:
+                        seg_type = seg.get("type") if isinstance(seg, dict) else None
+                        if seg_type == "image":
+                            seg_data = seg.get("data", {}) if isinstance(seg, dict) else {}
+                            img_file = seg_data.get("file", "") if isinstance(seg_data, dict) else ""
+                            img_sub_type = seg_data.get("sub_type", 0) if isinstance(seg_data, dict) else 0
+                            if img_file:
+                                image_sub_types[img_file] = img_sub_type
 
             for comp in message_obj.message:
                 if not isinstance(comp, Image):
