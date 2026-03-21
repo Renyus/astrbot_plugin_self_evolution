@@ -11,6 +11,17 @@
 
 ## [Unreleased]
 
+## [2.8.7] - 2026-03-21
+
+### Changed
+
+- 表情包学习增加 sub_type 判断，sub_type=0 的普通图片不再学习
+- 新增频率判定：sub_type=0 时根据同一图片被发送次数判断是否为表情包
+
+### Added
+
+- `sticker_freq_threshold` 配置项：控制频率判定阈值
+
 ## [2.8.6] - 2026-03-20
 
 ### Changed

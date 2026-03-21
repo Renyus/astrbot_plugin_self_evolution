@@ -339,6 +339,10 @@ class PluginConfig:
     def sticker_send_cooldown(self):
         return int(self._config.get("sticker_send_cooldown", 30))
 
+    @property
+    def sticker_freq_threshold(self):
+        return int(self._config.get("sticker_freq_threshold", 2))
+
     # ========== 其他 ==========
     @property
     def debug_log_enabled(self):

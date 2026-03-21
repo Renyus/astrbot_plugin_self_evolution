@@ -338,6 +338,7 @@ AstrBot 面板里可见的配置很多，下面只列最常用、最影响行为
 | `group_history_count` | `10` | 注入多少条群历史 |
 | `debug_log_enabled` | `false` | 是否输出详细调试日志 |
 | `sticker_learning_enabled` | `false` | 是否启用表情包学习 |
+| `sticker_freq_threshold` | `2` | sub_type=0时，同一图片发送多少次才判定为表情包，0则禁用 |
 
 ## 数据存储
 
