@@ -450,13 +450,6 @@
         "type": "string",
         "default": ""
     },
-    "sticker_tag_cooldown": {
-        "title": "打标签冷却时间(分钟)",
-        "description": "每次打标签后等待多久再处理下一张",
-        "hint": "防止 LLM 请求过多，默认 5 分钟",
-        "type": "int",
-        "default": 5
-    },
     "sticker_daily_limit": {
         "title": "每日存储上限",
         "description": "每天最多存储多少张表情包",

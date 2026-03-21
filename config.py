@@ -324,10 +324,6 @@ class PluginConfig:
         return self._config.get("sticker_target_qq", "")
 
     @property
-    def sticker_tag_cooldown(self):
-        return int(self._config.get("sticker_tag_cooldown", 5))
-
-    @property
     def sticker_daily_limit(self):
         return int(self._config.get("sticker_daily_limit", 50))
 

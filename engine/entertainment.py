@@ -14,7 +14,6 @@ class EntertainmentEngine:
 
     def __init__(self, plugin):
         self.plugin = plugin
-        self._last_tag_time = 0
         self._last_send_time = {}
         self._image_freq_cache: dict[str, dict[str, int]] = {}
 
@@ -89,7 +88,7 @@ class EntertainmentEngine:
 
             raw_msg = getattr(event.message_obj, "raw_message", None)
             image_sub_types: dict[str, int] = {}
-            image_urls: dict[str, str] = {}
+            image_sources: dict[str, str] = {}
             if raw_msg and hasattr(raw_msg, "get"):
                 raw_msg_list = raw_msg.get("message")
                 if raw_msg_list:
@@ -104,7 +103,7 @@ class EntertainmentEngine:
                                     img_url = seg_data.get("url", "")
                                     if img_file:
                                         image_sub_types[img_file] = img_sub_type
-                                        image_urls[img_file] = img_url
+                                        image_sources[img_file] = img_url
 
             for comp in message_obj.message:
                 if not isinstance(comp, Image):
@@ -112,7 +111,7 @@ class EntertainmentEngine:
 
                 comp_file = getattr(comp, "file", "") or ""
                 sub_type = image_sub_types.get(comp_file, 0)
-                img_url = image_urls.get(comp_file, "")
+                img_url = image_sources.get(comp_file, "")
 
                 if not img_url:
                     logger.debug(f"[Sticker] 未找到图片URL，跳过: file={comp_file}")
@@ -170,122 +169,12 @@ class EntertainmentEngine:
             await self.dao.delete_oldest_sticker()
             logger.debug("[Sticker] 已达总上限，删除最旧的")
 
-        sticker_uuid = await self.dao.add_sticker(group_id, user_id, url, "", sticker_hash)
+        sticker_uuid = await self.dao.add_sticker(group_id, user_id, url, sticker_hash)
         if sticker_uuid:
             logger.debug(f"[Sticker] 成功学习表情包: user={user_id}, group={group_id}, hash={sticker_hash[:8]}")
             return True
         else:
             logger.debug(f"[Sticker] 表情包已存在: hash={sticker_hash[:8]}")
-            return False
-
-    async def tag_stickers(self) -> bool:
-        """给未打标签的表情包打标签（有冷却时间）"""
-        if not self.cfg.sticker_learning_enabled:
-            return False
-
-        now = time.time()
-        cooldown_seconds = self.cfg.sticker_tag_cooldown * 60
-
-        if now - self._last_tag_time < cooldown_seconds:
-            logger.debug(f"[Sticker] 打标签冷却中，剩余 {int(cooldown_seconds - (now - self._last_tag_time))} 秒")
-            return False
-
-        untagged = await self.dao.get_untagged_stickers(1)
-        if not untagged:
-            logger.debug("[Sticker] 没有未打标签的表情包")
-            return False
-
-        sticker = untagged[0]
-        sticker_url = sticker.get("url", "")
-        if not sticker_url:
-            logger.warning(f"[Sticker] 表情包URL为空: uuid={sticker['uuid']}")
-            return False
-
-        logger.debug(f"[Sticker] 准备给表情包打标签: uuid={sticker['uuid']}, url={sticker_url[:50]}...")
-
-        try:
-            tool_manager = self.plugin.context.get_llm_tool_manager()
-            if not tool_manager:
-                logger.warning("[Sticker] 获取 tool_manager 失败")
-                return False
-
-            mcp_runtime = tool_manager.mcp_server_runtime_view
-            if not mcp_runtime:
-                logger.warning("[Sticker] 没有可用的 MCP 服务")
-                return False
-
-            logger.debug(f"[Sticker] 找到 {len(mcp_runtime)} 个 MCP 服务器")
-
-            for server_name, runtime in mcp_runtime.items():
-                logger.debug(f"[Sticker] 检查 MCP 服务器: {server_name}")
-                if runtime and runtime.client:
-                    mcp_client = runtime.client
-                    try:
-                        from datetime import timedelta
-
-                        tool_result = await mcp_client.call_tool_with_reconnect(
-                            "understand_image",
-                            {
-                                "prompt": "请用一句话描述这张图片的内容，然后提取3-5个关键词标签（用|分隔）。输出格式：描述：<一句话描述> 标签：<tag1|tag2|tag3>",
-                                "image_url": sticker_url,
-                            },
-                            timedelta(seconds=60),
-                        )
-
-                        logger.debug(f"[Sticker] MCP 返回结果: {tool_result}")
-
-                        if tool_result and tool_result.content:
-                            response_text = ""
-                            for content in tool_result.content:
-                                if hasattr(content, "text"):
-                                    response_text += content.text
-                                elif isinstance(content, str):
-                                    response_text += content
-
-                            logger.debug(f"[Sticker] MCP 工具响应: {response_text[:100]}")
-
-                            description = ""
-                            tags = ""
-                            if "描述：" in response_text:
-                                desc_part = response_text.split("描述：")[1].strip()
-                                if "标签：" in desc_part:
-                                    description = desc_part.split("标签：")[0].strip()
-                                elif "标签:" in desc_part:
-                                    description = desc_part.split("标签:")[0].strip()
-                                else:
-                                    description = desc_part.split("\n")[0].strip()
-                            elif "描述:" in response_text:
-                                desc_part = response_text.split("描述:")[1].strip()
-                                if "标签：" in desc_part:
-                                    description = desc_part.split("标签：")[0].strip()
-                                elif "标签:" in desc_part:
-                                    description = desc_part.split("标签:")[0].strip()
-                                else:
-                                    description = desc_part.split("\n")[0].strip()
-
-                            if "标签：" in response_text:
-                                tags = response_text.split("标签：")[1].strip()
-                            elif "标签:" in response_text:
-                                tags = response_text.split("标签:")[1].strip()
-
-                            if not tags:
-                                tags = response_text.split("\n")[0][:50]
-
-                            await self.dao.update_sticker_tags_by_uuid(sticker["uuid"], tags, description)
-                            self._last_tag_time = time.time()
-                            logger.debug(
-                                f"[Sticker] 打标签成功: uuid={sticker['uuid']}, tags={tags}, description={description[:30]}"
-                            )
-                            return True
-                    except Exception as e:
-                        logger.warning(f"[Sticker] MCP 客户端调用失败: {e}")
-                        continue
-
-            logger.warning("[Sticker] 所有 MCP 客户端调用失败")
-            return False
-
-        except Exception as e:
-            logger.warning(f"[Sticker] 打标签异常: {e}")
             return False
 
     async def should_send_sticker(self) -> bool:
@@ -309,9 +198,9 @@ class EntertainmentEngine:
             self._last_send_time["global"] = time.time()
         return sticker
 
-    async def list_stickers(self, tags: str = None, limit: int = 10) -> list:
+    async def list_stickers(self, limit: int = 10) -> list:
         """列出表情包（全局）"""
-        return await self.dao.get_stickers_by_tags(tags, limit)
+        return await self.dao.get_stickers(limit)
 
     async def get_sticker_stats(self) -> dict:
         """获取表情包统计（全局）"""

@@ -148,17 +148,6 @@ async def _fetch_groups_from_platform(plugin):
         return []
 
 
-async def scheduled_sticker_tag(plugin):
-    """定时给表情包打标签"""
-    logger.debug("[Sticker] 开始定时打标签...")
-
-    try:
-        await plugin.entertainment.tag_stickers()
-        logger.debug("[Sticker] 定时打标签完成")
-    except Exception as e:
-        logger.warning(f"[Sticker] 定时打标签失败: {e}")
-
-
 async def scheduled_profile_cleanup(plugin):
     """清理过期用户画像"""
     logger.debug("[Profile] 开始清理过期画像...")
