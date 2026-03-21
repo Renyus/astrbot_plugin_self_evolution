@@ -1276,6 +1276,14 @@ class EavesdroppingEngine:
                         self._update_interject_cursor(group_id, latest_msg_seq)
                         return
 
+                    trigger_prob = self.plugin.cfg.interject_random_bypass_rate
+                    if random.random() >= trigger_prob:
+                        logger.debug(
+                            f"[Interject] 群 {group_id}: [L4] 触发概率未达标，跳过: roll={random.random():.2f}, threshold={trigger_prob}"
+                        )
+                        self._update_interject_cursor(group_id, latest_msg_seq)
+                        return
+
                     logger.debug(f"[Interject] 群 {group_id}: [L4] 满足插嘴条件，执行插嘴")
                     await self._do_interject(group_id, suggested_response, messages)
                     # 插嘴后更新 cursor 并进入冷却

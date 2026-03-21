@@ -17,6 +17,10 @@
 
 - 新增 `sticker_send_threshold` 配置项，控制表情包发送概率阈值
 
+### Changed
+
+- `interject_random_bypass_rate` 改为控制插嘴最终触发概率，LLM判定满足条件后以此概率决定是否执行
+
 ### Removed
 
 - 完全移除表情包打标签功能及相关逻辑

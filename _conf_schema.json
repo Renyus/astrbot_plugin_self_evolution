@@ -187,11 +187,11 @@
         "default": false
     },
     "interject_random_bypass_rate": {
-        "title": "随机松绑概率",
-        "description": "随机放行概率",
-        "hint": "默认 0.1 (10%)，增加AI的不可预测性",
+        "title": "插嘴触发概率",
+        "description": "LLM判定满足条件后，最终执行的概率阈值，0-1，越高越容易触发",
+        "hint": "默认 0.3 (30%)，设为 1 则每次必触发",
         "type": "float",
-        "default": 0.1
+        "default": 0.3
     },
     "interject_analyze_count": {
         "title": "LLM分析消息数",
