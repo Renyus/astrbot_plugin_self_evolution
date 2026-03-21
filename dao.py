@@ -121,6 +121,13 @@ class SelfEvolutionDAO:
                 UNIQUE(group_id, report_date)
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS user_relationships (
+                user_id TEXT PRIMARY KEY,
+                affinity_score INTEGER NOT NULL DEFAULT 50,
+                last_interaction TEXT NOT NULL
+            )
+        """)
 
     async def get_conn(self):
         """带有存活检测的全局连接获取器，兼顾长连接性能与雪崩恢复，防阻塞分离读写锁"""
