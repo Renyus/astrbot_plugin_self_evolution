@@ -1075,7 +1075,7 @@ class ProfileManager:
                 f"目标用户：{nickname} (QQ: {user_id})\n"
                 f"会话范围：{scope_id}\n"
                 f"{'旧笔记：' + existing_note + '\n' if mode == 'update' else ''}"
-                f"{'私聊消息' if is_private_scope else '群聊消息'}：\n" + "\n".join(user_messages) + "\n"
+                f"{'私聊消息' if is_private_scope else '群聊消息'}：" + "\n" + "\n".join(user_messages) + "\n"
                 "请以 YAML 格式输出用户画像，包含以下字段：\n"
                 "- user_id: 用户QQ号\n"
                 "- scope_id: 会话范围ID（群号或 private_xxx）\n"
