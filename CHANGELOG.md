@@ -11,6 +11,71 @@
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-03-22
+
+> 核心记忆系统 / 调度层 / 命令层全面薄编排化
+
+### 架构变更
+
+**核心模块（Core）**
+- `engine/memory.py` — 重构为 3 层记忆架构（Reflection Hints / Structured Profile / Knowledge Base）
+- `engine/memory_router.py` — 新增统一路由层，决定信息去往哪层记忆
+- `engine/profile.py` — 新增 `StructuredProfile` dataclass，`classify_fact()` 优先级重构，长期笔记自动晋升
+- `engine/reflection.py` — `distill_profile_facts()` 改用 memory_router，支持 session_event 分类
+- `scheduler/tasks.py` — 拆分为薄编排层，统一 scope 发现、任务包装器、日志、异常处理
+- `scheduler/register.py` — 重构为统一任务注册
+- `commands/common.py` — 新增命令层公共基础设施（`CommandContext`、`ensure_admin`/`ensure_not_private_other`/`ensure_group`）
+- `commands/profile.py` — 复用 `common.py`，权限校验集中
+- `commands/admin.py` — 复用 `common.py`，权限和 scope 校验提取
+- `commands/sticker.py` — 删除冗余定义，薄适配化
+- `config.py` — 新增 `target_scopes`、`interject_trigger_probability`、`memory_fetch_page_size`、`memory_summary_chunk_size` 等配置键，`__getattr__` 收紧
+
+**可选模块（Optional）**
+- `engine/eavesdropping.py` — 拆解 `interject_check_group()` 为 5 层薄编排，新增状态机结构
+
+### 配置变更
+
+**新增配置**
+
+| 配置 | 说明 |
+|------|------|
+| `enable_profile_injection` | 是否向提示词注入画像摘要 |
+| `enable_profile_fact_writeback` | 是否将反思事实写回画像 |
+| `enable_kb_memory_recall` | 是否召回知识库记忆 |
+| `memory_fetch_page_size` | 历史消息分页大小 |
+| `memory_summary_chunk_size` | LLM 分段 chunk 大小 |
+| `interject_trigger_probability` | 主动插嘴触发概率 |
+| `target_scopes` | 白名单目标 scope 列表 |
+
+**行为修正**
+
+- `interject_random_bypass_rate` 运行时默认值已与 schema 统一（0.5）
+- `interject_trigger_probability` 替换遗留的 `interject_random_bypass_rate`
+- `__getattr__` 对未知 key 抛出 `AttributeError` 而非返回 `None`
+
+### Bug Fixes
+
+- `save_session_event()` 同日前缀重复写入 bug → 移除错误删除逻辑
+- KB retrieval 私聊场景 group_id 强制要求 bug → 移除该检查
+- `long_term_notes` 未计入 `total_items` budget bug → 已计入
+- `classify()` explicit fact_type 被启发式覆盖 bug → 优先级已修正
+- `get_structured_summary()` `recent_updates` 输出后未扣减 remaining → 已修正
+- 白名单路径未按 `include_private`/`include_groups` 过滤 scope bug → 已修正
+- `handle_delete()` 缺少普通用户权限校验 P1 → 已补全
+- `message_normalization.py` Image import 在无环境时失败 → try/except fallback
+
+### 测试
+
+- 新增 `test_memory_router.py`（16 tests）
+- 新增 `test_main_prompt_injection.py`（18 tests）
+- 新增 `test_eavesdropping.py` 辅助函数测试（14 tests）
+- 新增 `test_scheduler.py` 基础设施测试（20 tests）
+- 新增 `test_admin_commands.py`（14 tests）
+- 新增 `test_sticker_commands.py`（11 tests）
+- 补全 `test_profile_commands.py` P1 权限回归测试
+
+**总计：166 tests**
+
 ## [2.8.8] - 2026-03-21
 
 ### Added

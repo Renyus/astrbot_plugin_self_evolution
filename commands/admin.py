@@ -1,26 +1,31 @@
 """
 Admin Commands - 管理员命令实现
+薄适配层：只负责参数解析、权限校验，调用 dao/底层接口。
 """
 
 import time
 
+from .common import CommandContext, RESP_MESSAGES, ensure_admin, ensure_group
+
 
 async def handle_shut(event, plugin, minutes: str = ""):
-    """闭嘴命令实现"""
-    user_id = str(event.get_sender_id())
-    current_group = event.get_group_id()
-    is_admin = event.is_admin() or (plugin.admin_users and user_id in plugin.admin_users)
+    """闭嘴命令"""
+    ctx = CommandContext.from_event(event, plugin)
+
+    deny = ensure_admin(ctx)
+    if deny:
+        return deny
+
+    deny = ensure_group(ctx)
+    if deny:
+        return deny
+
+    current_group = ctx.group_id
 
     if current_group and current_group in plugin._shut_until_by_group:
         if time.time() < plugin._shut_until_by_group[current_group]:
-            if not is_admin:
+            if not ctx.is_admin:
                 return None
-
-    if not is_admin:
-        return "权限拒绝：此操作仅限管理员执行。"
-
-    if not current_group:
-        return "此命令需要在群聊中使用"
 
     if not minutes:
         if current_group in plugin._shut_until_by_group:
@@ -32,10 +37,10 @@ async def handle_shut(event, plugin, minutes: str = ""):
     try:
         minutes_val = int(minutes)
     except ValueError:
-        return "请输入有效的分钟数"
+        return RESP_MESSAGES["invalid_param"]
 
     if minutes_val < 0:
-        return "分钟数不能为负数"
+        return RESP_MESSAGES["negative_minutes"]
 
     if minutes_val == 0:
         if current_group in plugin._shut_until_by_group:
@@ -48,12 +53,12 @@ async def handle_shut(event, plugin, minutes: str = ""):
 
 
 async def handle_db(event, plugin, action: str = "", param: str = ""):
-    """数据库管理命令实现"""
-    user_id = str(event.get_sender_id())
-    is_admin = event.is_admin() or (plugin.admin_users and user_id in plugin.admin_users)
+    """数据库管理命令"""
+    ctx = CommandContext.from_event(event, plugin)
 
-    if not is_admin:
-        return "权限拒绝：此操作仅限管理员执行。"
+    deny = ensure_admin(ctx)
+    if deny:
+        return deny
 
     action = action.lower()
     dao = plugin.dao
@@ -75,18 +80,18 @@ async def handle_db(event, plugin, action: str = "", param: str = ""):
         return "\n".join(msg)
 
     elif action == "reset":
-        plugin._pending_db_reset[user_id] = time.time() + 30
+        plugin._pending_db_reset[ctx.sender_id] = time.time() + 30
         return "[!] 确认清空所有数据？\n此操作不可恢复！\n请在 30 秒内输入 /db confirm 确认执行。"
 
     elif action == "confirm":
-        pending_time = plugin._pending_db_reset.get(user_id, 0)
+        pending_time = plugin._pending_db_reset.get(ctx.sender_id, 0)
 
         if time.time() > pending_time:
-            plugin._pending_db_reset.pop(user_id, None)
+            plugin._pending_db_reset.pop(ctx.sender_id, None)
             return "操作已超时，请重新输入 /db reset"
 
         results = await dao.reset_all_data()
-        plugin._pending_db_reset.pop(user_id, None)
+        plugin._pending_db_reset.pop(ctx.sender_id, None)
 
         msg = ["[OK] 数据库已清空：\n"]
         for table, count in results.items():
@@ -105,4 +110,5 @@ async def handle_db(event, plugin, action: str = "", param: str = ""):
 
 def check_admin(event, plugin):
     """检查是否有管理员权限"""
-    return event.is_admin() or (plugin.admin_users and str(event.get_sender_id()) in plugin.admin_users)
+    ctx = CommandContext.from_event(event, plugin)
+    return ctx.is_admin

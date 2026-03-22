@@ -218,7 +218,7 @@ class SelfEvolutionDAO:
         if self._db_lock is not None:
             try:
                 # 尝试拿锁，但强制赋予极短的界限，若遭遇他方恶意挂起占锁，则强行击穿进行底层脱轨回收
-                await asyncio.wait_for(self._db_lock.acquire(), timeout=3.0)
+                await asyncio.wait_for(self._db_lock.acquire(), timeout=3.0.0)
                 try:
                     if self.db_conn is not None:
                         try:

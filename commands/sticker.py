@@ -1,10 +1,13 @@
 """
 Sticker Commands - 表情包管理命令实现
+薄适配层：只负责参数解析、权限校验，调用 dao。
 """
+
+from .common import CommandContext, RESP_MESSAGES
 
 
 async def handle_sticker(event, plugin, action: str = "list", param: str = ""):
-    """表情包管理命令实现"""
+    """表情包管理命令"""
     dao = plugin.dao
 
     if action == "list":
@@ -66,4 +69,5 @@ async def handle_sticker(event, plugin, action: str = "list", param: str = ""):
 
 def check_admin(event, plugin):
     """检查是否有管理员权限"""
-    return event.is_admin() or (plugin.admin_users and str(event.get_sender_id()) in plugin.admin_users)
+    ctx = CommandContext.from_event(event, plugin)
+    return ctx.is_admin

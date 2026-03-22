@@ -4,6 +4,7 @@ Commands 模块 - 命令处理
 
 from .admin import check_admin as check_admin_admin
 from .admin import handle_db, handle_shut
+from .common import RESP_MESSAGES, CommandContext
 from .profile import (
     check_admin as check_profile_admin,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "check_admin_admin",
     "check_profile_admin",
     "check_sticker_admin",
+    "CommandContext",
     "handle_create",
     "handle_db",
     "handle_delete",
@@ -32,4 +34,5 @@ __all__ = [
     "handle_update",
     "handle_version",
     "handle_view",
+    "RESP_MESSAGES",
 ]

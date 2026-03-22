@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock
 
-from tests._helpers import ROOT, load_module_from_path
+from tests._helpers import load_commands_module
 
-profile_commands = load_module_from_path("profile_commands", Path(ROOT) / "commands" / "profile.py")
+profile_commands = load_commands_module("profile")
 
 
 class _FakeEvent:
@@ -95,3 +94,15 @@ class ProfileCommandTests(IsolatedAsyncioTestCase):
 
         self.assertEqual(result, "私聊场景仅支持更新当前会话用户的画像。")
         plugin.profile.build_profile.assert_not_awaited()
+
+    async def test_handle_delete_rejects_other_user_in_group_for_non_admin(self):
+        plugin = SimpleNamespace(
+            admin_users=[],
+            profile=SimpleNamespace(delete_profile=AsyncMock()),
+        )
+        event = _FakeEvent(group_id="5001", message_str="/delete 2002", is_admin=False)
+
+        result = await profile_commands.handle_delete(event, plugin)
+
+        self.assertEqual(result, "权限拒绝：普通用户无法操作他人画像。")
+        plugin.profile.delete_profile.assert_not_awaited()
