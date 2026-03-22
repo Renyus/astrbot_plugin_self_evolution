@@ -3,12 +3,28 @@ import logging
 import random
 import time
 from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 import yaml
 
 from .context_injection import parse_message_chain
+
+
+@dataclass
+class StructuredProfile:
+    """结构化画像数据容器 - parse -> mutate -> serialize"""
+
+    identity: list[str] = field(default_factory=list)
+    preferences: list[str] = field(default_factory=list)
+    traits: list[str] = field(default_factory=list)
+    recent_updates: list[dict] = field(default_factory=list)
+    long_term_notes: list[str] = field(default_factory=list)
+
+    def is_empty(self) -> bool:
+        return not (self.identity or self.preferences or self.traits or self.recent_updates or self.long_term_notes)
+
 
 logger = logging.getLogger("astrbot")
 PRIVATE_SCOPE_PREFIX = "private_"
@@ -639,7 +655,14 @@ class ProfileManager:
         long_term_notes: list[str],
         max_items: int = 10,
     ) -> bool:
-        """recent_update 类：只保留最近 N 条，溢出归档到 long_term_notes"""
+        """
+        recent_update 类：优先保留最近 N 条，溢出归档到 long_term_notes。
+        高价值关键词内容直接晋升 long_term_notes，不经 recent_updates。
+        """
+        if self._should_promote_to_long_term_note(content):
+            logger.debug(f"[Profile] 高价值关键词检测，直接晋升 long_term_note: {content[:30]}...")
+            return self._upsert_long_term_note(long_term_notes, content, replace_similar)
+
         for i, update in enumerate(recent_updates):
             norm_existing = self._normalize_for_dedup(update.get("content", ""))
             norm_new = self._normalize_for_dedup(content)
@@ -709,8 +732,23 @@ class ProfileManager:
                 lines.append(f"- {note}")
         return "\n".join(lines)
 
-    def classify_fact(self, fact: str) -> str:
-        """自动分类事实类型"""
+    def classify_fact(self, fact: str, explicit_type: str | None = None) -> str:
+        """
+        自动分类事实类型。
+
+        优先级：
+        1. explicit_type - 调用方显式指定的类型（最高优先级）
+        2. heuristic - 关键词启发式分类
+        3. 默认 recent_update
+        """
+        VALID_TYPES = {"identity", "preference", "trait", "recent_update", "long_term_note"}
+        if explicit_type and explicit_type in VALID_TYPES:
+            return explicit_type
+
+        return self._heuristic_classify(fact)
+
+    def _heuristic_classify(self, fact: str) -> str:
+        """基于关键词的启发式分类（第二优先级）"""
         fact_lower = fact.lower()
 
         identity_keywords = [
@@ -751,7 +789,6 @@ class ProfileManager:
             "决定",
             "不爱",
             "不喜",
-            "讨厌",
             "恨",
             "支持",
             "反对",
@@ -779,6 +816,25 @@ class ProfileManager:
             return "trait"
 
         return "recent_update"
+
+    LONG_TERM_KEYWORDS = [
+        "每周",
+        "每月",
+        "每天",
+        "一直",
+        "永远",
+        "习惯",
+        "固定",
+        "长期",
+        "规律",
+        "必定",
+        "每逢",
+    ]
+
+    def _should_promote_to_long_term_note(self, content: str) -> bool:
+        """判断内容是否应直接写入 long_term_note（高价值关键词）"""
+        content_lower = content.lower()
+        return any(kw in content_lower for kw in self.LONG_TERM_KEYWORDS)
 
     def _parse_structured_content(self, content: str) -> dict:
         """解析结构化画像内容"""
