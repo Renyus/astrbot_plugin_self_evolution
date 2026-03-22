@@ -47,11 +47,25 @@
         "default": "self_evolution_memory"
     },
     "memory_msg_count": {
-        "title": "每日总结分页消息数",
+        "title": "每日总结分页消息数（兼容旧键）",
         "description": "总结分页大小",
-        "hint": "执行前一自然日会话总结时，每次从 NapCat 历史记录分页拉取的消息数量；消息过多时会继续翻页并分段总结。",
+        "hint": "执行前一自然日会话总结时，每次从 NapCat 历史记录分页拉取的消息数量。",
         "type": "int",
         "default": 500
+    },
+    "memory_fetch_page_size": {
+        "title": "记忆分页拉取大小",
+        "description": "每日总结时分页从 NapCat 拉取消息的数量",
+        "hint": "决定每次 API 调用拉取的消息条数，默认 500",
+        "type": "int",
+        "default": 500
+    },
+    "memory_summary_chunk_size": {
+        "title": "记忆总结分段大小",
+        "description": "LLM 分段总结时每个 chunk 的最大消息条数",
+        "hint": "控制单次 LLM 上下文窗口的消息密度，默认 200",
+        "type": "int",
+        "default": 200
     },
     "memory_summary_schedule": {
         "title": "每日总结计划 (Cron)",
@@ -76,15 +90,40 @@
         "default": 10
     },
     "enable_profile_update": {
-        "title": "AI回复时注入画像",
+        "title": "AI回复时注入画像（兼容旧键）",
         "description": "@或引用时注入用户画像",
         "type": "bool",
         "default": true
     },
+    "enable_profile_injection": {
+        "title": "启用画像内容注入",
+        "description": "AI回复时注入用户画像摘要内容",
+        "type": "bool",
+        "default": true
+    },
+    "enable_profile_fact_writeback": {
+        "title": "启用画像事实写入",
+        "description": "对话中发现的偏好/身份信息是否回写到用户画像",
+        "type": "bool",
+        "default": true
+    },
+    "enable_kb_memory_recall": {
+        "title": "启用知识库记忆召回",
+        "description": "AI回复时从知识库召回长期记忆上下文",
+        "type": "bool",
+        "default": true
+    },
     "target_group_scopes": {
-        "title": "目标群范围",
+        "title": "目标群范围（兼容旧键）",
         "description": "指定要处理画像、记忆、插嘴的群",
         "hint": "群号列表，如：[123456789, 987654321]，留空自动获取",
+        "type": "list",
+        "default": []
+    },
+    "target_scopes": {
+        "title": "后台任务目标范围",
+        "description": "统一指定画像、记忆、插嘴等后台任务的处理范围",
+        "hint": "群号列表，留空则自动发现",
         "type": "list",
         "default": []
     },
@@ -187,11 +226,18 @@
         "default": false
     },
     "interject_random_bypass_rate": {
-        "title": "随机松绑概率",
-        "description": "随机放行概率",
-        "hint": "默认 0.1 (10%)，增加AI的不可预测性",
+        "title": "插嘴触发概率（兼容旧键）",
+        "description": "LLM判定满足条件后，最终执行的概率阈值",
+        "hint": "默认 0.5，设为 1 则每次必触发",
         "type": "float",
-        "default": 0.1
+        "default": 0.5
+    },
+    "interject_trigger_probability": {
+        "title": "插嘴执行概率",
+        "description": "LLM判定满足条件后，最终执行的概率阈值",
+        "hint": "默认 0.5，设为 1 则每次必触发",
+        "type": "float",
+        "default": 0.5
     },
     "interject_analyze_count": {
         "title": "LLM分析消息数",
@@ -450,13 +496,6 @@
         "type": "string",
         "default": ""
     },
-    "sticker_tag_cooldown": {
-        "title": "打标签冷却时间(分钟)",
-        "description": "每次打标签后等待多久再处理下一张",
-        "hint": "防止 LLM 请求过多，默认 5 分钟",
-        "type": "int",
-        "default": 5
-    },
     "sticker_daily_limit": {
         "title": "每日存储上限",
         "description": "每天最多存储多少张表情包",
@@ -477,6 +516,13 @@
         "hint": "默认 30 分钟",
         "type": "int",
         "default": 30
+    },
+    "sticker_send_threshold": {
+        "title": "发表情包触发阈值",
+        "description": "控制表情包发送概率",
+        "hint": "默认 50，设为 0 则禁用发送",
+        "type": "int",
+        "default": 50
     },
     "sticker_freq_threshold": {
         "title": "表情包频率阈值",

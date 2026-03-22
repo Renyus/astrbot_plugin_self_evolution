@@ -14,41 +14,52 @@ PRIVATE_SCOPE_PREFIX = "private_"
 SUMMARY_CHUNK_CHAR_LIMIT = 12000
 SUMMARY_CHUNK_MAX_MESSAGES = 200
 
-SUMMARY_PROMPT = """你是聊天总结助手。请分析以下 {summary_date} 的聊天消息，输出一段详细的总结：
+SESSION_MEMORY_PROMPT = """你是会话记忆分析师。请分析以下 {summary_date} 的聊天记录，提取结构化的记忆信息。
 
-总结要求（尽可能详细，保留关键信息）：
-1. 群聊的主要话题和讨论内容（详细描述）
-2. 群内发生的重要事件或达成的共识
-3. 活跃的成员或重要人物
-4. 热门话题或讨论焦点
-5. 任何有价值的信息
+请以JSON格式输出：
+{{
+    "overview": "一段200-500字的总结，描述当日主要话题、氛围和重要事件",
+    "key_facts": ["关键事实1", "关键事实2", "关键事实3", ...],
+    "key_entities": ["重要人物或对象1", "重要人物或对象2", ...],
+    "tags": ["标签1", "标签2", ...]
+}}
 
-消息列表：
-{messages}
-"""
-
-PARTIAL_SUMMARY_PROMPT = """你是聊天总结助手。以下是 {summary_date} 的聊天记录分段（第 {index}/{total} 段）。
-
-请先总结这一段里出现的：
-1. 主要话题
-2. 重要事件或结论
-3. 活跃成员
-4. 后续整合时不能丢掉的关键信息
+规则：
+- key_facts 至少3条，最多8条，每条不超过50字
+- key_entities 列出当日活跃人物、重要讨论对象、群规、约定、项目名等
+- tags 用简洁的词或短语标注主题，最多5个
+- 只输出JSON，不要其他内容
 
 消息列表：
 {messages}
 """
 
-MERGE_SUMMARY_PROMPT = """你是聊天总结助手。以下是 {summary_date} 同一会话聊天记录的分段总结，请整合成一份最终总结。
+PARTIAL_MEMORY_PROMPT = """你是会话记忆分析师。以下是 {summary_date} 的聊天记录分段（第 {index}/{total} 段）。
 
-最终总结要求：
-1. 只保留当天真正重要、长期有价值的信息
-2. 合并重复内容，避免车轱辘话
-3. 点明主要话题、关键事件、活跃成员和达成的结论
-4. 输出一段完整、连贯的总结文本
+请提取这一段中的关键信息，输出JSON：
+{{
+    "overview": "这一段的主要话题（1-2句）",
+    "key_facts": ["事实1", "事实2", ...],
+    "key_entities": ["人物或对象1", "人物或对象2", ...],
+    "tags": ["标签1", "标签2"]
+}}
 
-分段总结：
-{partial_summaries}
+消息列表：
+{messages}
+"""
+
+MERGE_MEMORY_PROMPT = """你是会话记忆分析师。以下是 {summary_date} 的分段记忆分析，请整合成最终的结构化JSON。
+
+整合要求：
+1. 合并重复信息
+2. overview 整合成一段200-500字的完整总结
+3. key_facts 控制在3-8条，每条不超过50字
+4. key_entities 合并，去重
+5. tags 不超过5个
+6. 只输出JSON
+
+分段分析：
+{partial_results}
 """
 
 
@@ -66,6 +77,14 @@ class MemoryManager:
     @property
     def memory_msg_count(self):
         return self.plugin.cfg.memory_msg_count
+
+    @property
+    def memory_fetch_page_size(self):
+        return self.plugin.cfg.memory_fetch_page_size
+
+    @property
+    def memory_summary_chunk_size(self):
+        return self.plugin.cfg.memory_summary_chunk_size
 
     async def daily_summary(self, reference_dt: datetime | None = None):
         """执行每日会话总结"""
@@ -199,7 +218,7 @@ class MemoryManager:
         if not messages:
             return []
 
-        max_messages_per_chunk = max(50, min(self.memory_msg_count, SUMMARY_CHUNK_MAX_MESSAGES))
+        max_messages_per_chunk = max(50, min(self.memory_summary_chunk_size, SUMMARY_CHUNK_MAX_MESSAGES))
         chunks = []
         current_chunk = []
         current_chars = 0
@@ -371,7 +390,7 @@ class MemoryManager:
         scopes = []
 
         # 方式1: 白名单配置（仅约束群聊）
-        whitelist = getattr(self.plugin.cfg, "target_group_scopes", [])
+        whitelist = self.plugin.cfg.target_group_scopes
         if whitelist:
             logger.debug(f"[Memory] 使用白名单群列表: {whitelist}")
             scopes.extend(str(group_id) for group_id in whitelist)
@@ -473,7 +492,7 @@ class MemoryManager:
             window_start, window_end, summary_date = self._get_daily_summary_window(reference_dt)
             start_ts = int(window_start.timestamp())
             end_ts = int(window_end.timestamp())
-            page_size = max(1, self.memory_msg_count)
+            page_size = max(1, self.memory_fetch_page_size)
 
             selected_messages = []
             seen_keys = set()
@@ -545,8 +564,13 @@ class MemoryManager:
         """兼容旧调用，按 scope 获取消息。"""
         return await self._fetch_scope_messages(group_id)
 
-    async def _llm_summarize(self, messages: list, umo: str | None = None, summary_date: str | None = None) -> str:
-        """调用 LLM 总结消息"""
+    async def _llm_summarize(
+        self, messages: list, umo: str | None = None, summary_date: str | None = None
+    ) -> dict | None:
+        """调用 LLM 总结消息，返回结构化 dict"""
+        import json
+        import re
+
         try:
             llm_provider = self.plugin.context.get_using_provider(umo=umo)
             if not llm_provider:
@@ -557,37 +581,76 @@ class MemoryManager:
             if not chunks:
                 return None
 
-            if len(chunks) == 1:
-                prompt = SUMMARY_PROMPT.format(summary_date=summary_date, messages="\n".join(chunks[0]))
-                return await self._request_summary(llm_provider, prompt)
+            def parse_json_response(text: str) -> dict | None:
+                """从 LLM 输出中提取 JSON"""
+                text = text.strip()
+                match = re.search(r"\{.*\}", text, re.DOTALL)
+                if match:
+                    try:
+                        return json.loads(match.group())
+                    except json.JSONDecodeError:
+                        pass
+                return None
 
-            partial_summaries = []
+            if len(chunks) == 1:
+                prompt = SESSION_MEMORY_PROMPT.format(summary_date=summary_date, messages="\n".join(chunks[0]))
+                text = await self._request_summary(llm_provider, prompt)
+                if text:
+                    result = parse_json_response(text)
+                    if result:
+                        return result
+                return None
+
+            partial_results = []
             for index, chunk in enumerate(chunks, start=1):
-                partial_prompt = PARTIAL_SUMMARY_PROMPT.format(
+                partial_prompt = PARTIAL_MEMORY_PROMPT.format(
                     summary_date=summary_date,
                     index=index,
                     total=len(chunks),
                     messages="\n".join(chunk),
                 )
-                partial_summary = await self._request_summary(llm_provider, partial_prompt)
-                if partial_summary:
-                    partial_summaries.append(f"第 {index} 段总结：\n{partial_summary}")
+                text = await self._request_summary(llm_provider, partial_prompt)
+                if text:
+                    result = parse_json_response(text)
+                    if result:
+                        partial_results.append(result)
 
-            if not partial_summaries:
+            if not partial_results:
                 return None
 
-            merge_prompt = MERGE_SUMMARY_PROMPT.format(
+            merge_prompt = MERGE_MEMORY_PROMPT.format(
                 summary_date=summary_date,
-                partial_summaries="\n\n".join(partial_summaries),
+                partial_results="\n".join([json.dumps(r, ensure_ascii=False) for r in partial_results]),
             )
-            return await self._request_summary(llm_provider, merge_prompt)
+            text = await self._request_summary(llm_provider, merge_prompt)
+            if text:
+                result = parse_json_response(text)
+                if result:
+                    return result
+
+            return None
 
         except Exception as e:
             logger.warning(f"[Memory] LLM 总结失败: {e}")
             return None
 
-    async def _save_to_knowledge_base(self, scope_id: str, summary: str, summary_date: str | None = None):
-        """保存总结到知识库"""
+    async def _save_to_knowledge_base(
+        self,
+        scope_id: str,
+        memory: dict,
+        summary_date: str | None = None,
+    ):
+        """
+        保存结构化记忆到知识库
+
+        memory 格式:
+        {
+            "overview": "总摘要",
+            "key_facts": ["事实1", "事实2", ...],
+            "key_entities": ["实体1", "实体2", ...],
+            "tags": ["标签1", "标签2", ...]
+        }
+        """
         try:
             kb_helper = await asyncio.wait_for(self._ensure_scope_kb(scope_id), timeout=10.0)
 
@@ -596,7 +659,7 @@ class MemoryManager:
                 return
 
             summary_date = summary_date or self._get_daily_summary_window()[2]
-            file_prefix = f"summary_{scope_id}_{summary_date}_"
+            file_prefix = f"memory_{scope_id}_{summary_date}_"
             if hasattr(kb_helper, "list_documents"):
                 docs = await kb_helper.list_documents()
                 for doc in docs:
@@ -606,29 +669,104 @@ class MemoryManager:
                         await kb_helper.delete_document(doc_id)
 
             chat_type = "私聊" if self._is_private_scope(scope_id) else "群聊"
-            extra_scope_line = (
+            scope_label = (
                 f"用户ID: {self._get_private_scope_user_id(scope_id)}"
                 if self._is_private_scope(scope_id)
                 else f"群号: {scope_id}"
             )
-            formatted = (
-                f"【会话总结】\n"
-                f"类型: {chat_type}\n"
+
+            key_facts = memory.get("key_facts", [])
+            key_entities = memory.get("key_entities", [])
+            tags = memory.get("tags", [])
+            overview = memory.get("overview", "")
+
+            chunks = []
+
+            chunks.append(
+                f"【会话记忆】\n"
+                f"类型: session_memory\n"
                 f"范围ID: {scope_id}\n"
-                f"{extra_scope_line}\n"
-                f"时间: {summary_date}\n"
-                f"内容: {summary}"
+                f"{scope_label}\n"
+                f"日期: {summary_date}\n"
+                f"标签: {', '.join(tags) if tags else '无'}"
             )
+
+            if overview:
+                chunks.append(f"【总摘要】\n{overview}")
+
+            if key_facts:
+                chunks.append("【关键事实】\n" + "\n".join(f"- {f}" for f in key_facts))
+
+            if key_entities:
+                chunks.append("【关键人物/对象】\n" + "\n".join(f"- {e}" for e in key_entities))
 
             await kb_helper.upload_document(
                 file_name=f"{file_prefix}{int(time.time() * 1000)}.txt",
                 file_content=b"",
                 file_type="txt",
-                pre_chunked_text=[formatted],
+                pre_chunked_text=chunks,
             )
 
         except Exception as e:
             logger.warning(f"[Memory] 保存总结失败: {e}")
+
+    async def save_session_event(
+        self,
+        scope_id: str,
+        session_event: dict,
+    ) -> bool:
+        """
+        保存 session_event 到知识库
+
+        session_event 格式:
+        {
+            "type": "session_event",
+            "scope_id": str,
+            "content": str,
+            "user_id": str,
+            "date": str,
+            "source": str,
+        }
+        """
+        try:
+            kb_helper = await asyncio.wait_for(self._ensure_scope_kb(scope_id), timeout=10.0)
+            if not kb_helper:
+                logger.warning(f"[Memory] 会话 {scope_id} 的隔离知识库不可用")
+                return False
+
+            date = session_event.get("date", datetime.now().strftime("%Y-%m-%d"))
+            file_prefix = f"event_{scope_id}_{date}_"
+
+            scope_label = (
+                f"用户ID: {self._get_private_scope_user_id(scope_id)}"
+                if self._is_private_scope(scope_id)
+                else f"群号: {scope_id}"
+            )
+
+            content = session_event.get("content", "")
+            chunks = [
+                f"【会话事件】\n"
+                f"类型: session_event\n"
+                f"范围ID: {scope_id}\n"
+                f"{scope_label}\n"
+                f"日期: {date}\n"
+                f"来源: {session_event.get('source', 'unknown')}\n"
+                f"内容: {content}",
+            ]
+
+            await kb_helper.upload_document(
+                file_name=f"{file_prefix}{int(time.time() * 1000)}.txt",
+                file_content=b"",
+                file_type="txt",
+                pre_chunked_text=chunks,
+            )
+
+            logger.debug(f"[Memory] session_event 已保存: {content[:50]}...")
+            return True
+
+        except Exception as e:
+            logger.warning(f"[Memory] 保存 session_event 失败: {e}")
+            return False
 
     async def view_summary(self, group_id: str = None) -> str:
         """查看会话总结"""
@@ -718,3 +856,63 @@ class MemoryManager:
         except Exception as e:
             logger.warning(f"[Memory] 清空总结失败: {e}")
             return f"清空总结失败: {e}"
+
+    async def smart_retrieve(
+        self,
+        scope_id: str,
+        query: str,
+        max_results: int = 3,
+    ) -> str:
+        """
+        智能检索知识库，只返回 1-3 条最相关结果
+
+        用于注入 LLM 的会话记忆上下文
+
+        Returns:
+            格式化的记忆字符串，无结果时返回空字符串
+        """
+        try:
+            kb_manager = getattr(self.plugin.context, "kb_manager", None)
+            if not kb_manager:
+                return ""
+
+            scope_kb_name = self._get_scope_kb_name(scope_id)
+            kb_helper = await asyncio.wait_for(kb_manager.get_kb_by_name(scope_kb_name), timeout=5.0)
+            if not kb_helper:
+                return ""
+
+            results = await asyncio.wait_for(
+                kb_helper.retrieve(
+                    query=query,
+                    top_m_final=max_results,
+                ),
+                timeout=5.0,
+            )
+
+            if not results or not results.get("results"):
+                return ""
+
+            chunks = results.get("results", [])
+            if not chunks:
+                return ""
+
+            lines = ["【相关记忆】"]
+            shown = 0
+            for chunk in chunks:
+                if shown >= max_results:
+                    break
+                text = chunk.get("text", "") or chunk.get("content", "") or ""
+                if not text:
+                    continue
+                if len(text) > 500:
+                    text = text[:500] + "..."
+                lines.append(f"- {text}")
+                shown += 1
+
+            result = "\n".join(lines)
+            logger.debug(f"[Memory] smart_retrieve: scope={scope_id}, query={query[:30]}..., returned {shown} results")
+            return result
+
+        except Exception as e:
+            logger.warning(f"[Memory] smart_retrieve 失败: {e}")
+            return ""

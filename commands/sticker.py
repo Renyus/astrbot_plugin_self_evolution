@@ -1,43 +1,33 @@
 """
 Sticker Commands - 表情包管理命令实现
+薄适配层：只负责参数解析、权限校验，调用 dao。
 """
+
+from .common import CommandContext, RESP_MESSAGES
 
 
 async def handle_sticker(event, plugin, action: str = "list", param: str = ""):
-    """表情包管理命令实现"""
+    """表情包管理命令"""
     dao = plugin.dao
 
     if action == "list":
         page = int(param) if param and param.isdigit() else 1
         page_size = 10
-        offset = (page - 1) * page_size
 
-        stickers = await dao.get_stickers_by_tags("", page_size, offset)
+        stickers = await dao.get_stickers(page_size)
         total = await dao.get_sticker_count()
         today = await dao.get_today_sticker_count()
 
         if not stickers:
             return "暂无表情包。"
 
-        result = [f"【表情包列表】（第 {page} 页，共 {total} 张，今日新增 {today} 张）\n"]
+        result = [f"【表情包列表】（共 {total} 张，今日新增 {today} 张）\n"]
         for s in stickers:
-            tags = s["tags"][:30] if s["tags"] else "无标签"
-            result.append(f"UUID:{s['uuid']} | 用户:{s['user_id']} | 标签:{tags}")
+            result.append(f"UUID:{s['uuid']} | 用户:{s['user_id']}")
         result.append("\n【管理指令】")
         result.append("/sticker delete <UUID>  # 删除指定UUID")
         result.append("/sticker clear           # 清空所有表情包")
-        return "\n".join(result)
-
-    elif action == "untagged":
-        untagged = await dao.get_untagged_stickers(20)
-        if not untagged:
-            return "没有未打标签的表情包"
-
-        result = [f"【未打标签表情包】（共 {len(untagged)} 张）\n"]
-        for s in untagged:
-            created_at = (s.get("created_at") or "")[:19] or "未知"
-            result.append(f"UUID:{s['uuid']} | 用户:{s['user_id']} | 时间:{created_at}")
-        result.append("\n删除指令：/sticker delete <UUID>")
+        result.append("/sticker stats           # 查看统计")
         return "\n".join(result)
 
     elif action == "delete":
@@ -71,7 +61,6 @@ async def handle_sticker(event, plugin, action: str = "list", param: str = ""):
         return (
             "【表情包管理】（全局）\n"
             "/sticker list          # 列出表情包\n"
-            "/sticker untagged     # 查看未打标签的表情包\n"
             "/sticker delete <UUID> # 删除指定表情包\n"
             "/sticker clear        # 清空所有表情包\n"
             "/sticker stats        # 查看统计"
@@ -80,4 +69,5 @@ async def handle_sticker(event, plugin, action: str = "list", param: str = ""):
 
 def check_admin(event, plugin):
     """检查是否有管理员权限"""
-    return event.is_admin() or (plugin.admin_users and str(event.get_sender_id()) in plugin.admin_users)
+    ctx = CommandContext.from_event(event, plugin)
+    return ctx.is_admin

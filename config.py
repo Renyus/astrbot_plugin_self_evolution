@@ -20,10 +20,13 @@ class PluginConfig:
         return self.plugin._parse_bool
 
     def __getattr__(self, name):
-        """代理所有配置访问"""
+        """代理所有配置访问，未知属性抛出 AttributeError"""
         if name.startswith("_") or name in ("plugin", "config"):
             raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
-        return self._config.get(name)
+        val = self._config.get(name)
+        if val is None:
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        return val
 
     # ========== 基础设置 ==========
     @property
@@ -60,7 +63,20 @@ class PluginConfig:
 
     @property
     def memory_msg_count(self):
+        """[deprecated] 兼容旧键，请使用 memory_fetch_page_size"""
         return int(self._config.get("memory_msg_count", 500))
+
+    @property
+    def memory_fetch_page_size(self):
+        val = self._config.get("memory_fetch_page_size")
+        if val is None:
+            val = self._config.get("memory_msg_count")
+        return int(val if val is not None else 500)
+
+    @property
+    def memory_summary_chunk_size(self):
+        val = self._config.get("memory_summary_chunk_size")
+        return int(val if val is not None else 200)
 
     @property
     def memory_summary_schedule(self):
@@ -77,14 +93,49 @@ class PluginConfig:
 
     @property
     def enable_profile_update(self):
+        """[deprecated] 兼容旧键，请使用 enable_profile_injection"""
         return self._parse_bool(self._config.get("enable_profile_update"), True)
 
     @property
+    def enable_profile_injection(self):
+        val = self._config.get("enable_profile_injection")
+        if val is None:
+            val = self._config.get("enable_profile_update")
+        return self._parse_bool(val, True)
+
+    @property
+    def enable_profile_fact_writeback(self):
+        val = self._config.get("enable_profile_fact_writeback")
+        if val is None:
+            val = self._config.get("enable_profile_update")
+        return self._parse_bool(val, True)
+
+    @property
+    def enable_kb_memory_recall(self):
+        return self._parse_bool(self._config.get("enable_kb_memory_recall"), True)
+
+    @property
     def target_group_scopes(self):
-        whitelist = self._config.get("target_group_scopes", [])
-        if isinstance(whitelist, str):
-            whitelist = [g.strip() for g in whitelist.split(",") if g.strip()]
-        return whitelist
+        old_list = self._config.get("target_group_scopes", [])
+        if isinstance(old_list, str):
+            old_list = [g.strip() for g in old_list.split(",") if g.strip()]
+        new_list = self._config.get("target_scopes", [])
+        if isinstance(new_list, str):
+            new_list = [g.strip() for g in new_list.split(",") if g.strip()]
+        seen = set()
+        merged = []
+        for g in list(old_list) + list(new_list):
+            if g and g not in seen:
+                seen.add(g)
+                merged.append(g)
+        return merged
+
+    @property
+    def target_scopes(self):
+        scopes = self._config.get("target_scopes", [])
+        if isinstance(scopes, str):
+            scopes = [g.strip() for g in scopes.split(",") if g.strip()]
+        return scopes
 
     @property
     def auto_profile_enabled(self):
@@ -148,7 +199,15 @@ class PluginConfig:
 
     @property
     def interject_random_bypass_rate(self):
-        return float(self._config.get("interject_random_bypass_rate", 0.1))
+        """[deprecated] 兼容旧键，请使用 interject_trigger_probability"""
+        return float(self._config.get("interject_random_bypass_rate", 0.5))
+
+    @property
+    def interject_trigger_probability(self):
+        val = self._config.get("interject_trigger_probability")
+        if val is None:
+            val = self._config.get("interject_random_bypass_rate")
+        return float(val if val is not None else 0.5)
 
     @property
     def interject_analyze_count(self):
@@ -324,10 +383,6 @@ class PluginConfig:
         return self._config.get("sticker_target_qq", "")
 
     @property
-    def sticker_tag_cooldown(self):
-        return int(self._config.get("sticker_tag_cooldown", 5))
-
-    @property
     def sticker_daily_limit(self):
         return int(self._config.get("sticker_daily_limit", 50))
 
@@ -338,6 +393,10 @@ class PluginConfig:
     @property
     def sticker_send_cooldown(self):
         return int(self._config.get("sticker_send_cooldown", 30))
+
+    @property
+    def sticker_send_threshold(self):
+        return int(self._config.get("sticker_send_threshold", 50))
 
     @property
     def sticker_freq_threshold(self):

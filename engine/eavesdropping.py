@@ -1,14 +1,58 @@
 import asyncio
 import json
 import math
+import random
 import re
 import time
 from collections import defaultdict, deque
+from dataclasses import dataclass, field
+from typing import Optional
 
 from astrbot.api import logger
 from astrbot.api.all import AstrMessageEvent
 
 from .context_injection import build_identity_context, get_group_history, parse_message_chain
+
+
+@dataclass
+class InterjectFetchResult:
+    """历史消息拉取结果"""
+
+    messages: list[dict]
+    latest_seq: int | None
+    latest_time: float
+    message_count: int
+    bot_id: str
+
+
+@dataclass
+class EligibilityResult:
+    """资格判定结果"""
+
+    allowed: bool
+    reason_code: str
+    reason_text: str
+    new_message_count: int
+
+
+@dataclass
+class InterjectDecision:
+    """LLM 判定结果"""
+
+    should_interject: bool
+    urgency_score: int
+    reason: str
+    suggested_response: str
+    analysis: str = ""
+
+
+@dataclass
+class GateResult:
+    """最终门判定结果"""
+
+    proceed: bool
+    reason_code: str
+    reason_text: str
 
 
 class EavesdroppingEngine:
@@ -1011,7 +1055,7 @@ class EavesdroppingEngine:
             # 随机松绑：即使没有命中关键词，也有概率放行
             import random
 
-            bypass_rate = self.plugin.cfg.interject_random_bypass_rate
+            bypass_rate = self.plugin.cfg.interject_trigger_probability
             if random.random() < bypass_rate:
                 logger.debug(f"[Interject] 群: 随机松绑命中，概率={bypass_rate}")
                 return {
@@ -1045,118 +1089,93 @@ class EavesdroppingEngine:
         message = re.sub(r"\n\s*\n", "\n", message)
         return message.strip()
 
-    async def interject_check_group(self, group_id: str):
-        """检查单个群是否需要插嘴 - 四层漏斗模型
-
-        第一层：基础状态拦截（本地极速判断）
-        第二层：动态冷却+留白检测
-        第三层：本地轻量级前置过滤
-        第四层：LLM深度分析
+    async def _fetch_scope_messages(self, group_id: str, count: int) -> tuple[list[dict], int | None, float, int, str]:
         """
-        layer = 0
+        从 NapCat 拉取群消息，返回 (messages, latest_seq, latest_time, count, bot_id)
+        """
+        platform_insts = self.plugin.context.platform_manager.platform_insts
+        if not platform_insts:
+            return [], None, 0.0, 0, ""
+        platform = platform_insts[0]
+        if not hasattr(platform, "get_client"):
+            return [], None, 0.0, 0, ""
+        bot = platform.get_client()
+        if not bot:
+            return [], None, 0.0, 0, ""
+
+        messages = []
+        latest_seq = None
+        latest_time = 0.0
+        bot_id = ""
+
         try:
-            # ========== 第一层：基础状态拦截 ==========
-            layer = 1
-            platform_insts = self.plugin.context.platform_manager.platform_insts
-            if not platform_insts:
-                logger.debug(f"[Interject] 群 {group_id}: [L1] 无平台实例")
-                return
+            login_info = await bot.call_action("get_login_info")
+            bot_id = str(login_info.get("user_id", ""))
+        except Exception:
+            bot_id = str(getattr(platform, "client_self_id", ""))
 
-            platform = platform_insts[0]
-            if not hasattr(platform, "get_client"):
-                logger.debug(f"[Interject] 群 {group_id}: [L1] 平台无 get_client")
-                return
-
-            bot = platform.get_client()
-            if not bot:
-                logger.debug(f"[Interject] 群 {group_id}: [L1] 无法获取 bot 实例")
-                return
-
-            # 检查白名单
-            whitelist = getattr(self.plugin.cfg, "target_group_scopes", [])
-            if whitelist and group_id not in [str(g) for g in whitelist]:
-                logger.debug(f"[Interject] 群 {group_id}: [L1] 不在白名单，跳过")
-                return
-
-            # 检查群是否被禁言
-            if group_id in self.plugin._shut_until_by_group:
-                if time.time() < self.plugin._shut_until_by_group[group_id]:
-                    remaining = int(self.plugin._shut_until_by_group[group_id] - time.time())
-                    logger.debug(f"[Interject] 群 {group_id}: [L1] 群被禁言，剩余 {remaining} 秒")
-                    return
-                else:
-                    del self.plugin._shut_until_by_group[group_id]
-
-            # 获取消息
-            msg_count = self.plugin.cfg.group_history_count
-            result = await bot.call_action("get_group_msg_history", group_id=int(group_id), count=msg_count)
+        try:
+            result = await bot.call_action("get_group_msg_history", group_id=int(group_id), count=count)
             messages = result.get("messages", [])
-            if not messages:
-                logger.debug(f"[Interject] 群 {group_id}: [L1] 无历史消息")
-                return
+            if messages:
+                latest_seq = messages[0].get("message_seq")
+                latest_time = messages[0].get("time", 0.0)
+        except Exception as e:
+            logger.debug(f"[Interject] 群 {group_id} 拉取消息失败: {e}")
 
-            # 消息列表是倒序的，messages[0]最新，messages[-1]最旧
-            # 但我们需要最新的消息来判断时间
-            latest_msg = messages[0]  # 最新
-            earliest_msg = messages[-1]  # 最旧
-            latest_msg_time = latest_msg.get("time", 0)
-            latest_msg_seq = latest_msg.get("message_seq")
+        return messages, latest_seq, latest_time, len(messages), bot_id
 
-            logger.debug(
-                f"[Interject] 群 {group_id}: [L1] 获取到{len(messages)}条消息，最新时间={latest_msg_time}, seq={latest_msg_seq}"
+    def _evaluate_eligibility(
+        self,
+        group_id: str,
+        messages: list[dict],
+        latest_seq: int | None,
+        latest_time: float,
+        bot_id: str,
+    ) -> EligibilityResult:
+        """
+        本地资格判断，返回 EligibilityResult
+        """
+        # L1: 无消息
+        if not messages:
+            return EligibilityResult(False, "L1_NO_MESSAGES", "无历史消息", 0)
+
+        # L1: 消息列表是倒序的，messages[0] 最新
+        latest_msg = messages[0]
+        latest_sender_id = str(latest_msg.get("sender", {}).get("user_id", ""))
+        if latest_sender_id == bot_id and bot_id:
+            return EligibilityResult(False, "L1_BOT_SELF_MSG", "最新消息是AI自己发的", 0)
+
+        # L2: 冷却检测
+        cooldown_seconds = self.plugin.cfg.interject_cooldown * 60
+        if group_id in self._interject_history:
+            last_time = self._interject_history[group_id].get("last_time", 0)
+            elapsed = time.time() - last_time
+            if elapsed < cooldown_seconds:
+                remaining = cooldown_seconds - elapsed
+                return EligibilityResult(
+                    False,
+                    "L2_COOLDOWN",
+                    f"冷却期内，剩余 {remaining:.0f} 秒",
+                    0,
+                )
+
+        # L2: 留白检测
+        silence_timeout = self.plugin.cfg.interject_silence_timeout
+        time_since_last_msg = time.time() - latest_time
+        if time_since_last_msg < silence_timeout:
+            return EligibilityResult(
+                False,
+                "L2_SILENCE",
+                f"留白未通过，{time_since_last_msg:.0f}s < {silence_timeout}s",
+                0,
             )
 
-            # 获取 bot_id
-            try:
-                login_info = await bot.call_action("get_login_info")
-                bot_id = str(login_info.get("user_id", ""))
-            except Exception:
-                bot_id = str(getattr(platform, "client_self_id", ""))
-
-            # 第一层：检查最新消息是否是 AI 自己发的
-            latest_sender = latest_msg.get("sender", {})
-            latest_sender_id = str(latest_sender.get("user_id", ""))
-            if latest_sender_id == bot_id:
-                logger.debug(f"[Interject] 群 {group_id}: [L1] 最新消息是AI自己发的，跳过")
-                self._update_interject_cursor(group_id, latest_msg_seq)
-                return
-
-            # ========== 第二层：动态冷却+留白检测 ==========
-            layer = 2
-            cooldown_seconds = self.plugin.cfg.interject_cooldown * 60
-            silence_timeout = self.plugin.cfg.interject_silence_timeout
-
-            # 检查是否在冷却期内（严格模式：只要在冷却期就跳过）
-            if group_id in self._interject_history:
-                last_time = self._interject_history[group_id].get("last_time", 0)
-                elapsed = time.time() - last_time
-                if elapsed < cooldown_seconds:
-                    remaining = cooldown_seconds - elapsed
-                    logger.debug(f"[Interject] 群 {group_id}: [L2] 冷却期内，剩余 {remaining:.0f} 秒，跳过")
-                    self._update_interject_cursor(group_id, latest_msg_seq)
-                    return
-                logger.debug(f"[Interject] 群 {group_id}: [L2] 冷却期已过，已过 {elapsed:.0f} 秒")
-
-            # 留白检测：距离上一条消息是否已经过去了足够长的时间
-            current_time = time.time()
-            time_since_last_msg = current_time - latest_msg_time
-            if time_since_last_msg < silence_timeout:
-                logger.debug(
-                    f"[Interject] 群 {group_id}: [L2] 留白检测未通过，距离上一条消息仅 {time_since_last_msg:.0f} 秒 < {silence_timeout} 秒，跳过"
-                )
-                self._update_interject_cursor(group_id, latest_msg_seq)
-                return
-            logger.debug(f"[Interject] 群 {group_id}: [L2] 留白检测通过，距离上一条消息 {time_since_last_msg:.0f} 秒")
-
-            # ========== 计算新增消息数量 ==========
-            layer = 3
-            last_msg_seq = None
-            if group_id in self._interject_history:
-                last_msg_seq = self._interject_history[group_id].get("last_msg_seq")
-
-            total_msgs = len(messages)
-            new_msg_count = total_msgs
-
+        # L3: 新增消息数量
+        total_msgs = len(messages)
+        new_msg_count = total_msgs
+        if latest_seq is not None and group_id in self._interject_history:
+            last_msg_seq = self._interject_history[group_id].get("last_msg_seq")
             if last_msg_seq is not None:
                 for i in range(len(messages)):
                     msg_seq = messages[i].get("message_seq")
@@ -1164,56 +1183,48 @@ class EavesdroppingEngine:
                         new_msg_count = i
                         break
 
-            min_msg_count = self.plugin.cfg.interject_min_msg_count
-            if new_msg_count < min_msg_count:
-                logger.debug(f"[Interject] 群 {group_id}: [L3] 新增消息不足 {new_msg_count} < {min_msg_count}，跳过")
-                self._update_interject_cursor(group_id, latest_msg_seq)
-                return
+        min_msg_count = self.plugin.cfg.interject_min_msg_count
+        if new_msg_count < min_msg_count:
+            return EligibilityResult(
+                False,
+                "L3_MSG_COUNT",
+                f"新增消息不足 {new_msg_count} < {min_msg_count}",
+                new_msg_count,
+            )
 
-            logger.debug(f"[Interject] 群 {group_id}: [L3] 新增消息 {new_msg_count} >= {min_msg_count}，继续")
+        return EligibilityResult(True, "ELIGIBLE", "通过全部资格检查", new_msg_count)
 
-            # ========== 格式化消息 ==========
-            formatted = await asyncio.gather(*[parse_message_chain(msg, self.plugin) for msg in messages])
-            formatted = [f for f in formatted if f]
-            if not formatted:
-                logger.debug(f"[Interject] 群 {group_id}: [L3] 消息格式化为空")
-                self._update_interject_cursor(group_id, latest_msg_seq)
-                return
+    async def _judge_interjection(
+        self,
+        group_id: str,
+        formatted_messages: list[str],
+        new_message_count: int,
+        group_umo: str | None,
+    ) -> InterjectDecision:
+        """
+        LLM 判定是否该插嘴，返回 InterjectDecision
+        """
+        llm_provider = self.plugin.context.get_using_provider(umo=group_umo)
+        if not llm_provider:
+            return InterjectDecision(False, 0, "无 LLM provider", "", "")
 
-            # ========== 第三层：本地轻量级前置过滤 ==========
-            layer = 4
-            if self.plugin.cfg.interject_local_filter_enabled:
-                filter_result = self._local_interject_filter(formatted)
-                if not filter_result["should_continue"]:
-                    logger.debug(f"[Interject] 群 {group_id}: [L3] 本地过滤拦截: {filter_result['reason']}")
-                    self._update_interject_cursor(group_id, latest_msg_seq)
-                    return
-                logger.debug(f"[Interject] 群 {group_id}: [L3] 本地过滤通过: {filter_result['reason']}")
+        analyze_count = self.plugin.cfg.interject_analyze_count
+        threshold = self.plugin.cfg.interject_urgency_threshold
+        bot_id = ""
+        try:
+            platform = self.plugin.context.platform_manager.platform_insts[0]
+            bot = platform.get_client()
+            login_info = await bot.call_action("get_login_info")
+            bot_id = str(login_info.get("user_id", ""))
+        except Exception:
+            pass
 
-            # ========== @检测：可配置是否要求最新消息必须 @ 机器人 ==========
-            if self.plugin.cfg.interject_require_at:
-                if not self._latest_message_mentions_bot(latest_msg, bot_id):
-                    logger.debug(f"[Interject] 群 {group_id}: [L3.5] 最新消息未@机器人，跳过")
-                    self._update_interject_cursor(group_id, latest_msg_seq)
-                    return
-            else:
-                logger.debug(f"[Interject] 群 {group_id}: [L3.5] 已关闭 @ 门槛，继续进行主动插嘴分析")
-
-            # ========== 第四层：LLM深度分析 ==========
-            layer = 5
-            group_umo = self.plugin.get_group_umo(group_id) if hasattr(self.plugin, "get_group_umo") else None
-            llm_provider = self.plugin.context.get_using_provider(umo=group_umo)
-            if not llm_provider:
-                logger.debug(f"[Interject] 群 {group_id}: [L4] 无 LLM provider")
-                return
-
-            analyze_count = self.plugin.cfg.interject_analyze_count
-            prompt = f"""分析以下群聊消息，判断是否应该主动插嘴。
+        prompt = f"""分析以下群聊消息，判断是否应该主动插嘴。
 
 当前机器人ID：{bot_id}
 
 群聊消息：
-{chr(10).join(formatted[:analyze_count])}
+{chr(10).join(formatted_messages[:analyze_count])}
 
 请以JSON格式输出判断结果：
 {{
@@ -1225,69 +1236,198 @@ class EavesdroppingEngine:
 }}
 
 注意：
-1. urgency_score 超过 {self.plugin.cfg.interject_urgency_threshold} 时才应该插嘴
+1. urgency_score 超过 {threshold} 时才应该插嘴
 2. 只有当群里有有趣的讨论、有争议的话题、或者有人提问但没人回答时才应该插嘴"""
 
-            logger.debug(f"[Interject] 群 {group_id}: [L4] 正在请求LLM判断...")
+        logger.debug(f"[Interject] 群 {group_id}: [L4] 正在请求LLM判断...")
+        try:
             res = await llm_provider.text_chat(
                 prompt=prompt,
                 contexts=[],
                 system_prompt=await self._get_interject_prompt(umo=group_umo),
             )
+        except Exception as e:
+            logger.debug(f"[Interject] 群 {group_id}: [L4] LLM 调用失败: {e}")
+            return InterjectDecision(False, 0, f"LLM 调用失败: {e}", "", "")
 
-            if not res.completion_text:
-                logger.debug(f"[Interject] 群 {group_id}: [L4] LLM 无返回")
-                self._update_interject_cursor(group_id, latest_msg_seq)
-                return
+        if not res.completion_text:
+            return InterjectDecision(False, 0, "LLM 无返回", "", "")
 
-            # 解析 JSON
-            match = re.search(r"\{.*\}", res.completion_text, re.DOTALL)
-            if not match:
-                logger.debug(f"[Interject] 群 {group_id}: [L4] LLM 返回无法解析 JSON")
-                self._update_interject_cursor(group_id, latest_msg_seq)
-                return
+        match = re.search(r"\{.*\}", res.completion_text, re.DOTALL)
+        if not match:
+            return InterjectDecision(False, 0, "LLM 返回无法解析 JSON", "", "")
 
-            try:
-                result = json.loads(match.group())
-            except json.JSONDecodeError:
-                logger.debug(f"[Interject] 群 {group_id}: [L4] JSON 解析失败")
-                self._update_interject_cursor(group_id, latest_msg_seq)
-                return
+        try:
+            result = json.loads(match.group())
+        except json.JSONDecodeError:
+            return InterjectDecision(False, 0, "JSON 解析失败", "", "")
 
-            urgency_score = result.get("urgency_score", 0)
-            should_interject = result.get("should_interject", False)
-            reason = result.get("reason", "")
-            suggested_response = result.get("suggested_response", "")
+        urgency_score = result.get("urgency_score", 0)
+        should_interject = result.get("should_interject", False)
+        reason = result.get("reason", "")
+        suggested_response = result.get("suggested_response", "")
+        analysis = result.get("analysis", "")
 
-            threshold = self.plugin.cfg.interject_urgency_threshold
+        logger.info(
+            f"[Interject] 群 {group_id}: [L4] LLM返回: urgency={urgency_score}, should={should_interject}, threshold={threshold}"
+        )
 
+        return InterjectDecision(
+            should_interject=bool(should_interject),
+            urgency_score=urgency_score,
+            reason=reason,
+            suggested_response=suggested_response,
+            analysis=analysis,
+        )
+
+    def _apply_final_gate(
+        self,
+        group_id: str,
+        decision: InterjectDecision,
+        latest_seq: int | None,
+    ) -> GateResult:
+        """
+        最终门判定：dry-run + 概率门，返回 GateResult
+        """
+        threshold = self.plugin.cfg.interject_urgency_threshold
+
+        if decision.urgency_score < threshold or not decision.should_interject:
+            return GateResult(False, "GATE_THRESHOLD", "紧迫度未达标或 LLM 判定不应插嘴")
+
+        if not decision.suggested_response:
+            return GateResult(False, "GATE_NO_RESPONSE", "LLM 未给出建议回复内容")
+
+        if self.plugin.cfg.interject_dry_run:
             logger.info(
-                f"[Interject] 群 {group_id}: [L4] LLM返回: urgency={urgency_score}, should={should_interject}, threshold={threshold}"
+                f"[Interject] 群 {group_id}: [DRY-RUN] 满足插嘴条件，建议发送: {decision.suggested_response[:50]}..."
+            )
+            return GateResult(False, "GATE_DRY_RUN", "影子模式，不实际发送")
+
+        trigger_prob = self.plugin.cfg.interject_trigger_probability
+        if random.random() >= trigger_prob:
+            logger.debug(
+                f"[Interject] 群 {group_id}: [GATE] 触发概率未达标，跳过: roll={random.random():.2f}, threshold={trigger_prob}"
+            )
+            return GateResult(False, "GATE_PROBABILITY", f"概率门未通过 {random.random():.2f} < {trigger_prob}")
+
+        return GateResult(True, "GATE_PASS", "通过所有门，可执行插嘴")
+
+    def _finalize_interject_state(
+        self,
+        group_id: str,
+        latest_seq: int | None,
+        did_interject: bool,
+    ):
+        """
+        只负责游标和冷却状态更新
+        """
+        if did_interject:
+            self._interject_history[group_id] = {
+                "last_time": time.time(),
+                "last_msg_seq": latest_seq,
+            }
+        else:
+            self._update_interject_cursor(group_id, latest_seq)
+
+    async def interject_check_group(self, group_id: str):
+        """检查单个群是否需要插嘴 - 五层漏斗模型（薄编排）
+
+        L1: Scope Discovery - 平台实例、白名单、禁言检查
+        L2: History Fetch   - 从 NapCat 拉取消息
+        L3: Eligibility     - 冷却、留白、消息数量、格式化
+        L4: LLM Judgment    - 本地过滤、@检测、LLM 判定
+        L5: Execution       - 概率门、dry-run、执行、状态更新
+        """
+        try:
+            # === L1: 基础状态 ===
+            if not self.plugin.context.platform_manager.platform_insts:
+                logger.debug(f"[Interject] 群 {group_id}: [L1] 无平台实例")
+                return
+            platform = self.plugin.context.platform_manager.platform_insts[0]
+            if not hasattr(platform, "get_client") or not platform.get_client():
+                logger.debug(f"[Interject] 群 {group_id}: [L1] 平台无 get_client")
+                return
+
+            whitelist = self.plugin.cfg.target_group_scopes
+            if whitelist and group_id not in [str(g) for g in whitelist]:
+                logger.debug(f"[Interject] 群 {group_id}: [L1] 不在白名单，跳过")
+                return
+
+            if group_id in self.plugin._shut_until_by_group:
+                if time.time() < self.plugin._shut_until_by_group[group_id]:
+                    remaining = int(self.plugin._shut_until_by_group[group_id] - time.time())
+                    logger.debug(f"[Interject] 群 {group_id}: [L1] 群被禁言，剩余 {remaining} 秒")
+                    return
+                del self.plugin._shut_until_by_group[group_id]
+
+            # === L2: History Fetch ===
+            msg_count = self.plugin.cfg.group_history_count
+            messages, latest_seq, latest_time, msg_total, bot_id = await self._fetch_scope_messages(group_id, msg_count)
+            if not messages:
+                logger.debug(f"[Interject] 群 {group_id}: [L1] 无历史消息")
+                return
+            logger.debug(
+                f"[Interject] 群 {group_id}: [L1] 获取到{len(messages)}条消息，最新时间={latest_time}, seq={latest_seq}"
             )
 
-            # 只有 urgency_score 超过阈值时才插嘴
-            if urgency_score >= threshold and should_interject:
-                if suggested_response:
-                    # 检查是否是影子模式（dry run）
-                    if self.plugin.cfg.interject_dry_run:
-                        logger.info(
-                            f"[Interject] 群 {group_id}: [DRY-RUN] 满足插嘴条件，建议发送: {suggested_response[:50]}..."
-                        )
-                        self._update_interject_cursor(group_id, latest_msg_seq)
-                        return
+            # === L3: Eligibility Check ===
+            eligibility = self._evaluate_eligibility(group_id, messages, latest_seq, latest_time, bot_id)
+            if not eligibility.allowed:
+                logger.debug(f"[Interject] 群 {group_id}: [{eligibility.reason_code}] {eligibility.reason_text}")
+                self._finalize_interject_state(group_id, latest_seq, did_interject=False)
+                return
 
-                    logger.debug(f"[Interject] 群 {group_id}: [L4] 满足插嘴条件，执行插嘴")
-                    await self._do_interject(group_id, suggested_response, messages)
-                    # 插嘴后更新 cursor 并进入冷却
-                    self._interject_history[group_id] = {"last_time": time.time(), "last_msg_seq": latest_msg_seq}
+            logger.debug(
+                f"[Interject] 群 {group_id}: [L3] 留白检测通过，冷却期已过，新增消息 {eligibility.new_message_count}"
+            )
+
+            # 格式化消息
+            formatted = await asyncio.gather(*[parse_message_chain(msg, self.plugin) for msg in messages])
+            formatted = [f for f in formatted if f]
+            if not formatted:
+                logger.debug(f"[Interject] 群 {group_id}: [L3] 消息格式化为空")
+                self._finalize_interject_state(group_id, latest_seq, did_interject=False)
+                return
+
+            # 本地轻量过滤
+            if self.plugin.cfg.interject_local_filter_enabled:
+                filter_result = self._local_interject_filter(formatted)
+                if not filter_result["should_continue"]:
+                    logger.debug(f"[Interject] 群 {group_id}: [L3] 本地过滤拦截: {filter_result['reason']}")
+                    self._finalize_interject_state(group_id, latest_seq, did_interject=False)
                     return
+                logger.debug(f"[Interject] 群 {group_id}: [L3] 本地过滤通过: {filter_result['reason']}")
 
-            # 不插嘴，只更新 cursor
-            logger.debug(f"[Interject] 群 {group_id}: [L4] 不满足插嘴条件，拒绝插嘴")
-            self._update_interject_cursor(group_id, latest_msg_seq)
+            # @检测
+            if self.plugin.cfg.interject_require_at:
+                if not self._latest_message_mentions_bot(messages[0], bot_id):
+                    logger.debug(f"[Interject] 群 {group_id}: [L3.5] 最新消息未@机器人，跳过")
+                    self._finalize_interject_state(group_id, latest_seq, did_interject=False)
+                    return
+            else:
+                logger.debug(f"[Interject] 群 {group_id}: [L3.5] 已关闭 @ 门槛")
+
+            # === L4: LLM Judgment ===
+            group_umo = self.plugin.get_group_umo(group_id) if hasattr(self.plugin, "get_group_umo") else None
+            decision = await self._judge_interjection(group_id, formatted, eligibility.new_message_count, group_umo)
+            if not decision.should_interject and decision.urgency_score == 0:
+                logger.debug(f"[Interject] 群 {group_id}: [L4] {decision.reason}")
+                self._finalize_interject_state(group_id, latest_seq, did_interject=False)
+                return
+
+            # === L5: Final Gate + Execution ===
+            gate = self._apply_final_gate(group_id, decision, latest_seq)
+            if not gate.proceed:
+                logger.debug(f"[Interject] 群 {group_id}: [{gate.reason_code}] {gate.reason_text}")
+                self._finalize_interject_state(group_id, latest_seq, did_interject=False)
+                return
+
+            logger.debug(f"[Interject] 群 {group_id}: [L5] 通过所有门，执行插嘴")
+            await self._do_interject(group_id, decision.suggested_response, messages)
+            self._finalize_interject_state(group_id, latest_seq, did_interject=True)
 
         except Exception as e:
-            logger.warning(f"[Interject] 群 {group_id} 检查失败 [L{layer}]: {e}", exc_info=True)
+            logger.warning(f"[Interject] 群 {group_id} 检查失败: {e}", exc_info=True)
 
     def _update_interject_cursor(self, group_id: str, latest_msg_seq):
         """更新插嘴游标（每次判定后调用）"""

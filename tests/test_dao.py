@@ -24,16 +24,6 @@ class SelfEvolutionDAOTests(IsolatedAsyncioTestCase):
         await self.dao.close()
         cleanup_workspace_temp_dir(self.temp_dir)
 
-    async def test_get_untagged_stickers_returns_created_at(self):
-        sticker_uuid = await self.dao.add_sticker("100", "200", "ZmFrZS1iYXNlNjQ=")
-
-        rows = await self.dao.get_untagged_stickers(limit=1)
-
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["uuid"], sticker_uuid)
-        self.assertIn("created_at", rows[0])
-        self.assertTrue(rows[0]["created_at"])
-
     async def test_reset_affinity_refreshes_cached_value(self):
         self.assertEqual(await self.dao.get_affinity("42"), 50)
 

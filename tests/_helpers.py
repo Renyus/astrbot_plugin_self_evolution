@@ -182,6 +182,37 @@ def load_module_from_path(module_name: str, module_path: Path):
     return module
 
 
+def load_commands_module(module_name: str):
+    """Load a commands sub-module, ensuring common.py is importable within it."""
+    ROOT = Path(__file__).resolve().parents[1]
+    COMMANDS_DIR = ROOT / "commands"
+
+    _ensure_package("self_evolution_test_dynamic_commands", COMMANDS_DIR)
+
+    common_full = f"self_evolution_test_dynamic_commands.common"
+    if common_full not in sys.modules:
+        common_path = COMMANDS_DIR / "common.py"
+        spec = importlib.util.spec_from_file_location(common_full, common_path)
+        if spec and spec.loader:
+            common_module = importlib.util.module_from_spec(spec)
+            sys.modules[common_full] = common_module
+            spec.loader.exec_module(common_module)
+
+    module_full = f"self_evolution_test_dynamic_commands.{module_name}"
+    if module_full in sys.modules:
+        return sys.modules[module_full]
+
+    module_path = COMMANDS_DIR / f"{module_name}.py"
+    spec = importlib.util.spec_from_file_location(module_full, module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load commands.{module_name} from {module_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_full] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def make_workspace_temp_dir(prefix: str) -> Path:
     TEST_TMP_DIR.mkdir(parents=True, exist_ok=True)
     path = TEST_TMP_DIR / f"{prefix}_{uuid.uuid4().hex}"

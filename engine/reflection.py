@@ -196,6 +196,61 @@ class SessionReflection:
             logger.warning(f"[Reflection] 获取会话反思失败: {e}")
             return None
 
+    async def distill_profile_facts(
+        self,
+        explicit_facts: list[str],
+        user_id: str,
+        group_id: str | None,
+        profile_scope_id: str,
+        nickname: str = "",
+    ) -> int:
+        """
+        将 explicit_facts 蒸馏写入结构化画像或知识库（通过 router 路由）
+
+        Args:
+            explicit_facts: LLM 提取的明确事实列表
+            user_id: 用户ID
+            group_id: 群ID（可能是None表示私聊）
+            profile_scope_id: 画像 scope ID
+            nickname: 用户昵称
+
+        Returns:
+            写入的事实数量
+        """
+        if not explicit_facts:
+            return 0
+
+        memory_router = getattr(self.plugin, "memory_router", None)
+        if not memory_router:
+            logger.warning("[Reflection] MemoryRouter 未初始化，无法写入记忆")
+            return 0
+
+        scope_id = profile_scope_id or (str(group_id) if group_id else f"private_{user_id}")
+
+        written_count = 0
+        for fact in explicit_facts:
+            fact = fact.strip()
+            if not fact:
+                continue
+
+            result = await memory_router.write(
+                content=fact,
+                scope_id=scope_id,
+                user_id=user_id,
+                category="user_profile",
+                fact_type=None,
+                nickname=nickname,
+                source="reflection",
+            )
+            if "已写入" in result or "已更新" in result:
+                written_count += 1
+                logger.debug(f"[Reflection] 记忆路由: {fact[:50]}... → {result}")
+
+        if written_count > 0:
+            logger.debug(f"[Reflection] 已将 {written_count}/{len(explicit_facts)} 条事实写入记忆系统")
+
+        return written_count
+
 
 class DailyBatchProcessor:
     """每日批处理管理器"""
@@ -277,7 +332,9 @@ class DailyBatchProcessor:
             return str(self.plugin._get_bot_id() or "")
         return ""
 
-    async def _fetch_scope_history_page(self, bot, scope_id: str, page_size: int, cursor: int | None = None) -> list[dict]:
+    async def _fetch_scope_history_page(
+        self, bot, scope_id: str, page_size: int, cursor: int | None = None
+    ) -> list[dict]:
         kwargs = {"count": page_size}
         if cursor is not None:
             kwargs["message_seq"] = cursor
@@ -294,7 +351,9 @@ class DailyBatchProcessor:
             return result.get("messages", []) or []
         return []
 
-    async def _fetch_scope_messages(self, scope_id: str, reference_dt: datetime | None = None) -> tuple[list[dict], str]:
+    async def _fetch_scope_messages(
+        self, scope_id: str, reference_dt: datetime | None = None
+    ) -> tuple[list[dict], str]:
         platform_insts = self.plugin.context.platform_manager.platform_insts
         if not platform_insts:
             return [], self._get_daily_window(reference_dt)[2]

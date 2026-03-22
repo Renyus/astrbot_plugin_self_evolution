@@ -180,7 +180,7 @@ class SANSystem:
     async def _get_listened_groups(self):
         """获取需要监听的群列表"""
         # 方式1: 白名单配置
-        whitelist = getattr(self.plugin.cfg, "target_group_scopes", [])
+        whitelist = self.plugin.cfg.target_group_scopes
         if whitelist:
             logger.debug(f"[SAN] 使用白名单群列表: {whitelist}")
             return whitelist

@@ -118,7 +118,7 @@ class MemoryManagerTests(IsolatedAsyncioTestCase):
             )
         )
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(memory_msg_count=20),
+            cfg=SimpleNamespace(memory_msg_count=20, memory_fetch_page_size=20, memory_summary_chunk_size=200),
             context=SimpleNamespace(
                 platform_manager=SimpleNamespace(platform_insts=[SimpleNamespace(get_client=lambda: bot)])
             ),
@@ -156,7 +156,7 @@ class MemoryManagerTests(IsolatedAsyncioTestCase):
         }
         bot = SimpleNamespace(call_action=AsyncMock(side_effect=[page_1, page_2, page_3]))
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(memory_msg_count=20),
+            cfg=SimpleNamespace(memory_msg_count=20, memory_fetch_page_size=20, memory_summary_chunk_size=200),
             context=SimpleNamespace(
                 platform_manager=SimpleNamespace(platform_insts=[SimpleNamespace(get_client=lambda: bot)])
             ),
@@ -221,11 +221,135 @@ class MemoryManagerTests(IsolatedAsyncioTestCase):
         )
         manager = MemoryManager(plugin)
 
-        await manager._save_to_knowledge_base("6001", "summary", summary_date="2026-03-18")
+        await manager._save_to_knowledge_base(
+            "6001",
+            {"overview": "summary", "key_facts": [], "key_entities": [], "tags": []},
+            summary_date="2026-03-18",
+        )
 
         scope_kb.upload_document.assert_awaited_once()
         scope_kb.delete_document.assert_not_awaited()
         base_kb.upload_document.assert_not_awaited()
+
+    async def test_save_to_knowledge_base_stores_structured_chunks(self):
+        scope_kb = SimpleNamespace(
+            kb=SimpleNamespace(
+                kb_id="scope-kb-id",
+                kb_name="self_evolution_memory__scope__g_6001",
+            ),
+            list_documents=AsyncMock(return_value=[]),
+            upload_document=AsyncMock(),
+        )
+
+        async def get_kb_by_name(name):
+            if name == "self_evolution_memory__scope__g_6001":
+                return scope_kb
+            return None
+
+        plugin = SimpleNamespace(
+            cfg=SimpleNamespace(memory_kb_name="self_evolution_memory"),
+            context=SimpleNamespace(kb_manager=SimpleNamespace(get_kb_by_name=AsyncMock(side_effect=get_kb_by_name))),
+        )
+        manager = MemoryManager(plugin)
+
+        memory_struct = {
+            "overview": "今日主要讨论了游戏",
+            "key_facts": ["群里决定周日联机", "小明要加入公会"],
+            "key_entities": ["小明", "会长"],
+            "tags": ["游戏", "联机"],
+        }
+        await manager._save_to_knowledge_base("6001", memory_struct, summary_date="2026-03-21")
+
+        scope_kb.upload_document.assert_awaited_once()
+        upload_kwargs = scope_kb.upload_document.await_args.kwargs
+        chunks = upload_kwargs["pre_chunked_text"]
+
+        self.assertTrue(len(chunks) >= 3)
+        first_chunk = chunks[0]
+        self.assertIn("session_memory", first_chunk)
+        self.assertIn("2026-03-21", first_chunk)
+        self.assertTrue(any("关键事实" in c for c in chunks))
+        self.assertTrue(any("小明" in c for c in chunks))
+
+    async def test_llm_summarize_returns_structured_dict(self):
+        plugin = SimpleNamespace(
+            context=SimpleNamespace(
+                get_using_provider=MagicMock(
+                    return_value=SimpleNamespace(
+                        text_chat=AsyncMock(
+                            return_value=SimpleNamespace(
+                                completion_text='{"overview":"今日讨论了游戏","key_facts":["决定周日联机"],"key_entities":["小明"],"tags":["游戏"]}'
+                            )
+                        )
+                    )
+                )
+            ),
+            cfg=SimpleNamespace(memory_msg_count=100, memory_fetch_page_size=100, memory_summary_chunk_size=200),
+        )
+        manager = MemoryManager(plugin)
+        manager._split_messages_for_summary = MagicMock(return_value=[["msg1", "msg2"]])
+
+        result = await manager._llm_summarize(["msg1", "msg2"], summary_date="2026-03-21")
+
+        self.assertIsInstance(result, dict)
+        self.assertIn("overview", result)
+        self.assertIn("key_facts", result)
+        self.assertIn("key_entities", result)
+        self.assertIn("tags", result)
+        self.assertEqual(result["overview"], "今日讨论了游戏")
+
+    async def test_smart_retrieve_returns_limited_results(self):
+        scope_kb = SimpleNamespace(
+            kb=SimpleNamespace(kb_id="scope-kb-id", kb_name="scope__g_6001"),
+            retrieve=AsyncMock(
+                return_value={
+                    "results": [
+                        {"text": "记忆1"},
+                        {"text": "记忆2"},
+                        {"text": "记忆3"},
+                        {"text": "记忆4"},
+                    ]
+                }
+            ),
+        )
+
+        async def get_kb_by_name(name):
+            if name == "self_evolution_memory__scope__g_6001":
+                return scope_kb
+            return None
+
+        plugin = SimpleNamespace(
+            cfg=SimpleNamespace(memory_kb_name="self_evolution_memory"),
+            context=SimpleNamespace(kb_manager=SimpleNamespace(get_kb_by_name=AsyncMock(side_effect=get_kb_by_name))),
+        )
+        manager = MemoryManager(plugin)
+
+        result = await manager.smart_retrieve("6001", "游戏", max_results=3)
+
+        self.assertIn("相关记忆", result)
+        lines = [l for l in result.split("\n") if l.startswith("- ")]
+        self.assertEqual(len(lines), 3)
+
+    async def test_smart_retrieve_empty_when_no_results(self):
+        scope_kb = SimpleNamespace(
+            kb=SimpleNamespace(kb_id="scope-kb-id", kb_name="scope__g_6001"),
+            retrieve=AsyncMock(return_value={"results": []}),
+        )
+
+        async def get_kb_by_name(name):
+            if name == "self_evolution_memory__scope__g_6001":
+                return scope_kb
+            return None
+
+        plugin = SimpleNamespace(
+            cfg=SimpleNamespace(memory_kb_name="self_evolution_memory"),
+            context=SimpleNamespace(kb_manager=SimpleNamespace(get_kb_by_name=AsyncMock(side_effect=get_kb_by_name))),
+        )
+        manager = MemoryManager(plugin)
+
+        result = await manager.smart_retrieve("6001", "游戏", max_results=3)
+
+        self.assertEqual(result, "")
 
     async def test_save_to_knowledge_base_replaces_existing_summary_for_same_day(self):
         scope_kb = SimpleNamespace(
@@ -235,8 +359,8 @@ class MemoryManagerTests(IsolatedAsyncioTestCase):
             ),
             list_documents=AsyncMock(
                 return_value=[
-                    SimpleNamespace(doc_id="stale-same-day", doc_name="summary_6001_2026-03-18_1.txt"),
-                    SimpleNamespace(doc_id="older-day", doc_name="summary_6001_2026-03-17_1.txt"),
+                    SimpleNamespace(doc_id="stale-same-day", doc_name="memory_6001_2026-03-18_1.txt"),
+                    SimpleNamespace(doc_id="older-day", doc_name="memory_6001_2026-03-17_1.txt"),
                 ]
             ),
             delete_document=AsyncMock(),
@@ -250,12 +374,16 @@ class MemoryManagerTests(IsolatedAsyncioTestCase):
         manager = MemoryManager(plugin)
         manager._ensure_scope_kb = AsyncMock(return_value=scope_kb)
 
-        await manager._save_to_knowledge_base("6001", "summary", summary_date="2026-03-18")
+        await manager._save_to_knowledge_base(
+            "6001",
+            {"overview": "summary", "key_facts": [], "key_entities": [], "tags": []},
+            summary_date="2026-03-18",
+        )
 
         scope_kb.delete_document.assert_awaited_once_with("stale-same-day")
         upload_kwargs = scope_kb.upload_document.await_args.kwargs
-        self.assertTrue(upload_kwargs["file_name"].startswith("summary_6001_2026-03-18_"))
-        self.assertIn("时间: 2026-03-18", upload_kwargs["pre_chunked_text"][0])
+        self.assertTrue(upload_kwargs["file_name"].startswith("memory_6001_2026-03-18_"))
+        self.assertIn("session_memory", upload_kwargs["pre_chunked_text"][0])
 
     async def test_sync_scope_kb_binding_replaces_base_kb_with_scope_kb(self):
         sp = self._install_shared_preferences_stub()

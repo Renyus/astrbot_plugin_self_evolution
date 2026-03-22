@@ -9,7 +9,6 @@ from .tasks import (
     scheduled_profile_cleanup,
     scheduled_reflection,
     scheduled_san_analyze,
-    scheduled_sticker_tag,
 )
 
 __all__ = [
@@ -19,5 +18,4 @@ __all__ = [
     "scheduled_profile_cleanup",
     "scheduled_reflection",
     "scheduled_san_analyze",
-    "scheduled_sticker_tag",
 ]

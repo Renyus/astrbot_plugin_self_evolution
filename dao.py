@@ -80,62 +80,47 @@ class SelfEvolutionDAO:
             logger.error(f"[SelfEvolution] DAO: 初始化 aiosqlite 数据库失败: {e}")
 
     async def _init_schema(self, db):
-        """内部集中化执行数据库 DDL 初始构建"""
         await db.execute("""
-            CREATE TABLE IF NOT EXISTS pending_evolutions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                persona_id TEXT NOT NULL,
-                new_prompt TEXT NOT NULL,
-                reason TEXT NOT NULL,
-                status TEXT NOT NULL
+            CREATE TABLE IF NOT EXISTS groups (
+                group_id TEXT PRIMARY KEY,
+                group_name TEXT NOT NULL DEFAULT '',
+                interest_score REAL NOT NULL DEFAULT 0.0,
+                last_interaction TEXT NOT NULL,
+                created_at TEXT NOT NULL
             )
         """)
-        # 表情包表
         await db.execute("""
-            CREATE TABLE IF NOT EXISTS stickers (
+            CREATE TABLE IF NOT EXISTS user_profiles (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                uuid TEXT UNIQUE NOT NULL,
-                hash TEXT UNIQUE NOT NULL,
+                scope_id TEXT UNIQUE NOT NULL,
+                scope_type TEXT NOT NULL,
                 group_id TEXT NOT NULL,
                 user_id TEXT NOT NULL,
-                base64_data TEXT NOT NULL,
-                tags TEXT DEFAULT '',
-                description TEXT DEFAULT '',
+                profile_data TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL,
-                UNIQUE(group_id, user_id, base64_data)
+                updated_at TEXT NOT NULL
             )
         """)
-        # 会话反思表（单会话内省）
         await db.execute("""
-            CREATE TABLE IF NOT EXISTS session_reflections (
-                session_id TEXT PRIMARY KEY,
-                note TEXT,
-                facts TEXT,
-                bias TEXT,
-                created_at TEXT NOT NULL,
-                consumed INTEGER NOT NULL DEFAULT 0
+            CREATE TABLE IF NOT EXISTS conversations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                token_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
             )
         """)
-        # 会话日报表（沿用 group_daily_reports 表名以兼容旧数据）
         await db.execute("""
-            CREATE TABLE IF NOT EXISTS group_daily_reports (
+            CREATE TABLE IF NOT EXISTS group_reports (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 group_id TEXT NOT NULL,
-                summary TEXT NOT NULL,
+                report_date TEXT NOT NULL,
+                report_content TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                UNIQUE(group_id, created_at)
+                UNIQUE(group_id, report_date)
             )
         """)
-        # 已知会话范围表（用于后台任务在重启后恢复群聊/私聊目标）
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS known_scopes (
-                scope_id TEXT PRIMARY KEY,
-                scope_type TEXT NOT NULL,
-                last_seen_at TEXT NOT NULL
-            )
-        """)
-        # 好感度关系表
         await db.execute("""
             CREATE TABLE IF NOT EXISTS user_relationships (
                 user_id TEXT PRIMARY KEY,
@@ -143,41 +128,24 @@ class SelfEvolutionDAO:
                 last_interaction TEXT NOT NULL
             )
         """)
-        # 迁移旧表：添加 uuid 列（如果不存在）
-        try:
-            await db.execute("ALTER TABLE stickers ADD COLUMN uuid TEXT")
-        except:
-            pass  # 列已存在忽略错误
-
-        # 迁移旧表：添加 hash 列（如果不存在）
-        try:
-            await db.execute("ALTER TABLE stickers ADD COLUMN hash TEXT")
-        except:
-            pass  # 列已存在忽略错误
-
-        # 迁移旧表：添加 description 列（如果不存在）
-        try:
-            await db.execute("ALTER TABLE stickers ADD COLUMN description TEXT")
-        except:
-            pass  # 列已存在忽略错误
-
-        # 迁移旧数据：给已有记录生成 uuid 和 hash（基于 base64_data 计算）
-        cursor = await db.execute("SELECT id, uuid, base64_data FROM stickers WHERE uuid IS NULL OR hash IS NULL")
-        rows = await cursor.fetchall()
-        for row in rows:
-            row_id = row["id"]
-            base64_data = row["base64_data"]
-            if base64_data:
-                new_hash = hashlib.md5(base64_data.encode()).hexdigest()
-            else:
-                new_hash = uuid.uuid4().hex
-            new_uuid = row["uuid"] if row["uuid"] else uuid.uuid4().hex
-            await db.execute(
-                "UPDATE stickers SET uuid = ?, hash = ? WHERE id = ?",
-                (new_uuid, new_hash, row_id),
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS known_scopes (
+                scope_id TEXT PRIMARY KEY,
+                scope_type TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL
             )
-        if rows:
-            await db.commit()
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS stickers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                uuid TEXT UNIQUE NOT NULL,
+                hash TEXT UNIQUE NOT NULL,
+                group_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                url TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
 
     async def get_conn(self):
         """带有存活检测的全局连接获取器，兼顾长连接性能与雪崩恢复，防阻塞分离读写锁"""
@@ -514,10 +482,8 @@ class SelfEvolutionDAO:
         self,
         group_id: str,
         user_id: str,
-        base64_data: str,
-        tags: str = "",
+        url: str,
         sticker_hash: str = None,
-        description: str = "",
     ) -> str | None:
         """添加表情包到数据库，返回uuid或None"""
         db = await self.get_conn()
@@ -525,17 +491,15 @@ class SelfEvolutionDAO:
             try:
                 sticker_uuid = uuid.uuid4().hex
                 if sticker_hash is None:
-                    sticker_hash = hashlib.md5(base64_data.encode()).hexdigest()
+                    sticker_hash = hashlib.md5(url.encode()).hexdigest()
                 await db.execute(
-                    "INSERT INTO stickers (uuid, hash, group_id, user_id, base64_data, tags, description, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+                    "INSERT INTO stickers (uuid, hash, group_id, user_id, url, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
                     (
                         sticker_uuid,
                         sticker_hash,
                         group_id,
                         user_id,
-                        base64_data,
-                        tags,
-                        description,
+                        url,
                     ),
                 )
                 await db.commit()
@@ -562,77 +526,12 @@ class SelfEvolutionDAO:
             return row["cnt"] if row else 0
 
     @with_db_retry()
-    async def get_untagged_stickers(self, limit: int = 1) -> list:
-        """获取未打标签的表情包"""
-        db = await self.get_conn()
-        async with self._db_lock:
-            cursor = await db.execute(
-                "SELECT id, uuid, group_id, user_id, base64_data, created_at "
-                "FROM stickers WHERE tags = '' OR tags IS NULL ORDER BY id ASC LIMIT ?",
-                (limit,),
-            )
-            rows = await cursor.fetchall()
-            return [
-                {
-                    "id": row["id"],
-                    "uuid": row["uuid"],
-                    "group_id": row["group_id"],
-                    "user_id": row["user_id"],
-                    "base64_data": row["base64_data"],
-                    "created_at": row["created_at"],
-                }
-                for row in rows
-            ]
-
-    @with_db_retry()
-    async def update_sticker_tags_by_uuid(self, sticker_uuid: str, tags: str, description: str = "") -> bool:
-        """根据UUID更新表情包标签和描述"""
-        db = await self.get_conn()
-        async with self._write_lock:
-            cursor = await db.execute(
-                "UPDATE stickers SET tags = ?, description = ? WHERE uuid = ?",
-                (tags, description, sticker_uuid),
-            )
-            await db.commit()
-            return cursor.rowcount > 0
-
-    @with_db_retry()
-    async def get_stickers_by_tags(self, tags: str = None, limit: int = 10, offset: int = 0) -> list:
-        """根据标签搜索表情包（全局）"""
-        db = await self.get_conn()
-        async with self._db_lock:
-            if tags:
-                cursor = await db.execute(
-                    "SELECT id, uuid, group_id, user_id, base64_data, tags, description, created_at FROM stickers WHERE tags LIKE ? ORDER BY id DESC LIMIT ? OFFSET ?",
-                    (f"%{tags}%", limit, offset),
-                )
-            else:
-                cursor = await db.execute(
-                    "SELECT id, uuid, group_id, user_id, base64_data, tags, description, created_at FROM stickers ORDER BY id DESC LIMIT ? OFFSET ?",
-                    (limit, offset),
-                )
-            rows = await cursor.fetchall()
-            return [
-                {
-                    "id": row["id"],
-                    "uuid": row["uuid"],
-                    "group_id": row["group_id"],
-                    "user_id": row["user_id"],
-                    "base64_data": row["base64_data"],
-                    "tags": row["tags"],
-                    "description": row["description"] or "",
-                    "created_at": row["created_at"],
-                }
-                for row in rows
-            ]
-
-    @with_db_retry()
     async def get_random_sticker(self) -> dict | None:
         """随机获取一张表情包（全局）"""
         db = await self.get_conn()
         async with self._db_lock:
             cursor = await db.execute(
-                "SELECT id, group_id, user_id, base64_data, tags, description, created_at FROM stickers WHERE tags != '' ORDER BY RANDOM() LIMIT 1"
+                "SELECT id, group_id, user_id, url, created_at FROM stickers ORDER BY RANDOM() LIMIT 1"
             )
             row = await cursor.fetchone()
             if row:
@@ -640,9 +539,7 @@ class SelfEvolutionDAO:
                     "id": row["id"],
                     "group_id": row["group_id"],
                     "user_id": row["user_id"],
-                    "base64_data": row["base64_data"],
-                    "tags": row["tags"],
-                    "description": row["description"] or "",
+                    "url": row["url"],
                     "created_at": row["created_at"],
                 }
             return None
@@ -685,28 +582,26 @@ class SelfEvolutionDAO:
             }
 
     @with_db_retry()
-    async def get_sticker_by_hash(self, sticker_hash: str) -> dict | None:
-        """根据hash获取表情包信息"""
+    async def get_stickers(self, limit: int = 10) -> list:
+        """获取表情包列表（全局）"""
         db = await self.get_conn()
         async with self._db_lock:
             cursor = await db.execute(
-                "SELECT id, uuid, hash, group_id, user_id, base64_data, tags, description, created_at FROM stickers WHERE hash = ?",
-                (sticker_hash,),
+                "SELECT id, uuid, group_id, user_id, url, created_at FROM stickers ORDER BY id DESC LIMIT ?",
+                (limit,),
             )
-            row = await cursor.fetchone()
-            if row:
-                return {
+            rows = await cursor.fetchall()
+            return [
+                {
                     "id": row["id"],
                     "uuid": row["uuid"],
-                    "hash": row["hash"],
                     "group_id": row["group_id"],
                     "user_id": row["user_id"],
-                    "base64_data": row["base64_data"],
-                    "tags": row["tags"],
-                    "description": row["description"] or "",
+                    "url": row["url"],
                     "created_at": row["created_at"],
                 }
-            return None
+                for row in rows
+            ]
 
     @with_db_retry()
     async def get_sticker_by_uuid(self, sticker_uuid: str) -> dict | None:
@@ -714,7 +609,7 @@ class SelfEvolutionDAO:
         db = await self.get_conn()
         async with self._db_lock:
             cursor = await db.execute(
-                "SELECT id, uuid, hash, group_id, user_id, base64_data, tags, description, created_at FROM stickers WHERE uuid = ?",
+                "SELECT id, uuid, hash, group_id, user_id, url, created_at FROM stickers WHERE uuid = ?",
                 (sticker_uuid,),
             )
             row = await cursor.fetchone()
@@ -725,9 +620,7 @@ class SelfEvolutionDAO:
                     "hash": row["hash"],
                     "group_id": row["group_id"],
                     "user_id": row["user_id"],
-                    "base64_data": row["base64_data"],
-                    "tags": row["tags"],
-                    "description": row["description"] or "",
+                    "url": row["url"],
                     "created_at": row["created_at"],
                 }
             return None

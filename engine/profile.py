@@ -3,12 +3,28 @@ import logging
 import random
 import time
 from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 import yaml
 
 from .context_injection import parse_message_chain
+
+
+@dataclass
+class StructuredProfile:
+    """结构化画像数据容器 - parse -> mutate -> serialize"""
+
+    identity: list[str] = field(default_factory=list)
+    preferences: list[str] = field(default_factory=list)
+    traits: list[str] = field(default_factory=list)
+    recent_updates: list[dict] = field(default_factory=list)
+    long_term_notes: list[str] = field(default_factory=list)
+
+    def is_empty(self) -> bool:
+        return not (self.identity or self.preferences or self.traits or self.recent_updates or self.long_term_notes)
+
 
 logger = logging.getLogger("astrbot")
 PRIVATE_SCOPE_PREFIX = "private_"
@@ -290,6 +306,97 @@ class ProfileManager:
         )
         return result
 
+    async def get_structured_summary(
+        self,
+        group_id: str,
+        user_id: str,
+        max_items: int = 10,
+    ) -> str:
+        """
+        获取结构化画像摘要（注入用，控制在 5-10 条高价值信息）
+
+        格式：
+        [identity]
+        - ...
+        [preferences]
+        - ...
+        [traits]
+        - ...
+        [recent_updates]
+        - ...
+        """
+        profile_key = f"{group_id}_{user_id}"
+        content = await self.load_profile(group_id, user_id)
+        if not content:
+            return ""
+
+        data = self._parse_structured_content(content)
+        identity = data.get("identity", [])
+        preferences = data.get("preferences", [])
+        traits = data.get("traits", [])
+        recent_updates = data.get("recent_updates", [])
+        long_term_notes = data.get("long_term_notes", [])
+
+        if self.dropout_enabled:
+            identity = [x for x in identity if self._is_core_info(x)] if identity else identity
+
+        total_items = len(identity) + len(preferences) + len(traits) + len(recent_updates) + len(long_term_notes)
+        if total_items <= max_items:
+            result_parts = []
+            if identity:
+                result_parts.append("[identity]")
+                result_parts.extend(f"- {x}" for x in identity)
+            if preferences:
+                result_parts.append("[preferences]")
+                result_parts.extend(f"- {x}" for x in preferences)
+            if traits:
+                result_parts.append("[traits]")
+                result_parts.extend(f"- {x}" for x in traits)
+            if recent_updates:
+                result_parts.append("[recent_updates]")
+                for u in recent_updates[-3:]:
+                    result_parts.append(f"- [{u.get('timestamp', '')}] {u.get('content', '')}")
+            if long_term_notes:
+                result_parts.append("[long_term_notes]")
+                result_parts.extend(f"- {x}" for x in long_term_notes[-3:])
+            return "\n".join(result_parts)
+
+        result_parts = []
+        slots_per_section = max(1, max_items // 5)
+
+        if identity:
+            result_parts.append("[identity]")
+            result_parts.extend(f"- {x}" for x in identity[:slots_per_section])
+
+        identity_taken = len(identity[:slots_per_section]) if identity else 0
+        remaining = max_items - identity_taken
+
+        if preferences and remaining > 0:
+            take = min(len(preferences), max(1, remaining // 3))
+            result_parts.append("[preferences]")
+            result_parts.extend(f"- {x}" for x in preferences[:take])
+            remaining -= take
+
+        if traits and remaining > 0:
+            take = min(len(traits), max(1, remaining // 3))
+            result_parts.append("[traits]")
+            result_parts.extend(f"- {x}" for x in traits[:take])
+            remaining -= take
+
+        if recent_updates and remaining > 0:
+            result_parts.append("[recent_updates]")
+            to_take = min(remaining, len(recent_updates))
+            for u in recent_updates[-to_take:]:
+                result_parts.append(f"- [{u.get('timestamp', '')}] {u.get('content', '')}")
+            remaining -= to_take
+
+        if long_term_notes and remaining > 0:
+            result_parts.append("[long_term_notes]")
+            result_parts.extend(f"- {x}" for x in long_term_notes[-remaining:])
+
+        logger.debug(f"[Profile] 结构化摘要: {user_id}, items={len(result_parts) // 2 if result_parts else 0}")
+        return "\n".join(result_parts)
+
     async def save_profile(self, group_id: str, user_id: str, content: str, nickname: str = ""):
         """保存用户画像（YAML 格式，统一写入稳定文件名）"""
         profile_key = f"{group_id}_{user_id}"
@@ -322,7 +429,9 @@ class ProfileManager:
         existing_metadata: dict | None = None,
     ):
         """以结构化 YAML 文档格式保存画像。"""
-        document = self._build_profile_document(group_id, user_id, content, nickname, existing_metadata=existing_metadata)
+        document = self._build_profile_document(
+            group_id, user_id, content, nickname, existing_metadata=existing_metadata
+        )
         await self.save_profile(group_id, user_id, self._serialize_profile_document(document), nickname=nickname)
 
     async def append_profile_content(self, group_id: str, user_id: str, addition: str, nickname: str = ""):
@@ -358,6 +467,438 @@ class ProfileManager:
             nickname=nickname or str(existing_metadata.get("nickname") or ""),
             existing_metadata=existing_metadata,
         )
+
+    async def upsert_fact(
+        self,
+        scope_id: str,
+        user_id: str,
+        fact_type: str,
+        content: str,
+        source: str = "manual",
+        replace_similar: bool = True,
+        nickname: str = "",
+    ) -> bool:
+        """
+        统一写入接口 - 分类写入 + 去重/覆盖策略
+
+        Args:
+            scope_id: 会话范围ID（群号或 private_xxx）
+            user_id: 用户ID
+            fact_type: 事实类型 - "identity" | "preference" | "trait" | "recent_update" | "long_term_note"
+            content: 事实内容
+            source: 来源 - "manual" | "reflection" | "auto"
+            replace_similar: 是否覆盖相似条目（默认 True）
+            nickname: 用户昵称
+
+        Returns:
+            是否写入成功
+        """
+        import re
+
+        content = str(content or "").strip()
+        if not content:
+            return False
+
+        profile_key = f"{scope_id}_{user_id}"
+
+        existing_metadata = {}
+        existing_data = {}
+        profile_candidates = self._get_profile_candidates(scope_id, user_id)
+        if profile_candidates:
+            try:
+                existing_metadata, existing_content = self._load_profile_document(profile_candidates[0])
+                existing_data = self._parse_structured_content(existing_content)
+            except Exception as e:
+                logger.warning(f"[Profile] 读取画像文档失败 {profile_key}: {e}")
+
+        identity = existing_data.get("identity", [])
+        preferences = existing_data.get("preferences", [])
+        traits = existing_data.get("traits", [])
+        recent_updates = existing_data.get("recent_updates", [])
+        long_term_notes = existing_data.get("long_term_notes", [])
+
+        if not isinstance(identity, list):
+            identity = []
+        if not isinstance(preferences, list):
+            preferences = []
+        if not isinstance(traits, list):
+            traits = []
+        if not isinstance(recent_updates, list):
+            recent_updates = []
+        if not isinstance(long_term_notes, list):
+            long_term_notes = []
+
+        timestamp = datetime.now().strftime("%Y-%m-%d")
+
+        if fact_type == "identity":
+            modified = self._upsert_identity(identity, content, replace_similar)
+        elif fact_type == "preference":
+            modified = self._upsert_preference(preferences, content, replace_similar)
+        elif fact_type == "trait":
+            modified = self._upsert_trait(traits, content, replace_similar)
+        elif fact_type == "recent_update":
+            modified = self._upsert_recent_update(recent_updates, content, timestamp, replace_similar, long_term_notes)
+        elif fact_type == "long_term_note":
+            modified = self._upsert_long_term_note(long_term_notes, content, replace_similar)
+        else:
+            logger.warning(f"[Profile] 未知 fact_type: {fact_type}")
+            return False
+
+        if not modified:
+            return False
+
+        new_content = self._build_content_lines(identity, preferences, traits, recent_updates, long_term_notes)
+        await self.save_profile_document(
+            scope_id,
+            user_id,
+            new_content,
+            nickname=nickname or str(existing_metadata.get("nickname", "")),
+            existing_metadata=existing_metadata,
+        )
+
+        logger.debug(f"[Profile] upsert_fact 成功: type={fact_type}, content={content[:50]}...")
+        return True
+
+    def _normalize_for_dedup(self, text: str) -> str:
+        """标准化文本用于去重比较"""
+        import re
+
+        return re.sub(r"[^\w\u4e00-\u9fff]", "", text).lower()
+
+    def _find_similar(self, text: str, target_list: list[str], threshold: float = 0.7) -> int | None:
+        """查找相似条目，返回索引或 None"""
+        import re
+
+        norm_text = self._normalize_for_dedup(text)
+        if not norm_text:
+            return None
+
+        for i, existing in enumerate(target_list):
+            norm_existing = self._normalize_for_dedup(existing)
+            if not norm_existing:
+                continue
+            if norm_text == norm_existing:
+                return i
+            if len(norm_text) > 2 and len(norm_existing) > 2:
+                if norm_text in norm_existing or norm_existing in norm_text:
+                    return i
+        return None
+
+    def _upsert_identity(self, identity: list[str], content: str, replace_similar: bool) -> bool:
+        """identity 类：覆盖同类旧值（提取主体后覆盖）"""
+        import re
+
+        idx = self._find_similar(content, identity)
+        if idx is not None:
+            if replace_similar:
+                identity[idx] = content
+                logger.debug(f"[Profile] identity 覆盖: {content[:50]}")
+                return True
+            return False
+
+        identity.append(content)
+        return True
+
+    def _upsert_preference(self, preferences: list[str], content: str, replace_similar: bool) -> bool:
+        """preference 类：允许覆盖冲突项"""
+        import re
+
+        negations = ["不", "没", "讨厌", "恨", "反对", "拒绝", "放弃", "不再", "以前"]
+        is_negative = any(content.startswith(neg) or neg in content[:6] for neg in negations)
+
+        for i, pref in enumerate(preferences):
+            pref_is_negative = any(pref.startswith(neg) or neg in pref[:6] for neg in negations)
+
+            if is_negative == pref_is_negative:
+                norm_pref = self._normalize_for_dedup(pref)
+                norm_content = self._normalize_for_dedup(content)
+                if norm_pref == norm_content or norm_pref in norm_content or norm_content in norm_pref:
+                    if replace_similar:
+                        preferences[i] = content
+                        logger.debug(f"[Profile] preference 覆盖（同类）: {content[:50]}")
+                        return True
+                    return False
+
+            if is_negative and not pref_is_negative:
+                norm_pref = self._normalize_for_dedup(pref)
+                norm_content = self._normalize_for_dedup(content)
+                common = set(norm_pref) & set(norm_content)
+                if len(common) >= max(2, min(len(norm_pref), len(norm_content)) * 0.5):
+                    if replace_similar:
+                        preferences[i] = content
+                        logger.debug(f"[Profile] preference 覆盖冲突: {pref} -> {content}")
+                        return True
+                    return False
+
+        preferences.append(content)
+        return True
+
+    def _upsert_trait(self, traits: list[str], content: str, replace_similar: bool) -> bool:
+        """trait 类：保守追加，去重"""
+        idx = self._find_similar(content, traits)
+        if idx is not None:
+            if replace_similar:
+                traits[idx] = content
+                logger.debug(f"[Profile] trait 覆盖: {content[:50]}")
+                return True
+            return False
+
+        traits.append(content)
+        return True
+
+    def _upsert_recent_update(
+        self,
+        recent_updates: list[dict],
+        content: str,
+        timestamp: str,
+        replace_similar: bool,
+        long_term_notes: list[str],
+        max_items: int = 10,
+    ) -> bool:
+        """
+        recent_update 类：优先保留最近 N 条，溢出归档到 long_term_notes。
+        高价值关键词内容直接晋升 long_term_notes，不经 recent_updates。
+        """
+        if self._should_promote_to_long_term_note(content):
+            logger.debug(f"[Profile] 高价值关键词检测，直接晋升 long_term_note: {content[:30]}...")
+            return self._upsert_long_term_note(long_term_notes, content, replace_similar)
+
+        for i, update in enumerate(recent_updates):
+            norm_existing = self._normalize_for_dedup(update.get("content", ""))
+            norm_new = self._normalize_for_dedup(content)
+            if (
+                norm_existing
+                and norm_new
+                and (norm_existing == norm_new or norm_existing in norm_new or norm_new in norm_existing)
+            ):
+                if replace_similar:
+                    recent_updates[i] = {"timestamp": timestamp, "content": content}
+                    logger.debug(f"[Profile] recent_update 覆盖: {content[:50]}")
+                    return True
+                return False
+
+        recent_updates.append({"timestamp": timestamp, "content": content})
+
+        if len(recent_updates) > max_items:
+            oldest = recent_updates.pop(0)
+            long_term_notes.append(oldest["content"])
+            logger.debug(f"[Profile] recent_updates 溢出归档: {oldest['content'][:30]}...")
+
+        return True
+
+    def _upsert_long_term_note(self, long_term_notes: list[str], content: str, replace_similar: bool) -> bool:
+        """long_term_note 类：只保留高价值不冲突的结论"""
+        idx = self._find_similar(content, long_term_notes)
+        if idx is not None:
+            if replace_similar:
+                long_term_notes[idx] = content
+                logger.debug(f"[Profile] long_term_note 覆盖: {content[:50]}")
+                return True
+            return False
+
+        long_term_notes.append(content)
+        return True
+
+    def _build_content_lines(
+        self,
+        identity: list[str],
+        preferences: list[str],
+        traits: list[str],
+        recent_updates: list[dict],
+        long_term_notes: list[str],
+    ) -> str:
+        """构建内容行"""
+        lines = []
+        if identity:
+            lines.append("## identity")
+            for item in identity:
+                lines.append(f"- {item}")
+        if preferences:
+            lines.append("## preferences")
+            for item in preferences:
+                lines.append(f"- {item}")
+        if traits:
+            lines.append("## traits")
+            for item in traits:
+                lines.append(f"- {item}")
+        if recent_updates:
+            lines.append("## recent_updates")
+            for update in recent_updates:
+                ts = update.get("timestamp", "")
+                lines.append(f"- [{ts}] {update.get('content', '')}")
+        if long_term_notes:
+            lines.append("## long_term_notes")
+            for note in long_term_notes:
+                lines.append(f"- {note}")
+        return "\n".join(lines)
+
+    def classify_fact(self, fact: str, explicit_type: str | None = None) -> str:
+        """
+        自动分类事实类型。
+
+        优先级：
+        1. explicit_type - 调用方显式指定的类型（最高优先级）
+        2. heuristic - 关键词启发式分类
+        3. 默认 recent_update
+        """
+        VALID_TYPES = {"identity", "preference", "trait", "recent_update", "long_term_note"}
+        if explicit_type and explicit_type in VALID_TYPES:
+            return explicit_type
+
+        return self._heuristic_classify(fact)
+
+    def _heuristic_classify(self, fact: str) -> str:
+        """基于关键词的启发式分类（第二优先级）"""
+        fact_lower = fact.lower()
+
+        identity_keywords = [
+            "是",
+            "职业",
+            "工作",
+            "身份",
+            "角色",
+            "年龄",
+            "岁",
+            "学生",
+            "老师",
+            "程序员",
+            "工程师",
+            "医生",
+            "养",
+            "有",
+            "住在",
+            "来自",
+            "城市",
+            "公司",
+            "学校",
+            "年级",
+            "专业",
+            "学历",
+        ]
+        if any(kw in fact_lower for kw in identity_keywords):
+            return "identity"
+
+        preference_keywords = [
+            "喜欢",
+            "爱",
+            "讨厌",
+            "偏好",
+            "想",
+            "要",
+            "想学",
+            "决定",
+            "不爱",
+            "不喜",
+            "恨",
+            "支持",
+            "反对",
+        ]
+        if any(kw in fact_lower for kw in preference_keywords):
+            return "preference"
+
+        trait_keywords = [
+            "说话",
+            "性格",
+            "风格",
+            "直接",
+            "简洁",
+            "话多",
+            "话少",
+            "活跃",
+            "安静",
+            "幽默",
+            "内向",
+            "外向",
+            "理性",
+            "感性",
+        ]
+        if any(kw in fact_lower for kw in trait_keywords):
+            return "trait"
+
+        return "recent_update"
+
+    LONG_TERM_KEYWORDS = [
+        "每周",
+        "每月",
+        "每天",
+        "一直",
+        "永远",
+        "习惯",
+        "固定",
+        "长期",
+        "规律",
+        "必定",
+        "每逢",
+    ]
+
+    def _should_promote_to_long_term_note(self, content: str) -> bool:
+        """判断内容是否应直接写入 long_term_note（高价值关键词）"""
+        content_lower = content.lower()
+        return any(kw in content_lower for kw in self.LONG_TERM_KEYWORDS)
+
+    def _parse_structured_content(self, content: str) -> dict:
+        """解析结构化画像内容"""
+        import re
+
+        result = {
+            "identity": [],
+            "preferences": [],
+            "traits": [],
+            "recent_updates": [],
+            "long_term_notes": [],
+        }
+
+        if not content:
+            return result
+
+        current_section = None
+        lines = content.split("\n")
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            section_match = re.match(r"^##\s*(\w+)", line)
+            if section_match:
+                current_section = section_match.group(1)
+                continue
+
+            if current_section == "identity":
+                item = re.sub(r"^-\s*", "", line)
+                if item:
+                    result["identity"].append(item)
+            elif current_section == "preferences":
+                item = re.sub(r"^-\s*", "", line)
+                if item:
+                    result["preferences"].append(item)
+            elif current_section == "traits":
+                item = re.sub(r"^-\s*", "", line)
+                if item:
+                    result["traits"].append(item)
+            elif current_section == "recent_updates":
+                item_match = re.match(r"- \[([\d-]+)\]\s*(.+)", line)
+                if item_match:
+                    result["recent_updates"].append(
+                        {
+                            "timestamp": item_match.group(1),
+                            "content": item_match.group(2),
+                        }
+                    )
+                else:
+                    item = re.sub(r"^-\s*", "", line)
+                    if item:
+                        result["recent_updates"].append(
+                            {
+                                "timestamp": "",
+                                "content": item,
+                            }
+                        )
+            elif current_section == "long_term_notes":
+                item = re.sub(r"^-\s*", "", line)
+                if item:
+                    result["long_term_notes"].append(item)
+
+        return result
 
     async def cleanup_expired_profiles(self, days: int = 90):
         """清理过期画像 - 根据文件修改时间删除长时间未更新的画像"""
@@ -485,9 +1026,7 @@ class ProfileManager:
                 if is_private_scope:
                     member_info = await bot.call_action("get_stranger_info", user_id=int(user_id), no_cache=False)
                     member_nickname = (
-                        member_info.get("remark")
-                        or member_info.get("nick")
-                        or member_info.get("nickname", "未知")
+                        member_info.get("remark") or member_info.get("nick") or member_info.get("nickname", "未知")
                     )
                 else:
                     member_info = await bot.call_action(

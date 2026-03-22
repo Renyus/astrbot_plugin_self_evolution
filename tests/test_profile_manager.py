@@ -172,3 +172,111 @@ class ProfileManagerTests(IsolatedAsyncioTestCase):
         self.assertIn("1 位用户", result)
         analyze_prompt = provider.text_chat.await_args_list[0].kwargs["prompt"]
         self.assertNotIn("QQ: 1001", analyze_prompt)
+
+    async def test_classify_fact_identity(self):
+        result = self.manager.classify_fact("用户是一名程序员")
+        self.assertEqual(result, "identity")
+
+    async def test_classify_fact_preference(self):
+        result = self.manager.classify_fact("他喜欢玩 Galgame")
+        self.assertEqual(result, "preference")
+
+    async def test_classify_fact_trait(self):
+        result = self.manager.classify_fact("这个人说话很简洁")
+        self.assertEqual(result, "trait")
+
+    async def test_classify_fact_default(self):
+        result = self.manager.classify_fact("今天群里聊了游戏")
+        self.assertEqual(result, "recent_update")
+
+    async def test_upsert_fact_preference_overwrites_old(self):
+        await self.manager.upsert_fact("6001", "8001", "preference", "喜欢玩 Galgame", source="test")
+        await self.manager.upsert_fact("6001", "8001", "preference", "现在不喜欢玩 Galgame 了", source="test")
+
+        content = await self.manager.load_profile("6001", "8001")
+        data = self.manager._parse_structured_content(content)
+        prefs = data.get("preferences", [])
+
+        self.assertNotIn("喜欢玩 Galgame", prefs)
+        self.assertIn("现在不喜欢玩 Galgame 了", prefs)
+
+    async def test_upsert_fact_identity_overwrites_same(self):
+        await self.manager.upsert_fact("6001", "8001", "identity", "是一名学生", source="test")
+        await self.manager.upsert_fact("6001", "8001", "identity", "刚换了新工作", source="test")
+
+        content = await self.manager.load_profile("6001", "8001")
+        data = self.manager._parse_structured_content(content)
+        identities = data.get("identity", [])
+
+        self.assertEqual(len(identities), 2)
+        self.assertIn("刚换了新工作", identities)
+
+    async def test_upsert_fact_duplicate_overwrites_with_replace_similar(self):
+        await self.manager.upsert_fact("6001", "8001", "preference", "喜欢咖啡", source="test")
+        result = await self.manager.upsert_fact("6001", "8001", "preference", "喜欢咖啡", source="test")
+
+        self.assertTrue(result)
+
+    async def test_upsert_fact_trait_deduplication(self):
+        await self.manager.upsert_fact("6001", "8001", "trait", "说话简洁直接", source="test")
+        await self.manager.upsert_fact("6001", "8001", "trait", "说话简洁直接", source="test")
+
+        content = await self.manager.load_profile("6001", "8001")
+        data = self.manager._parse_structured_content(content)
+        traits = data.get("traits", [])
+
+        self.assertEqual(len(traits), 1)
+
+    async def test_upsert_fact_recent_updates_truncation(self):
+        for i in range(12):
+            await self.manager.upsert_fact("6001", "8001", "recent_update", f"事件{i}", source="test")
+
+        content = await self.manager.load_profile("6001", "8001")
+        data = self.manager._parse_structured_content(content)
+        recent = data.get("recent_updates", [])
+        long_term = data.get("long_term_notes", [])
+
+        self.assertEqual(len(recent), 10)
+        self.assertEqual(len(long_term), 1)
+        self.assertIn("事件0", long_term)
+
+    async def test_upsert_fact_long_term_note_not_truncated(self):
+        await self.manager.upsert_fact("6001", "8001", "long_term_note", "每周日联机", source="test")
+        for i in range(12):
+            await self.manager.upsert_fact("6001", "8001", "recent_update", f"事件{i}", source="test")
+
+        content = await self.manager.load_profile("6001", "8001")
+        data = self.manager._parse_structured_content(content)
+        long_term = data.get("long_term_notes", [])
+
+        self.assertEqual(len(long_term), 2)
+
+    async def test_get_structured_summary_limits_items(self):
+        for i in range(5):
+            await self.manager.upsert_fact("6001", "8001", "identity", f"身份{i}", source="test")
+        for i in range(5):
+            await self.manager.upsert_fact("6001", "8001", "preference", f"偏好{i}", source="test")
+        for i in range(5):
+            await self.manager.upsert_fact("6001", "8001", "trait", f"性格{i}", source="test")
+        for i in range(5):
+            await self.manager.upsert_fact("6001", "8001", "recent_update", f"事件{i}", source="test")
+
+        summary = await self.manager.get_structured_summary("6001", "8001", max_items=8)
+
+        self.assertTrue(len(summary) > 0)
+        lines = [l for l in summary.split("\n") if l.startswith("- ")]
+        self.assertLessEqual(len(lines), 8)
+
+    async def test_get_structured_summary_preserves_structure(self):
+        await self.manager.upsert_fact("6001", "8001", "identity", "是学生", source="test")
+        await self.manager.upsert_fact("6001", "8001", "preference", "喜欢游戏", source="test")
+        await self.manager.upsert_fact("6001", "8001", "trait", "话少", source="test")
+
+        summary = await self.manager.get_structured_summary("6001", "8001", max_items=10)
+
+        self.assertIn("[identity]", summary)
+        self.assertIn("[preferences]", summary)
+        self.assertIn("[traits]", summary)
+        self.assertIn("是学生", summary)
+        self.assertIn("喜欢游戏", summary)
+        self.assertIn("话少", summary)
