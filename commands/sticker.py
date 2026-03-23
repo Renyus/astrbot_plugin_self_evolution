@@ -39,10 +39,11 @@ async def handle_sticker(event, plugin, action: str = "list", param: str = ""):
             result.append(f"UUID:{s['uuid']} | 用户:{s['user_id']}")
         result.append(f"\n是否还有下一页：{'有' if has_next else '无'}")
         result.append("\n【管理指令】")
-        result.append("/sticker list [页码]     # 查看指定页")
-        result.append("/sticker delete <UUID>  # 删除指定UUID")
-        result.append("/sticker clear           # 清空所有表情包")
-        result.append("/sticker stats           # 查看统计")
+        result.append("/sticker list [页码]        # 查看指定页")
+        result.append("/sticker preview <UUID>     # 预览指定UUID的表情包")
+        result.append("/sticker delete <UUID>     # 删除指定UUID的表情包")
+        result.append("/sticker clear             # 清空所有表情包")
+        result.append("/sticker stats             # 查看统计")
         return "\n".join(result)
 
     elif action == "delete":
@@ -55,6 +56,17 @@ async def handle_sticker(event, plugin, action: str = "list", param: str = ""):
             return f"已删除表情包: {sticker_uuid}"
         else:
             return f"未找到表情包: {sticker_uuid}"
+
+    elif action == "preview":
+        if not param:
+            return "请提供要预览的表情包UUID"
+
+        sticker_uuid = param.strip()
+        sticker = await dao.get_sticker_by_uuid(sticker_uuid)
+        if not sticker:
+            return f"未找到表情包: {sticker_uuid}"
+
+        return {"image_url": sticker["url"], "uuid": sticker_uuid}
 
     elif action == "clear":
         count = await dao.get_sticker_count()
@@ -75,10 +87,11 @@ async def handle_sticker(event, plugin, action: str = "list", param: str = ""):
     else:
         return (
             "【表情包管理】（全局）\n"
-            "/sticker list          # 列出表情包\n"
-            "/sticker delete <UUID> # 删除指定表情包\n"
-            "/sticker clear        # 清空所有表情包\n"
-            "/sticker stats        # 查看统计"
+            "/sticker list [页码]          # 列出表情包\n"
+            "/sticker preview <UUID>       # 预览指定UUID的表情包\n"
+            "/sticker delete <UUID>        # 删除指定UUID的表情包\n"
+            "/sticker clear               # 清空所有表情包\n"
+            "/sticker stats               # 查看统计"
         )
 
 

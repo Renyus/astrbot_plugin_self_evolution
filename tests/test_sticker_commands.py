@@ -121,6 +121,36 @@ class HandleStickerTests(IsolatedAsyncioTestCase):
         result = await sticker_commands.handle_sticker(event, plugin, "delete")
         self.assertIn("请提供", result)
 
+    async def test_preview_success(self):
+        plugin = SimpleNamespace(
+            dao=SimpleNamespace(
+                get_sticker_by_uuid=AsyncMock(return_value={"uuid": "u123", "url": "http://example.com/sticker.jpg"}),
+            ),
+        )
+        event = _FakeEvent()
+        result = await sticker_commands.handle_sticker(event, plugin, "preview", "u123")
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result["image_url"], "http://example.com/sticker.jpg")
+        self.assertEqual(result["uuid"], "u123")
+
+    async def test_preview_not_found(self):
+        plugin = SimpleNamespace(
+            dao=SimpleNamespace(
+                get_sticker_by_uuid=AsyncMock(return_value=None),
+            ),
+        )
+        event = _FakeEvent()
+        result = await sticker_commands.handle_sticker(event, plugin, "preview", "u999")
+        self.assertIn("未找到", result)
+
+    async def test_preview_requires_param(self):
+        plugin = SimpleNamespace(
+            dao=SimpleNamespace(),
+        )
+        event = _FakeEvent()
+        result = await sticker_commands.handle_sticker(event, plugin, "preview")
+        self.assertIn("请提供", result)
+
     async def test_clear_success(self):
         plugin = SimpleNamespace(
             dao=SimpleNamespace(

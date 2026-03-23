@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import os
-import random
 import time
 from dataclasses import dataclass, field
 
@@ -1290,17 +1289,16 @@ class SelfEvolutionPlugin(Star):
         return "\n".join(result)
 
     @filter.llm_tool(name="send_sticker")
-    async def send_sticker_tool(self, event: AstrMessageEvent, sticker_uuid: str = None):
-        """发送表情包给用户。不传参数时随机发送一张。
+    async def send_sticker_tool(self, event: AstrMessageEvent):
+        """在聊天中随机发送一个表情包。
 
-        Args:
-            sticker_uuid(string): 可选，指定表情包UUID
+        适合在聊天时顺手发表情包，会从当前可用表情包里随机选一个发送。
+
+        注意：
+        - 仅限群聊使用
+        - 无需指定 UUID，每次随机发送
+        - 如需精确管理某个表情包，请使用管理员命令 /sticker preview <uuid>
         """
-        # 日志记录
-        if sticker_uuid:
-            logger.info(f"[Sticker] 发送表情包: UUID={sticker_uuid}")
-        else:
-            logger.info("[Sticker] 发送表情包: 随机")
         if not getattr(self.cfg, "entertainment_enabled", True):
             yield event.plain_result("娱乐模块当前已关闭。")
             return
@@ -1310,24 +1308,9 @@ class SelfEvolutionPlugin(Star):
             yield event.plain_result("此功能仅限群聊使用")
             return
 
-        if not await self.entertainment.should_send_sticker():
-            cooldown = self.cfg.sticker_send_cooldown
-            yield event.plain_result(f"冷却中，请 {cooldown} 分钟后再试")
-            return
-
-        threshold = self.cfg.sticker_send_threshold
-        if threshold > 0 and random.randint(0, 100) >= threshold:
-            logger.debug(f"[Sticker] 触发阈值未达标，跳过: threshold={threshold}, roll={random.randint(0, 100)}")
-            return
-
-        sticker = None
-        if sticker_uuid:
-            sticker = await self.dao.get_sticker_by_uuid(sticker_uuid)
-        else:
-            sticker = await self.entertainment.get_sticker_for_sending()
-
+        sticker = await self.entertainment.get_sticker_for_sending()
         if not sticker:
-            yield event.plain_result("未找到合适的表情包")
+            yield event.plain_result("暂无可用表情包")
             return
 
         try:
@@ -1351,6 +1334,28 @@ class SelfEvolutionPlugin(Star):
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
         result = await commands.handle_sticker(event, self, "list", page)
+        yield event.plain_result(result)
+
+    @sticker_group.command("preview")
+    async def sticker_preview_cmd(self, event: AstrMessageEvent, sticker_uuid: str = ""):
+        """预览指定 UUID 的表情包"""
+        if not commands.check_sticker_admin(event, self):
+            yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
+            return
+        if not sticker_uuid:
+            yield event.plain_result("请提供表情包 UUID：/sticker preview <uuid>")
+            return
+        result = await commands.handle_sticker(event, self, "preview", sticker_uuid)
+        if isinstance(result, dict) and "image_url" in result:
+            try:
+                from astrbot.core.message.components import Image
+
+                yield event.chain_result([Image.fromURL(result["image_url"])])
+                return
+            except Exception as e:
+                logger.warning(f"[Sticker] 预览表情包失败: {e}")
+                yield event.plain_result(f"预览失败: {e}")
+                return
         yield event.plain_result(result)
 
     @sticker_group.command("delete")

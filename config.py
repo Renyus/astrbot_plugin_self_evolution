@@ -367,10 +367,6 @@ class PluginConfig:
         return int(self._config.get("sticker_send_cooldown", 30))
 
     @property
-    def sticker_send_threshold(self):
-        return int(self._config.get("sticker_send_threshold", 50))
-
-    @property
     def sticker_freq_threshold(self):
         return int(self._config.get("sticker_freq_threshold", 2))
 

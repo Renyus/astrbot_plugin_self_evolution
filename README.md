@@ -204,6 +204,7 @@
 - `/evolution reject <ID>`
 - `/evolution clear`
 - `/sticker list [页码]`
+- `/sticker preview <UUID>`
 - `/sticker delete <UUID>`
 - `/sticker clear`
 - `/sticker stats`
@@ -405,7 +406,6 @@
 - `sticker_daily_limit`
 - `sticker_total_limit`
 - `sticker_send_cooldown`
-- `sticker_send_threshold`
 - `sticker_freq_threshold`
 
 ### 提示

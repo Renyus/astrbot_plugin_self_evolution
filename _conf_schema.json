@@ -540,13 +540,6 @@
         "type": "int",
         "default": 30
     },
-    "sticker_send_threshold": {
-        "title": "娱乐 / 发送阈值",
-        "description": "发送概率阈值",
-        "hint": "满足条件后，真正发表情包的概率阈值。",
-        "type": "int",
-        "default": 50
-    },
     "sticker_freq_threshold": {
         "title": "娱乐 / 学习频次",
         "description": "学习频次阈值",
