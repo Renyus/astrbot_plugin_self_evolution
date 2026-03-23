@@ -882,13 +882,26 @@ class MemoryManager:
             if not kb_helper:
                 return ""
 
-            results = await asyncio.wait_for(
-                kb_helper.retrieve(
-                    query=query,
-                    top_m_final=max_results,
-                ),
-                timeout=5.0,
-            )
+            if hasattr(kb_manager, "retrieve"):
+                results = await asyncio.wait_for(
+                    kb_manager.retrieve(
+                        query=query,
+                        kb_names=[scope_kb_name],
+                        top_m_final=max_results,
+                    ),
+                    timeout=5.0,
+                )
+            elif hasattr(kb_helper, "retrieve"):
+                # Compatibility fallback for tests or older helper stubs.
+                results = await asyncio.wait_for(
+                    kb_helper.retrieve(
+                        query=query,
+                        top_m_final=max_results,
+                    ),
+                    timeout=5.0,
+                )
+            else:
+                return ""
 
             if not results or not results.get("results"):
                 return ""

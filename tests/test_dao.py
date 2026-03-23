@@ -48,3 +48,30 @@ class SelfEvolutionDAOTests(IsolatedAsyncioTestCase):
 
         self.assertEqual(private_scopes, ["private_7001"])
         self.assertEqual(all_scopes, ["2001", "private_7001"])
+
+    async def test_reflection_and_report_tables_exist(self):
+        await self.dao.save_session_reflection("session-1", "user-1", "note", facts="fact", bias="bias")
+        reflection = await self.dao.get_session_reflection("session-1", "user-1")
+        self.assertIsNotNone(reflection)
+        self.assertEqual(reflection["note"], "note")
+
+        await self.dao.save_group_daily_report("6001", "summary", created_at="2026-03-22")
+        report = await self.dao.get_latest_group_report("6001")
+        self.assertIsNotNone(report)
+        self.assertEqual(report["summary"], "summary")
+
+        await self.dao.add_pending_evolution("persona-1", "new prompt", "reason")
+        pending = await self.dao.get_pending_evolutions(limit=10, offset=0)
+        self.assertEqual(len(pending), 1)
+
+    async def test_delete_and_rebuild_recreates_database_file(self):
+        await self.dao.save_session_reflection("session-1", "user-1", "note")
+        db_path = Path(self.dao.db_path)
+        self.assertTrue(db_path.exists())
+
+        result = await self.dao.delete_and_rebuild()
+
+        self.assertTrue(result["rebuilt"])
+        self.assertTrue(Path(result["db_path"]).exists())
+        reflection = await self.dao.get_session_reflection("session-1", "user-1")
+        self.assertIsNone(reflection)

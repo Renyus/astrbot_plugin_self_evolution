@@ -144,7 +144,7 @@ class SelfEvolutionPlugin(Star):
 
         # CognitionCore 7.0: 状态容器
         self._lock = None  # 用于元编程写锁
-        self._pending_db_reset = {}  # 待确认的数据库重置操作 {user_id: timestamp}
+        self._pending_db_reset = {}  # 待确认的数据库操作 {user_id: {"action": str, "expires_at": timestamp}}
         self._shut_until = None  # 闭嘴截止时间 (timestamp)
         self._shut_until_by_group = {}  # 群级别闭嘴 {群号: 截止时间}
         self._interject_history = {}  # 群插嘴历史 {群号: {"last_time": timestamp, "last_msg_id": str}}

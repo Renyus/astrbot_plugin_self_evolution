@@ -62,6 +62,6 @@ async def handle_help(event, plugin):
 /evolution reject <ID>      - 拒绝人格进化
 /evolution clear            - 清空待审人格进化
 /shut <分钟>                 - 让AI在当前群闭嘴（0取消）
-/db                          - 数据库管理"""
+/db                          - 数据库管理（show/reset/rebuild）"""
 
     return help_text
