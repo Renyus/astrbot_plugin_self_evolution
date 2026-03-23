@@ -1323,15 +1323,21 @@ class SelfEvolutionPlugin(Star):
                 break
 
             try:
-                from astrbot.core.message.components import Image
+                import base64
+                from pathlib import Path
 
                 file_path = self.sticker_store.get_sticker_path(sticker)
-                if not file_path or not file_path.exists():
+                if not file_path or not Path(file_path).exists():
                     logger.warning(f"[Sticker] 表情包文件不存在，自动换下一张: {sticker['filename']}")
                     await self.sticker_store.disable_sticker(sticker["uuid"])
                     continue
 
-                yield event.chain_result([Image.fromFileSystem(str(file_path))])
+                with open(file_path, "rb") as f:
+                    data = f.read()
+                bs64 = base64.b64encode(data).decode()
+                from astrbot.core.message.components import Image
+
+                yield event.chain_result([Image(f"base64://{bs64}")])
                 return
             except Exception as e:
                 last_error = e
@@ -1365,14 +1371,20 @@ class SelfEvolutionPlugin(Star):
         result = await commands.handle_sticker(event, self, "preview", sticker_uuid)
         if isinstance(result, dict) and "image_path" in result:
             try:
-                from astrbot.core.message.components import Image
+                import base64
+                from pathlib import Path
 
                 file_path = Path(result["image_path"])
                 if not file_path.exists():
                     yield event.plain_result(f"表情包文件不存在: {result['image_path']}")
                     return
 
-                yield event.chain_result([Image.fromFileSystem(str(file_path))])
+                with open(file_path, "rb") as f:
+                    data = f.read()
+                bs64 = base64.b64encode(data).decode()
+                from astrbot.core.message.components import Image
+
+                yield event.chain_result([Image(f"base64://{bs64}")])
                 return
             except Exception as e:
                 logger.warning(f"[Sticker] 预览表情包失败: {e}")
