@@ -72,7 +72,16 @@ def parse_target_user(event, default_to_sender=True) -> tuple[str, str]:
     user_id = ""
     if hasattr(event, "message_str"):
         parts = event.message_str.split()
-        if len(parts) > 1:
-            user_id = parts[1].strip()
+        first = parts[0].lstrip("/") if len(parts) > 0 else ""
+        second = parts[1].lstrip("/") if len(parts) > 1 else ""
+
+        profile_subcommands = {"view", "create", "update", "delete", "stats"}
+
+        if first == "profile" and second in profile_subcommands:
+            user_arg = parts[2].strip() if len(parts) > 2 else ""
+        else:
+            user_arg = parts[1].strip() if len(parts) > 1 else ""
+
+        user_id = user_arg
     target = user_id if user_id else (sender_id if default_to_sender else "")
     return target, user_id

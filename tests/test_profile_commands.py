@@ -5,6 +5,7 @@ from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock
 
 from tests._helpers import load_commands_module
+from astrbot_plugin_self_evolution.commands.common import parse_target_user
 
 profile_commands = load_commands_module("profile")
 
@@ -106,3 +107,50 @@ class ProfileCommandTests(IsolatedAsyncioTestCase):
 
         self.assertEqual(result, "权限拒绝：普通用户无法操作他人画像。")
         plugin.profile.delete_profile.assert_not_awaited()
+
+
+class ParseTargetUserTests(IsolatedAsyncioTestCase):
+    def _make_event(self, message_str, sender_id="1001"):
+        return _FakeEvent(message_str=message_str, sender_id=sender_id)
+
+    def test_profile_create_no_user_defaults_to_sender(self):
+        event = self._make_event("/profile create")
+        target, raw = parse_target_user(event)
+        self.assertEqual(target, "1001")
+        self.assertEqual(raw, "")
+
+    def test_profile_create_with_user_id(self):
+        event = self._make_event("/profile create 2002")
+        target, raw = parse_target_user(event)
+        self.assertEqual(target, "2002")
+        self.assertEqual(raw, "2002")
+
+    def test_profile_view_no_user_defaults_to_sender(self):
+        event = self._make_event("/profile view")
+        target, raw = parse_target_user(event)
+        self.assertEqual(target, "1001")
+        self.assertEqual(raw, "")
+
+    def test_profile_view_with_user_id(self):
+        event = self._make_event("/profile view 2002")
+        target, raw = parse_target_user(event)
+        self.assertEqual(target, "2002")
+        self.assertEqual(raw, "2002")
+
+    def test_old_create_no_user_defaults_to_sender(self):
+        event = self._make_event("/create")
+        target, raw = parse_target_user(event)
+        self.assertEqual(target, "1001")
+        self.assertEqual(raw, "")
+
+    def test_old_create_with_user_id(self):
+        event = self._make_event("/create 2002")
+        target, raw = parse_target_user(event)
+        self.assertEqual(target, "2002")
+        self.assertEqual(raw, "2002")
+
+    def test_old_view_with_user_id(self):
+        event = self._make_event("/view 2002")
+        target, raw = parse_target_user(event)
+        self.assertEqual(target, "2002")
+        self.assertEqual(raw, "2002")

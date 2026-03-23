@@ -752,20 +752,16 @@ class ProfileManager:
         fact_lower = fact.lower()
 
         identity_keywords = [
-            "是",
             "职业",
             "工作",
             "身份",
             "角色",
             "年龄",
-            "岁",
             "学生",
             "老师",
             "程序员",
             "工程师",
             "医生",
-            "养",
-            "有",
             "住在",
             "来自",
             "城市",
@@ -1076,12 +1072,12 @@ class ProfileManager:
                 f"会话范围：{scope_id}\n"
                 f"{'旧笔记：' + existing_note + chr(10) if mode == 'update' else ''}"
                 f"{'私聊消息' if is_private_scope else '群聊消息'}：" + "\n" + "\n".join(user_messages) + "\n"
-                "请以 YAML 格式输出用户画像，包含以下字段：\n"
-                "- user_id: 用户QQ号\n"
-                "- scope_id: 会话范围ID（群号或 private_xxx）\n"
-                "- nickname: 用户昵称\n"
-                "- updated_at: 更新时间（格式：YYYY-MM-DD HH:MM:SS）\n"
-                "- content: 用户画像描述（使用Markdown格式，不少于500字）\n"
+                "请以Markdown格式输出用户画像，包含以下章节（每个章节不少于3个要点）：\n"
+                "## identity - 用户身份背景（职业、年龄、地区、教育等）\n"
+                "## preferences - 用户兴趣爱好（喜欢什么、讨厌什么）\n"
+                "## traits - 性格特征和行为习惯\n"
+                "## recent_updates - 最近发生的事件或变化\n"
+                "## long_term_notes - 长期稳定的特质或重要经历\n"
             )
 
             llm_provider = self.plugin.context.get_using_provider(umo=umo)
@@ -1273,12 +1269,12 @@ class ProfileManager:
                     f"{'旧笔记：' + existing_note + chr(10) if existing_note != '(暂无)' else ''}"
                     f"用户消息：\n" + "\n".join(user_messages) + "\n"
                     f"{interested_tag}\n"
-                    "请以 YAML 格式输出用户画像，包含以下字段：\n"
-                    "- user_id: 用户QQ号\n"
-                    "- scope_id: 会话范围ID（群号）\n"
-                    "- nickname: 用户昵称\n"
-                    "- updated_at: 更新时间（格式：YYYY-MM-DD HH:MM:SS）\n"
-                    "- content: 用户画像描述（使用Markdown格式，不少于300字）\n"
+                    "请以Markdown格式输出用户画像，包含以下章节（每个章节不少于3个要点）：\n"
+                    "## identity - 用户身份背景（职业、年龄、地区、教育等）\n"
+                    "## preferences - 用户兴趣爱好（喜欢什么、讨厌什么）\n"
+                    "## traits - 性格特征和行为习惯\n"
+                    "## recent_updates - 最近发生的事件或变化\n"
+                    "## long_term_notes - 长期稳定的特质或重要经历\n"
                 )
 
                 res = await llm_provider.text_chat(
