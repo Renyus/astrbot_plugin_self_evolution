@@ -503,3 +503,131 @@ class MemoryManagerTests(IsolatedAsyncioTestCase):
         self.assertEqual(result, "已成功删除 3 条总结")
         self.assertEqual(scope_kb.delete_document.await_count, 2)
         base_kb.delete_document.assert_awaited_once_with("legacy-1")
+
+    async def test_get_summary_by_date_returns_matched_document(self):
+        scope_kb = SimpleNamespace(
+            kb=SimpleNamespace(
+                kb_id="scope-kb-id",
+                kb_name="self_evolution_memory__scope__g_6001",
+            ),
+            list_documents=AsyncMock(
+                return_value=[
+                    SimpleNamespace(doc_id="doc1", doc_name="memory_6001_2026-03-18_1.txt"),
+                    SimpleNamespace(doc_id="doc2", doc_name="memory_6001_2026-03-19_1.txt"),
+                ]
+            ),
+            get_chunks_by_doc_id=AsyncMock(
+                return_value=[
+                    {"content": "今日讨论了游戏"},
+                ]
+            ),
+        )
+
+        async def get_kb_by_name(name):
+            if name == "self_evolution_memory__scope__g_6001":
+                return scope_kb
+            return None
+
+        plugin = SimpleNamespace(
+            cfg=SimpleNamespace(memory_kb_name="self_evolution_memory"),
+            context=SimpleNamespace(kb_manager=SimpleNamespace(get_kb_by_name=AsyncMock(side_effect=get_kb_by_name))),
+        )
+        manager = MemoryManager(plugin)
+
+        result = await manager.get_summary_by_date("6001", "2026-03-19")
+
+        self.assertIn("2026-03-19", result)
+        self.assertIn("游戏", result)
+
+    async def test_get_summary_by_date_returns_empty_for_no_match(self):
+        scope_kb = SimpleNamespace(
+            kb=SimpleNamespace(kb_id="scope-kb-id", kb_name="scope__g_6001"),
+            list_documents=AsyncMock(
+                return_value=[
+                    SimpleNamespace(doc_id="doc1", doc_name="memory_6001_2026-03-18_1.txt"),
+                ]
+            ),
+        )
+
+        async def get_kb_by_name(name):
+            if name == "self_evolution_memory__scope__g_6001":
+                return scope_kb
+            return None
+
+        plugin = SimpleNamespace(
+            cfg=SimpleNamespace(memory_kb_name="self_evolution_memory"),
+            context=SimpleNamespace(kb_manager=SimpleNamespace(get_kb_by_name=AsyncMock(side_effect=get_kb_by_name))),
+        )
+        manager = MemoryManager(plugin)
+
+        result = await manager.get_summary_by_date("6001", "2026-03-20")
+
+        self.assertEqual(result, "")
+
+    async def test_get_summary_by_date_accepts_yesterday_today(self):
+        scope_kb = SimpleNamespace(
+            kb=SimpleNamespace(kb_id="scope-kb-id", kb_name="scope__g_6001"),
+            list_documents=AsyncMock(
+                return_value=[
+                    SimpleNamespace(doc_id="doc1", doc_name="memory_6001_2026-03-18_1.txt"),
+                ]
+            ),
+            get_chunks_by_doc_id=AsyncMock(
+                return_value=[
+                    {"content": "summary content"},
+                ]
+            ),
+        )
+
+        async def get_kb_by_name(name):
+            if name == "self_evolution_memory__scope__g_6001":
+                return scope_kb
+            return None
+
+        plugin = SimpleNamespace(
+            cfg=SimpleNamespace(memory_kb_name="self_evolution_memory"),
+            context=SimpleNamespace(kb_manager=SimpleNamespace(get_kb_by_name=AsyncMock(side_effect=get_kb_by_name))),
+        )
+        manager = MemoryManager(plugin)
+
+        result_today = await manager.get_summary_by_date("6001", "today")
+        result_yesterday = await manager.get_summary_by_date("6001", "yesterday")
+
+        self.assertEqual(result_today, "")
+        self.assertEqual(result_yesterday, "")
+
+    async def test_clean_garbage_events_deletes_matching_docs(self):
+        scope_kb = SimpleNamespace(
+            kb=SimpleNamespace(kb_id="scope-kb-id", kb_name="scope__g_6001"),
+            list_documents=AsyncMock(
+                return_value=[
+                    SimpleNamespace(doc_id="garbage1", doc_name="event_6001_2026-03-18_1.txt"),
+                    SimpleNamespace(doc_id="garbage2", doc_name="event_6001_2026-03-18_2.txt"),
+                    SimpleNamespace(doc_id="normal1", doc_name="memory_6001_2026-03-18_1.txt"),
+                ]
+            ),
+            get_chunks_by_doc_id=AsyncMock(
+                side_effect=[
+                    [{"content": "我不知道"}],
+                    [{"content": "没有相关记忆"}],
+                    [{"content": "正常内容"}],
+                ]
+            ),
+            delete_document=AsyncMock(),
+        )
+
+        async def get_kb_by_name(name):
+            if name == "self_evolution_memory__scope__g_6001":
+                return scope_kb
+            return None
+
+        plugin = SimpleNamespace(
+            cfg=SimpleNamespace(memory_kb_name="self_evolution_memory"),
+            context=SimpleNamespace(kb_manager=SimpleNamespace(get_kb_by_name=AsyncMock(side_effect=get_kb_by_name))),
+        )
+        manager = MemoryManager(plugin)
+
+        result = await manager.clean_garbage_events("6001")
+
+        self.assertIn("删除 2 个", result)
+        self.assertEqual(scope_kb.delete_document.await_count, 2)

@@ -814,6 +814,92 @@ class MemoryManager:
             logger.warning(f"[Memory] 查看总结失败: {e}")
             return f"查看总结失败: {e}"
 
+    async def get_summary_by_date(self, scope_id: str, summary_date: str) -> str:
+        """
+        按日期精确获取某天的会话总结，不依赖语义检索。
+
+        Args:
+            scope_id: 会话范围ID
+            summary_date: 日期字符串，支持：
+                - yesterday
+                - today
+                - YYYY-MM-DD 格式
+
+        Returns:
+            格式化的时间字符串，无总结时返回空字符串
+        """
+        from datetime import datetime, timedelta
+
+        try:
+            resolved_date = summary_date.strip().lower()
+            if resolved_date == "today":
+                resolved_date = datetime.now().strftime("%Y-%m-%d")
+            elif resolved_date == "yesterday":
+                resolved_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+            else:
+                try:
+                    datetime.strptime(resolved_date, "%Y-%m-%d")
+                except ValueError:
+                    return ""
+
+            kb_manager = getattr(self.plugin.context, "kb_manager", None)
+            if not kb_manager:
+                return ""
+
+            scope_kb_name = self._get_scope_kb_name(scope_id)
+            scope_kb_helper = await asyncio.wait_for(kb_manager.get_kb_by_name(scope_kb_name), timeout=5.0)
+            if not scope_kb_helper:
+                return ""
+
+            if not hasattr(scope_kb_helper, "list_documents"):
+                return ""
+
+            docs = await scope_kb_helper.list_documents()
+            target_prefix = f"memory_{scope_id}_{resolved_date}_"
+            matching_docs = []
+
+            for doc in docs:
+                doc_name = getattr(doc, "doc_name", "")
+                if doc_name.startswith(target_prefix):
+                    matching_docs.append(doc)
+
+            if not matching_docs:
+                return ""
+
+            matching_docs.sort(key=lambda d: getattr(d, "doc_name", ""), reverse=True)
+            latest_doc = matching_docs[0]
+
+            doc_id = getattr(latest_doc, "doc_id", None)
+            if not doc_id:
+                return ""
+
+            chunks = []
+            if hasattr(scope_kb_helper, "get_chunks_by_doc_id"):
+                chunks = await asyncio.wait_for(
+                    scope_kb_helper.get_chunks_by_doc_id(doc_id),
+                    timeout=5.0,
+                )
+
+            if not chunks:
+                return ""
+
+            content_parts = []
+            for chunk in chunks:
+                chunk_text = chunk.get("content", "") if isinstance(chunk, dict) else ""
+                if chunk_text:
+                    content_parts.append(chunk_text)
+
+            content = "\n".join(content_parts)
+            if not content:
+                return ""
+
+            logger.debug(f"[Memory] get_summary_by_date: scope={scope_id}, date={resolved_date}, found")
+            return f"【{resolved_date} 群聊总结】\n{content}"
+
+        except Exception as e:
+            logger.warning(f"[Memory] get_summary_by_date 失败: {e}")
+            return ""
+
     async def clear_summary(self, group_id: str = None, confirm: bool = False) -> str:
         """清空会话总结"""
         logger.debug(f"[Memory] 清空总结: {group_id}, confirm={confirm}")
@@ -930,3 +1016,100 @@ class MemoryManager:
         except Exception as e:
             logger.warning(f"[Memory] smart_retrieve 失败: {e}")
             return ""
+
+    async def clean_garbage_events(self, scope_id: str) -> str:
+        """
+        清理 scope KB 中包含失败态内容的垃圾 event 文档。
+
+        Args:
+            scope_id: 会话范围ID
+
+        Returns:
+            清理结果描述
+        """
+        garbage_phrases = [
+            "我不知道",
+            "我不记得",
+            "没有相关记忆",
+            "没有记忆",
+            "查不到",
+            "无法确认",
+            "未找到",
+            "没有找到",
+            "找不到",
+            "不确定",
+            "不知道",
+            "不清楚",
+            "无法回答",
+            "无法查找",
+            "没有相关信息",
+            "未找到相关",
+        ]
+
+        try:
+            kb_manager = getattr(self.plugin.context, "kb_manager", None)
+            if not kb_manager:
+                return "知识库管理器不可用"
+
+            scope_kb_name = self._get_scope_kb_name(scope_id)
+            scope_kb_helper = await asyncio.wait_for(kb_manager.get_kb_by_name(scope_kb_name), timeout=5.0)
+            if not scope_kb_helper:
+                return f"范围 {scope_id} 的隔离知识库不存在"
+
+            if not hasattr(scope_kb_helper, "list_documents") or not hasattr(scope_kb_helper, "delete_document"):
+                return "知识库不支持文档操作"
+
+            docs = await scope_kb_helper.list_documents()
+            deleted_count = 0
+            checked_count = 0
+
+            for doc in docs:
+                doc_name = getattr(doc, "doc_name", "")
+                if not doc_name.startswith("event_"):
+                    continue
+
+                doc_id = getattr(doc, "doc_id", None)
+                if not doc_id:
+                    continue
+
+                checked_count += 1
+
+                chunks = []
+                if hasattr(scope_kb_helper, "get_chunks_by_doc_id"):
+                    try:
+                        chunks = await asyncio.wait_for(
+                            scope_kb_helper.get_chunks_by_doc_id(doc_id),
+                            timeout=5.0,
+                        )
+                    except Exception:
+                        continue
+
+                if not chunks:
+                    continue
+
+                content_parts = []
+                for chunk in chunks:
+                    chunk_text = chunk.get("content", "") if isinstance(chunk, dict) else ""
+                    if chunk_text:
+                        content_parts.append(chunk_text)
+
+                content = "\n".join(content_parts)
+                if not content:
+                    continue
+
+                content_lower = content.lower()
+                is_garbage = any(phrase in content_lower for phrase in garbage_phrases)
+
+                if is_garbage:
+                    await scope_kb_helper.delete_document(doc_id)
+                    deleted_count += 1
+                    logger.debug(f"[Memory] 清理垃圾 event: {doc_name}")
+
+            logger.info(
+                f"[Memory] 清理完成: scope={scope_id}, 检查 {checked_count} 个 event, 删除 {deleted_count} 个垃圾文档"
+            )
+            return f"已检查 {checked_count} 个事件文档，删除 {deleted_count} 个垃圾记录"
+
+        except Exception as e:
+            logger.warning(f"[Memory] clean_garbage_events 失败: {e}")
+            return f"清理失败: {e}"
