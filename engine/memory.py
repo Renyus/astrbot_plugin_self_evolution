@@ -75,10 +75,6 @@ class MemoryManager:
         return self.plugin.cfg.memory_kb_name
 
     @property
-    def memory_msg_count(self):
-        return self.plugin.cfg.memory_msg_count
-
-    @property
     def memory_fetch_page_size(self):
         return self.plugin.cfg.memory_fetch_page_size
 
@@ -390,7 +386,7 @@ class MemoryManager:
         scopes = []
 
         # 方式1: 白名单配置（仅约束群聊）
-        whitelist = self.plugin.cfg.target_group_scopes
+        whitelist = self.plugin.cfg.target_scopes
         if whitelist:
             logger.debug(f"[Memory] 使用白名单群列表: {whitelist}")
             scopes.extend(str(group_id) for group_id in whitelist)

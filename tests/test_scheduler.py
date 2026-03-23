@@ -37,7 +37,7 @@ class SchedulerUtilitiesTests(IsolatedAsyncioTestCase):
 class ResolveTargetScopesTests(IsolatedAsyncioTestCase):
     async def test_whitelist_takes_priority(self):
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(target_group_scopes=["1001", "1002"]),
+            cfg=SimpleNamespace(target_scopes=["1001", "1002"]),
             eavesdropping=SimpleNamespace(active_users={"2001": {}}),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[])),
         )
@@ -47,7 +47,7 @@ class ResolveTargetScopesTests(IsolatedAsyncioTestCase):
 
     async def test_whitelist_private_scopes_filtered_when_include_private_false(self):
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(target_group_scopes=["1001", "private_7001", "1002"]),
+            cfg=SimpleNamespace(target_scopes=["1001", "private_7001", "1002"]),
             eavesdropping=SimpleNamespace(active_users={}),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[])),
         )
@@ -57,7 +57,7 @@ class ResolveTargetScopesTests(IsolatedAsyncioTestCase):
 
     async def test_active_users_used_when_no_whitelist(self):
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(target_group_scopes=[]),
+            cfg=SimpleNamespace(target_scopes=[]),
             eavesdropping=SimpleNamespace(active_users={"private_7001": {}, "2001": {}}),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[])),
         )
@@ -66,7 +66,7 @@ class ResolveTargetScopesTests(IsolatedAsyncioTestCase):
 
     async def test_include_private_false_filters_private_scopes(self):
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(target_group_scopes=[]),
+            cfg=SimpleNamespace(target_scopes=[]),
             eavesdropping=SimpleNamespace(active_users={"private_7001": {}, "2001": {}}),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[])),
         )
@@ -77,7 +77,7 @@ class ResolveTargetScopesTests(IsolatedAsyncioTestCase):
         bot = SimpleNamespace(call_action=AsyncMock(return_value={"data": [{"group_id": 3001}, {"group_id": "3002"}]}))
         platform = SimpleNamespace(get_client=lambda: bot)
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(target_group_scopes=[]),
+            cfg=SimpleNamespace(target_scopes=[]),
             eavesdropping=SimpleNamespace(active_users={}),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[platform])),
         )
@@ -86,7 +86,7 @@ class ResolveTargetScopesTests(IsolatedAsyncioTestCase):
 
     async def test_returns_empty_when_no_sources(self):
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(target_group_scopes=[]),
+            cfg=SimpleNamespace(target_scopes=[]),
             eavesdropping=SimpleNamespace(active_users={}),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[])),
         )
@@ -133,7 +133,7 @@ class RunTaskTests(IsolatedAsyncioTestCase):
 class ScheduledTaskSkipTests(IsolatedAsyncioTestCase):
     async def test_scheduled_interject_skips_when_no_scopes(self):
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(target_group_scopes=[]),
+            cfg=SimpleNamespace(target_scopes=[]),
             eavesdropping=SimpleNamespace(active_users={}),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[])),
         )
@@ -145,7 +145,7 @@ class ScheduledTaskSkipTests(IsolatedAsyncioTestCase):
         plugin = SimpleNamespace(
             cfg=SimpleNamespace(
                 auto_profile_enabled=False,
-                target_group_scopes=["3001"],
+                target_scopes=["3001"],
             ),
             get_group_umo=lambda g: None,
             profile=SimpleNamespace(analyze_and_build_profiles=AsyncMock()),
@@ -160,7 +160,7 @@ class SchedulerTasksTests(IsolatedAsyncioTestCase):
         bot = SimpleNamespace(call_action=AsyncMock(return_value={"data": [{"group_id": 1001}, {"group_id": "1002"}]}))
         platform = SimpleNamespace(get_client=lambda: bot)
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(target_group_scopes=[]),
+            cfg=SimpleNamespace(target_scopes=[]),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[platform])),
             eavesdropping=SimpleNamespace(active_users={}, interject_check_group=AsyncMock()),
         )
@@ -173,7 +173,7 @@ class SchedulerTasksTests(IsolatedAsyncioTestCase):
         bot = SimpleNamespace(call_action=AsyncMock(return_value={"data": [{"group_id": 2001}]}))
         platform = SimpleNamespace(get_client=lambda: bot)
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(target_group_scopes=[]),
+            cfg=SimpleNamespace(target_scopes=[]),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[platform])),
             eavesdropping=SimpleNamespace(active_users={}),
             dao=SimpleNamespace(
@@ -204,7 +204,7 @@ class SchedulerTasksTests(IsolatedAsyncioTestCase):
 
     async def test_scheduled_reflection_keeps_private_active_scopes(self):
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(target_group_scopes=[]),
+            cfg=SimpleNamespace(target_scopes=[]),
             eavesdropping=SimpleNamespace(active_users={"private_7001": {}, "2001": {}}),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[])),
             dao=SimpleNamespace(
@@ -229,7 +229,7 @@ class SchedulerTasksTests(IsolatedAsyncioTestCase):
         bot = SimpleNamespace(call_action=AsyncMock(return_value={"data": [{"group_id": 2001}]}))
         platform = SimpleNamespace(get_client=lambda: bot)
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(target_group_scopes=["3001"]),
+            cfg=SimpleNamespace(target_scopes=["3001"]),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[platform])),
             eavesdropping=SimpleNamespace(active_users={}),
             dao=SimpleNamespace(
@@ -254,7 +254,7 @@ class SchedulerTasksTests(IsolatedAsyncioTestCase):
         plugin = SimpleNamespace(
             cfg=SimpleNamespace(
                 auto_profile_enabled=True,
-                target_group_scopes=["3001"],
+                target_scopes=["3001"],
                 auto_profile_batch_size=1,
                 auto_profile_batch_interval=0,
             ),

@@ -40,7 +40,7 @@ class MemoryManagerTests(IsolatedAsyncioTestCase):
 
     async def test_get_target_scopes_keeps_private_active_sessions(self):
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(target_group_scopes=[]),
+            cfg=SimpleNamespace(target_scopes=[]),
             eavesdropping=SimpleNamespace(active_users={"6001": {}, "private_7001": {}}),
             dao=SimpleNamespace(list_known_scopes=AsyncMock(return_value=[])),
         )
@@ -52,7 +52,7 @@ class MemoryManagerTests(IsolatedAsyncioTestCase):
 
     async def test_get_target_scopes_appends_persisted_private_sessions(self):
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(target_group_scopes=["6001"]),
+            cfg=SimpleNamespace(target_scopes=["6001"]),
             dao=SimpleNamespace(list_known_scopes=AsyncMock(return_value=["private_7001"])),
         )
         manager = MemoryManager(plugin)
@@ -118,7 +118,7 @@ class MemoryManagerTests(IsolatedAsyncioTestCase):
             )
         )
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(memory_msg_count=20, memory_fetch_page_size=20, memory_summary_chunk_size=200),
+            cfg=SimpleNamespace(memory_fetch_page_size=20, memory_summary_chunk_size=200),
             context=SimpleNamespace(
                 platform_manager=SimpleNamespace(platform_insts=[SimpleNamespace(get_client=lambda: bot)])
             ),
@@ -129,7 +129,7 @@ class MemoryManagerTests(IsolatedAsyncioTestCase):
 
         self.assertEqual(messages, ["Alice: hello"])
         bot.call_action.assert_awaited_once_with(
-            "get_friend_msg_history", user_id=7001, count=plugin.cfg.memory_msg_count
+            "get_friend_msg_history", user_id=7001, count=plugin.cfg.memory_fetch_page_size
         )
 
     async def test_fetch_scope_messages_collects_previous_day_across_multiple_pages(self):
@@ -156,7 +156,7 @@ class MemoryManagerTests(IsolatedAsyncioTestCase):
         }
         bot = SimpleNamespace(call_action=AsyncMock(side_effect=[page_1, page_2, page_3]))
         plugin = SimpleNamespace(
-            cfg=SimpleNamespace(memory_msg_count=20, memory_fetch_page_size=20, memory_summary_chunk_size=200),
+            cfg=SimpleNamespace(memory_fetch_page_size=20, memory_summary_chunk_size=200),
             context=SimpleNamespace(
                 platform_manager=SimpleNamespace(platform_insts=[SimpleNamespace(get_client=lambda: bot)])
             ),
@@ -284,7 +284,7 @@ class MemoryManagerTests(IsolatedAsyncioTestCase):
                     )
                 )
             ),
-            cfg=SimpleNamespace(memory_msg_count=100, memory_fetch_page_size=100, memory_summary_chunk_size=200),
+            cfg=SimpleNamespace(memory_fetch_page_size=100, memory_summary_chunk_size=200),
         )
         manager = MemoryManager(plugin)
         manager._split_messages_for_summary = MagicMock(return_value=[["msg1", "msg2"]])
