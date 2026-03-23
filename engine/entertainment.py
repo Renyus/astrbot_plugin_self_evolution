@@ -29,6 +29,8 @@ class EntertainmentEngine:
 
     async def today_waifu(self, event) -> list:
         """今日老婆功能 - 随机抽取一名群友"""
+        if not getattr(self.cfg, "entertainment_enabled", True):
+            return ["娱乐模块当前已关闭"]
         group_id = event.get_group_id()
         if not group_id:
             return ["此指令仅限群聊使用"]
@@ -50,9 +52,9 @@ class EntertainmentEngine:
 
             logger.debug(f"[Entertainment] 今日老婆抽取结果: {nickname} ({user_id})")
 
-            avatar_url = f"https://q1.qlogo.cn/g?b=qq&nk={user_id}&s=640"
+            avatar_url = f"https://q1.qlogo.cn/g?b=qq&nk={user_id}&s=256"
 
-            return [f"今日老婆是：{nickname}！", avatar_url]
+            return [f"你今日的群友老婆是：{nickname}！", avatar_url]
 
         except Exception as e:
             logger.warning(f"[Entertainment] 今日老婆功能异常: {e}")
@@ -62,6 +64,8 @@ class EntertainmentEngine:
 
     async def learn_sticker_from_event(self, event) -> bool:
         """从消息事件中学习表情包（检测指定人的图片并保存）"""
+        if not getattr(self.cfg, "entertainment_enabled", True):
+            return False
         if not self.cfg.sticker_learning_enabled:
             return False
 
@@ -200,6 +204,8 @@ class EntertainmentEngine:
 
     async def list_stickers(self, limit: int = 10) -> list:
         """列出表情包（全局）"""
+        if not getattr(self.cfg, "entertainment_enabled", True):
+            return []
         return await self.dao.get_stickers(limit)
 
     async def get_sticker_stats(self) -> dict:
@@ -208,6 +214,8 @@ class EntertainmentEngine:
 
     async def get_prompt_injection(self) -> str:
         """获取表情包相关的 prompt 注入"""
+        if not getattr(self.cfg, "entertainment_enabled", True):
+            return ""
         if not self.cfg.sticker_learning_enabled:
             return ""
 

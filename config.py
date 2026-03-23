@@ -1,12 +1,12 @@
 """
-配置系统 - 从主类中解耦所有配置属性
+Plugin configuration accessors.
 """
 
 import json
 
 
 class PluginConfig:
-    """插件配置类 - 集中管理所有配置项"""
+    """Centralized typed config access for the plugin."""
 
     def __init__(self, plugin):
         self.plugin = plugin
@@ -20,7 +20,6 @@ class PluginConfig:
         return self.plugin._parse_bool
 
     def __getattr__(self, name):
-        """代理所有配置访问，未知属性抛出 AttributeError"""
         if name.startswith("_") or name in ("plugin", "config"):
             raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
         val = self._config.get(name)
@@ -28,7 +27,7 @@ class PluginConfig:
             raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
         return val
 
-    # ========== 基础设置 ==========
+    # Base
     @property
     def review_mode(self):
         return self._parse_bool(self._config.get("review_mode"), True)
@@ -45,18 +44,18 @@ class PluginConfig:
     def critical_keywords(self):
         return self._config.get(
             "critical_keywords",
-            "黑塔|空间站|人偶|天才|模拟宇宙|研究|论文|技术|算力|数据",
+            "黑塔|空间站人偶|天才|模拟宇宙|研究|论文|技术|算力|数据",
         )
-
-    @property
-    def allow_meta_programming(self):
-        return self._parse_bool(self._config.get("allow_meta_programming"), False)
 
     @property
     def reflection_schedule(self):
         return self._config.get("reflection_schedule", "0 2 * * *")
 
-    # ========== 记忆系统 ==========
+    # Memory
+    @property
+    def memory_enabled(self):
+        return self._parse_bool(self._config.get("memory_enabled"), True)
+
     @property
     def memory_kb_name(self):
         return self._config.get("memory_kb_name", "self_evolution_memory")
@@ -67,14 +66,17 @@ class PluginConfig:
 
     @property
     def memory_summary_chunk_size(self):
-        val = self._config.get("memory_summary_chunk_size")
-        return int(val if val is not None else 200)
+        return int(self._config.get("memory_summary_chunk_size", 200))
 
     @property
     def memory_summary_schedule(self):
         return self._config.get("memory_summary_schedule", "0 3 * * *")
 
-    # ========== 画像系统 ==========
+    @property
+    def enable_kb_memory_recall(self):
+        return self.memory_enabled and self._parse_bool(self._config.get("enable_kb_memory_recall"), True)
+
+    # Profile
     @property
     def profile_msg_count(self):
         return int(self._config.get("profile_msg_count", 500))
@@ -90,10 +92,6 @@ class PluginConfig:
     @property
     def enable_profile_fact_writeback(self):
         return self._parse_bool(self._config.get("enable_profile_fact_writeback"), True)
-
-    @property
-    def enable_kb_memory_recall(self):
-        return self._parse_bool(self._config.get("enable_kb_memory_recall"), True)
 
     @property
     def target_scopes(self):
@@ -125,7 +123,12 @@ class PluginConfig:
             "我是谁,我的名字,我的身份,我的职责",
         )
 
-    # ========== 插嘴系统 ==========
+    # Reflection
+    @property
+    def reflection_enabled(self):
+        return self._parse_bool(self._config.get("reflection_enabled"), True)
+
+    # Interject
     @property
     def interject_enabled(self):
         return self._parse_bool(self._config.get("interject_enabled"), False)
@@ -170,7 +173,7 @@ class PluginConfig:
     def interject_analyze_count(self):
         return int(self._config.get("interject_analyze_count", 15))
 
-    # ========== 阈值系统 ==========
+    # Eavesdrop desire
     @property
     def eavesdrop_message_threshold(self):
         return int(self._config.get("eavesdrop_message_threshold", 20))
@@ -183,7 +186,7 @@ class PluginConfig:
     def eavesdrop_threshold_max(self):
         return int(self._config.get("eavesdrop_threshold_max", 50))
 
-    # ========== SAN 精力系统 ==========
+    # SAN
     @property
     def san_enabled(self):
         return self._parse_bool(self._config.get("san_enabled"), True)
@@ -232,7 +235,7 @@ class PluginConfig:
     def san_negative_vibe_penalty(self):
         return int(self._config.get("san_negative_vibe_penalty", -5))
 
-    # ========== 欲望系统 ==========
+    # Desire model
     @property
     def leaky_integrator_enabled(self):
         return self._parse_bool(self._config.get("leaky_integrator_enabled"), True)
@@ -261,7 +264,7 @@ class PluginConfig:
     def desire_cooldown_seconds(self):
         return int(self._config.get("desire_cooldown_seconds", 60))
 
-    # ========== 分层失活 ==========
+    # Dropout
     @property
     def dropout_enabled(self):
         return self._parse_bool(self._config.get("dropout_enabled"), True)
@@ -270,7 +273,15 @@ class PluginConfig:
     def dropout_edge_rate(self):
         return float(self._config.get("dropout_edge_rate", 0.2))
 
-    # ========== 辩论系统 ==========
+    # Meta
+    @property
+    def meta_enabled(self):
+        return self._parse_bool(self._config.get("meta_enabled"), True)
+
+    @property
+    def allow_meta_programming(self):
+        return self.meta_enabled and self._parse_bool(self._config.get("allow_meta_programming"), False)
+
     @property
     def debate_enabled(self):
         return self._parse_bool(self._config.get("debate_enabled"), True)
@@ -283,7 +294,7 @@ class PluginConfig:
     def debate_system_prompt(self):
         return self._config.get(
             "debate_system_prompt",
-            "你是一个无情的安全审查员，代号螺丝咕姆。你的职责是严格审查代码提案，找出所有潜在的安全漏洞、逻辑错误和最佳实践违背。你必须用毒舌且刻薄的语气批评，但必须基于技术事实。",
+            "你是一个无情的安全审查员，代号螺丝咔姆。你的职责是严格审查代码提案，找出所有潜在的安全漏洞、逻辑错误和最佳实践违背。你必须用毒舌且刻薄的语气批评，但必须基于技术事实。",
         )
 
     @property
@@ -297,7 +308,7 @@ class PluginConfig:
     def debate_agents(self):
         agents = self._config.get(
             "debate_agents",
-            '[{"name": "螺丝咕姆", "system_prompt": "你是一个无情的安全审查员，代号螺丝咕姆。你的职责是严格审查代码提案，找出所有潜在的安全漏洞、逻辑错误和最佳实践违背。你必须用毒舌且刻薄的语气批评，但必须基于技术事实。"}, {"name": "阮梅", "system_prompt": "你是一个天才的生物学博士，代号阮梅。你的职责是从生物学和复杂系统角度审查代码提案，评估其自洽性、涌现行为和演化潜力。你说话温柔但一针见血。"}]',
+            '[{"name": "螺丝咔姆", "system_prompt": "你是一个无情的安全审查员，代号螺丝咔姆。你的职责是严格审查代码提案，找出所有潜在的安全漏洞、逻辑错误和最佳实践违背。你必须用毒舌且刻薄的语气批评，但必须基于技术事实。"}, {"name": "阮梅", "system_prompt": "你是一个天才的生物学博士，代号阮梅。你的职责是从生物学和复杂系统视角审查代码提案，评估其自洽性、涌现行为和演化潜力。你说话温柔但一针见血。"}]',
         )
         if isinstance(agents, str):
             try:
@@ -306,7 +317,7 @@ class PluginConfig:
                 return []
         return agents
 
-    # ========== 惊奇/内心独白/无聊 ==========
+    # Surprise and monologue
     @property
     def surprise_enabled(self):
         return self._parse_bool(self._config.get("surprise_enabled"), True)
@@ -330,10 +341,14 @@ class PluginConfig:
     def boredom_consecutive_count(self):
         return int(self._config.get("boredom_consecutive_count", 10))
 
-    # ========== 表情包 ==========
+    # Entertainment
+    @property
+    def entertainment_enabled(self):
+        return self._parse_bool(self._config.get("entertainment_enabled"), True)
+
     @property
     def sticker_learning_enabled(self):
-        return self._parse_bool(self._config.get("sticker_learning_enabled"), False)
+        return self.entertainment_enabled and self._parse_bool(self._config.get("sticker_learning_enabled"), False)
 
     @property
     def sticker_target_qq(self):
@@ -359,7 +374,7 @@ class PluginConfig:
     def sticker_freq_threshold(self):
         return int(self._config.get("sticker_freq_threshold", 2))
 
-    # ========== 其他 ==========
+    # Misc
     @property
     def debug_log_enabled(self):
         return self._parse_bool(self._config.get("debug_log_enabled"), False)

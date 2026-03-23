@@ -324,6 +324,57 @@ class MemoryRouter:
 
         return "未知目标"
 
+    def _should_reject_session_event(self, content: str) -> bool:
+        """判断是否为失败态/元话语内容，应拒绝写入 session_event"""
+        if not content or not content.strip():
+            return True
+
+        content_lower = content.lower()
+
+        failure_phrases = [
+            "我不知道",
+            "我不记得",
+            "没有相关记忆",
+            "没有记忆",
+            "查不到",
+            "无法确认",
+            "未找到",
+            "没有找到",
+            "找不到",
+            "不确定",
+            "不知道",
+            "不清楚",
+            "无法回答",
+            "无法查找",
+            "没有相关信息",
+            "未找到相关",
+        ]
+
+        for phrase in failure_phrases:
+            if phrase in content_lower:
+                return True
+
+        if content.strip().startswith("工具调用失败"):
+            return True
+        if content.strip().startswith("查询失败"):
+            return True
+        if content.strip().startswith("获取失败"):
+            return True
+
+        meta_patterns = [
+            r"^调用工具.*?结果.*?$",
+            r"^工具返回.*?$",
+            r"^根据.*?返回.*?$",
+            r"^\[.*?\].*?$",
+        ]
+        import re
+
+        for pattern in meta_patterns:
+            if re.match(pattern, content.strip()):
+                return True
+
+        return False
+
     async def _write_to_kb(
         self,
         scope_id: str,
@@ -332,6 +383,10 @@ class MemoryRouter:
         source: str,
     ) -> str:
         """写入知识库 - session_event"""
+        if self._should_reject_session_event(content):
+            logger.debug(f"[MemoryRouter] 拒绝写入失败态内容: {content[:50]}...")
+            return "内容为失败态/元话语，已拒绝写入"
+
         try:
             memory_manager = getattr(self.plugin, "memory", None)
             if not memory_manager:

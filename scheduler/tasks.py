@@ -167,6 +167,11 @@ async def _run_task(
 
 async def scheduled_reflection(plugin) -> ScheduledTaskResult:
     """每日批处理任务 - 会话摘要生成 + 活跃用户画像更新"""
+    if not getattr(getattr(plugin, "cfg", None), "reflection_enabled", True):
+        logger.info("[Scheduler] DailyReflection 跳过: reflection_enabled=False")
+        return ScheduledTaskResult(
+            task_name="DailyReflection", scope_id=None, success=True, skipped=True, reason="reflection_enabled=False"
+        )
     return await _run_task(
         "DailyReflection",
         _reflection_impl,
@@ -178,6 +183,11 @@ async def scheduled_reflection(plugin) -> ScheduledTaskResult:
 
 async def scheduled_affinity_recovery(plugin) -> ScheduledTaskResult:
     """每日好感度恢复任务 - 独立于批处理运行"""
+    if not getattr(getattr(plugin, "cfg", None), "reflection_enabled", True):
+        logger.info("[Scheduler] AffinityRecovery 跳过: reflection_enabled=False")
+        return ScheduledTaskResult(
+            task_name="AffinityRecovery", scope_id=None, success=True, skipped=True, reason="reflection_enabled=False"
+        )
     return await _run_task(
         "AffinityRecovery",
         _affinity_recovery_impl,
@@ -239,6 +249,11 @@ async def _san_analyze_impl(plugin):
 
 async def scheduled_memory_summary(plugin) -> ScheduledTaskResult:
     """每日会话总结任务"""
+    if not getattr(getattr(plugin, "cfg", None), "memory_enabled", True):
+        logger.info("[Scheduler] MemorySummary 跳过: memory_enabled=False")
+        return ScheduledTaskResult(
+            task_name="MemorySummary", scope_id=None, success=True, skipped=True, reason="memory_enabled=False"
+        )
     return await _run_task(
         "MemorySummary",
         _memory_summary_impl,

@@ -1,10 +1,6 @@
-"""
-Scheduler Register - 定时任务注册
-"""
+"""Scheduler job registration."""
 
 import logging
-
-logger = logging.getLogger("astrbot")
 
 from .tasks import (
     scheduled_affinity_recovery,
@@ -16,15 +12,28 @@ from .tasks import (
     scheduled_san_analyze,
 )
 
+logger = logging.getLogger("astrbot")
+
+
+def _calc_recovery_cron(reflection_cron: str) -> str:
+    try:
+        parts = reflection_cron.split()
+        minute = int(parts[0])
+        hour = int(parts[1])
+        new_minute = (minute + 5) % 60
+        new_hour = (hour + (minute + 5) // 60) % 24
+        return f"{new_minute} {new_hour} * * *"
+    except Exception:
+        return "5 3 * * *"
+
 
 async def register_tasks(plugin):
-    """注册所有定时任务"""
-    logger.info("[SelfEvolution] 开始注册定时任务...")
+    """Register all cron jobs for the plugin."""
+    logger.info("[SelfEvolution] 开始注册定时任务")
 
     try:
         cron_mgr = plugin.context.cron_manager
 
-        # 清理旧任务
         try:
             jobs = await cron_mgr.list_jobs()
             for job in jobs:
@@ -35,9 +44,8 @@ async def register_tasks(plugin):
                     except Exception as e:
                         logger.warning(f"[SelfEvolution] 清理旧任务失败: {job.name}, {e}")
         except Exception as e:
-            logger.warning(f"[SelfEvolution] 获取任务列表失败: {e}")
+            logger.warning(f"[SelfEvolution] 获取旧任务列表失败: {e}")
 
-        # 注册画像清理任务（每天凌晨 4 点）
         await cron_mgr.add_basic_job(
             name="SelfEvolution_ProfileCleanup",
             cron_expression="0 4 * * *",
@@ -47,7 +55,6 @@ async def register_tasks(plugin):
         )
         logger.info("[SelfEvolution] 已注册画像清理任务: 0 4 * * *")
 
-        # 注册自动画像构建任务
         if plugin.cfg.auto_profile_enabled:
             profile_cron = plugin.cfg.auto_profile_schedule
             await cron_mgr.add_basic_job(
@@ -59,36 +66,26 @@ async def register_tasks(plugin):
             )
             logger.info(f"[SelfEvolution] 已注册自动画像构建任务: {profile_cron}")
 
-        # 注册每日批处理任务
-        await cron_mgr.add_basic_job(
-            name="SelfEvolution_DailyReflection",
-            cron_expression=plugin.reflection_schedule,
-            handler=lambda: scheduled_reflection(plugin),
-            description="自我进化插件：每日批量生成会话日报并刷新画像。",
-            persistent=True,
-        )
-        logger.info(f"[SelfEvolution] 已注册每日批处理任务: {plugin.reflection_schedule}")
+        if plugin.cfg.reflection_enabled:
+            await cron_mgr.add_basic_job(
+                name="SelfEvolution_DailyReflection",
+                cron_expression=plugin.reflection_schedule,
+                handler=lambda: scheduled_reflection(plugin),
+                description="自我进化插件：每日批处理、日报和画像刷新。",
+                persistent=True,
+            )
+            logger.info(f"[SelfEvolution] 已注册每日批处理任务: {plugin.reflection_schedule}")
 
-        # 注册好感度恢复任务（在批处理之后独立运行）
-        try:
-            parts = plugin.reflection_schedule.split()
-            minute = int(parts[0])
-            hour = int(parts[1])
-            new_minute = (minute + 5) % 60
-            new_hour = (hour + (minute + 5) // 60) % 24
-            recovery_cron = f"{new_minute} {new_hour} * * *"
-        except Exception:
-            recovery_cron = "5 3 * * *"
-        await cron_mgr.add_basic_job(
-            name="SelfEvolution_AffinityRecovery",
-            cron_expression=recovery_cron,
-            handler=lambda: scheduled_affinity_recovery(plugin),
-            description="自我进化插件：每日恢复用户好感度。",
-            persistent=True,
-        )
-        logger.info(f"[SelfEvolution] 已注册好感度恢复任务: {recovery_cron}")
+            recovery_cron = _calc_recovery_cron(plugin.reflection_schedule)
+            await cron_mgr.add_basic_job(
+                name="SelfEvolution_AffinityRecovery",
+                cron_expression=recovery_cron,
+                handler=lambda: scheduled_affinity_recovery(plugin),
+                description="自我进化插件：每日恢复用户好感度。",
+                persistent=True,
+            )
+            logger.info(f"[SelfEvolution] 已注册好感度恢复任务: {recovery_cron}")
 
-        # 注册 SAN 分析任务
         if plugin.cfg.san_enabled and plugin.cfg.san_auto_analyze_enabled:
             san_interval = plugin.cfg.san_analyze_interval
             san_cron = f"*/{san_interval} * * * *"
@@ -96,23 +93,22 @@ async def register_tasks(plugin):
                 name="SelfEvolution_SANAnalyze",
                 cron_expression=san_cron,
                 handler=lambda: scheduled_san_analyze(plugin),
-                description="自我进化插件：定时分析群状态调整SAN值。",
+                description="自我进化插件：定时分析群状态并调整 SAN。",
                 persistent=True,
             )
             logger.info(f"[SelfEvolution] 已注册 SAN 分析任务: {san_cron}")
 
-        # 注册每日会话总结任务
-        summary_cron = plugin.cfg.memory_summary_schedule
-        await cron_mgr.add_basic_job(
-            name="SelfEvolution_MemorySummary",
-            cron_expression=summary_cron,
-            handler=lambda: scheduled_memory_summary(plugin),
-            description="自我进化插件：定时总结群聊/私聊消息。",
-            persistent=True,
-        )
-        logger.info(f"[SelfEvolution] 已注册每日总结任务: {summary_cron}")
+        if plugin.cfg.memory_enabled:
+            summary_cron = plugin.cfg.memory_summary_schedule
+            await cron_mgr.add_basic_job(
+                name="SelfEvolution_MemorySummary",
+                cron_expression=summary_cron,
+                handler=lambda: scheduled_memory_summary(plugin),
+                description="自我进化插件：定时总结群聊和私聊消息。",
+                persistent=True,
+            )
+            logger.info(f"[SelfEvolution] 已注册每日总结任务: {summary_cron}")
 
-        # 注册主动插嘴任务
         if plugin.cfg.interject_enabled:
             interject_interval = plugin.cfg.interject_interval
             interject_cron = f"*/{interject_interval} * * * *"
@@ -120,12 +116,12 @@ async def register_tasks(plugin):
                 name="SelfEvolution_Interject",
                 cron_expression=interject_cron,
                 handler=lambda: scheduled_interject(plugin),
-                description="自我进化插件：定时检查群聊氛围并自主决定是否插嘴。",
+                description="自我进化插件：定时检查群聊氛围并决定是否插嘴。",
                 persistent=True,
             )
             logger.info(f"[SelfEvolution] 已注册主动插嘴任务: {interject_cron}")
 
-        logger.info("[SelfEvolution] 所有定时任务注册完成")
+        logger.info("[SelfEvolution] 定时任务注册完成")
 
     except Exception as e:
         logger.error(f"[SelfEvolution] 注册定时任务失败: {e}", exc_info=True)

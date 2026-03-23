@@ -180,3 +180,71 @@ class MemoryRouterTests(IsolatedAsyncioTestCase):
         router = MemoryRouter(plugin)
 
         self.assertEqual(router._auto_detect_fact_type("今天群里聊了游戏"), "recent_update")
+
+    def test_should_reject_session_event_unknown_phrase(self):
+        plugin = self._make_plugin()
+        router = MemoryRouter(plugin)
+
+        self.assertTrue(router._should_reject_session_event("我不知道"))
+        self.assertTrue(router._should_reject_session_event("我不记得"))
+        self.assertTrue(router._should_reject_session_event("没有相关记忆"))
+        self.assertTrue(router._should_reject_session_event("查不到"))
+        self.assertTrue(router._should_reject_session_event("无法确认"))
+        self.assertTrue(router._should_reject_session_event("未找到"))
+        self.assertTrue(router._should_reject_session_event("没有找到相关信息"))
+        self.assertTrue(router._should_reject_session_event("不清楚"))
+        self.assertTrue(router._should_reject_session_event("不确定"))
+
+    def test_should_reject_session_event_meta_content(self):
+        plugin = self._make_plugin()
+        router = MemoryRouter(plugin)
+
+        self.assertTrue(router._should_reject_session_event("工具调用失败"))
+        self.assertTrue(router._should_reject_session_event("查询失败"))
+        self.assertTrue(router._should_reject_session_event("获取失败"))
+
+    def test_should_reject_session_event_empty(self):
+        plugin = self._make_plugin()
+        router = MemoryRouter(plugin)
+
+        self.assertTrue(router._should_reject_session_event(""))
+        self.assertTrue(router._should_reject_session_event("   "))
+
+    def test_should_accept_normal_session_event(self):
+        plugin = self._make_plugin()
+        router = MemoryRouter(plugin)
+
+        self.assertFalse(router._should_reject_session_event("群里决定周日晚上8点联机"))
+        self.assertFalse(router._should_reject_session_event("我们约定了明天开会"))
+        self.assertFalse(router._should_reject_session_event("他喜欢玩 Galgame"))
+        self.assertFalse(router._should_reject_session_event("用户是一名程序员"))
+
+    async def test_write_rejects_failure_content_to_kb(self):
+        plugin = self._make_plugin()
+        router = MemoryRouter(plugin)
+
+        result = await router.write(
+            content="我不知道",
+            scope_id="6001",
+            user_id="8001",
+            category="session_event",
+            source="test",
+        )
+
+        plugin.memory.save_session_event.assert_not_awaited()
+        self.assertIn("已拒绝", result)
+
+    async def test_write_accepts_normal_content_to_kb(self):
+        plugin = self._make_plugin()
+        router = MemoryRouter(plugin)
+
+        result = await router.write(
+            content="群里决定周日联机",
+            scope_id="6001",
+            user_id="8001",
+            category="session_event",
+            source="test",
+        )
+
+        plugin.memory.save_session_event.assert_awaited_once()
+        self.assertIn("知识库", result)

@@ -61,8 +61,9 @@ class HandleStickerTests(IsolatedAsyncioTestCase):
         self.assertIn("5", result)
         self.assertIn("u1", result)
         self.assertIn("2001", result)
+        self.assertIn("第 1/1 页", result)
 
-    async def test_list_with_page(self):
+    async def test_list_page_1_uses_zero_offset(self):
         plugin = SimpleNamespace(
             dao=SimpleNamespace(
                 get_stickers=AsyncMock(return_value=[]),
@@ -71,8 +72,26 @@ class HandleStickerTests(IsolatedAsyncioTestCase):
             ),
         )
         event = _FakeEvent()
-        await sticker_commands.handle_sticker(event, plugin, "list", "3")
-        plugin.dao.get_stickers.assert_awaited_once_with(10)
+        await sticker_commands.handle_sticker(event, plugin, "list", "1")
+        plugin.dao.get_stickers.assert_awaited_once_with(10, offset=0)
+
+    async def test_list_page_2_uses_offset(self):
+        plugin = SimpleNamespace(
+            dao=SimpleNamespace(
+                get_stickers=AsyncMock(return_value=[]),
+                get_sticker_count=AsyncMock(return_value=0),
+                get_today_sticker_count=AsyncMock(return_value=0),
+            ),
+        )
+        event = _FakeEvent()
+        await sticker_commands.handle_sticker(event, plugin, "list", "2")
+        plugin.dao.get_stickers.assert_awaited_once_with(10, offset=10)
+
+    async def test_list_invalid_page_rejected(self):
+        plugin = SimpleNamespace(dao=SimpleNamespace())
+        event = _FakeEvent()
+        result = await sticker_commands.handle_sticker(event, plugin, "list", "abc")
+        self.assertIn("参数", result)
 
     async def test_delete_success(self):
         plugin = SimpleNamespace(

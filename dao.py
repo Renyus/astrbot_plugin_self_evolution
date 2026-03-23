@@ -3,8 +3,10 @@ import hashlib
 import logging
 import time
 import uuid
+from contextlib import suppress
 from datetime import datetime, timedelta
 from functools import wraps
+from pathlib import Path
 from typing import Optional
 
 import aiosqlite
@@ -144,6 +146,34 @@ class SelfEvolutionDAO:
                 user_id TEXT NOT NULL,
                 url TEXT NOT NULL,
                 created_at TEXT NOT NULL
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS pending_evolutions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                persona_id TEXT NOT NULL,
+                new_prompt TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending_approval'
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS session_reflections (
+                session_id TEXT PRIMARY KEY,
+                note TEXT NOT NULL,
+                facts TEXT NOT NULL DEFAULT '',
+                bias TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                consumed INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS group_daily_reports (
+                group_id TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (group_id, created_at)
             )
         """)
 
@@ -582,13 +612,13 @@ class SelfEvolutionDAO:
             }
 
     @with_db_retry()
-    async def get_stickers(self, limit: int = 10) -> list:
+    async def get_stickers(self, limit: int = 10, offset: int = 0) -> list:
         """获取表情包列表（全局）"""
         db = await self.get_conn()
         async with self._db_lock:
             cursor = await db.execute(
-                "SELECT id, uuid, group_id, user_id, url, created_at FROM stickers ORDER BY id DESC LIMIT ?",
-                (limit,),
+                "SELECT id, uuid, group_id, user_id, url, created_at FROM stickers ORDER BY id DESC LIMIT ? OFFSET ?",
+                (limit, offset),
             )
             rows = await cursor.fetchall()
             return [
@@ -680,3 +710,30 @@ class SelfEvolutionDAO:
 
             await db.commit()
             return results
+
+    async def delete_and_rebuild(self) -> dict:
+        """删除数据库文件并重建空数据库。"""
+        db_file = Path(self.db_path)
+        related_files = [db_file, db_file.with_suffix(f"{db_file.suffix}-wal"), db_file.with_suffix(f"{db_file.suffix}-shm")]
+        deleted_files = []
+
+        await self.close()
+
+        for file_path in related_files:
+            if file_path.exists():
+                with suppress(FileNotFoundError):
+                    file_path.unlink()
+                    deleted_files.append(file_path.name)
+
+        self._affinity_cache.clear()
+        self._affinity_cache_time.clear()
+        self._probe_counter = 0
+        self._last_probe_time = 0
+
+        await self.init_db()
+
+        return {
+            "deleted_files": deleted_files,
+            "rebuilt": True,
+            "db_path": str(db_file),
+        }

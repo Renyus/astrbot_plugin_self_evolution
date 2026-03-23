@@ -73,7 +73,7 @@ class PromptContext:
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "CognitionCore 7.0 数字生命。",
-    "Ver 3.0",
+    "Ver 3.1",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
@@ -144,7 +144,7 @@ class SelfEvolutionPlugin(Star):
 
         # CognitionCore 7.0: 状态容器
         self._lock = None  # 用于元编程写锁
-        self._pending_db_reset = {}  # 待确认的数据库重置操作 {user_id: timestamp}
+        self._pending_db_reset = {}  # 待确认的数据库操作 {user_id: {"action": str, "expires_at": timestamp}}
         self._shut_until = None  # 闭嘴截止时间 (timestamp)
         self._shut_until_by_group = {}  # 群级别闭嘴 {群号: 截止时间}
         self._interject_history = {}  # 群插嘴历史 {群号: {"last_time": timestamp, "last_msg_id": str}}
@@ -387,12 +387,16 @@ class SelfEvolutionPlugin(Star):
         return f"\n\n[用户印象]\n{profile_summary}\n"
 
     async def _build_kb_memory_injection(self, ctx: PromptContext) -> str:
+        if not getattr(self.cfg, "memory_enabled", True):
+            return ""
         kb_memory = await self.memory.smart_retrieve(scope_id=ctx.scope_id, query=ctx.msg_text, max_results=3)
         if not kb_memory:
             return ""
         return f"\n\n{kb_memory}\n"
 
     async def _build_reflection_injection(self, ctx: PromptContext) -> tuple[str, list[str]]:
+        if not getattr(self.cfg, "reflection_enabled", True):
+            return "", []
         if ctx.event is None:
             return "", []
         reflection = await self.session_reflection.get_and_consume_session_reflection(
@@ -583,22 +587,30 @@ class SelfEvolutionPlugin(Star):
         logger.info("[SelfEvolution] on_loaded 开始执行")
         await register_tasks(self)
 
-    @filter.command("version")
-    async def show_version(self, event: AstrMessageEvent):
-        """显示插件版本"""
-        result = await commands.handle_version(event, self)
+    @filter.command_group("system")
+    def system_group(self):
+        """系统命令"""
+
+    @system_group.command("help")
+    async def show_help(self, event: AstrMessageEvent):
+        """查看插件帮助"""
+        result = await commands.handle_help(event, self)
         yield event.plain_result(result)
 
-    @filter.command("sehelp")
-    async def show_help(self, event: AstrMessageEvent):
-        """显示 Self-Evolution 插件指令帮助"""
-        result = await commands.handle_help(event, self)
+    @system_group.command("version")
+    async def show_version(self, event: AstrMessageEvent):
+        """查看插件版本"""
+        result = await commands.handle_version(event, self)
         yield event.plain_result(result)
 
     @filter.command("今日老婆")
     async def today_waifu(self, event: AstrMessageEvent):
         """今日老婆功能 - 随机抽取一名群友"""
         from astrbot.core.message.components import Image
+
+        if not getattr(self.cfg, "entertainment_enabled", True):
+            yield event.plain_result("娱乐模块当前已关闭。")
+            return
 
         result = await self.entertainment.today_waifu(event)
         if isinstance(result, list) and len(result) == 2:
@@ -610,6 +622,10 @@ class SelfEvolutionPlugin(Star):
         手动触发一次自我反省。
         反思结果会在下次对话时注入到AI的思考中。
         """
+        if not getattr(self.cfg, "reflection_enabled", True):
+            yield event.plain_result("反思模块当前已关闭。")
+            return
+
         session_id = event.session_id
         group_id = event.get_group_id()
         user_id = event.get_sender_id()
@@ -684,9 +700,19 @@ class SelfEvolutionPlugin(Star):
         logger.warning(f"[SelfEvolution] 管理员 {event.get_sender_id()} 强制重置了用户 {user_id} 的好感度为 {score}。")
         yield event.plain_result(f"已成功将用户 {user_id} 的情感评分修正为: {score}")
 
-    @filter.command("set_san")
+    @filter.command_group("san")
+    def san_group(self):
+        """SAN 状态管理"""
+
+    @san_group.command("show")
+    async def show_san(self, event: AstrMessageEvent):
+        """查看当前 SAN 状态"""
+        result = await commands.handle_san_show(event, self)
+        yield event.plain_result(result)
+
+    @san_group.command("set")
     async def set_san(self, event: AstrMessageEvent, value: str = ""):
-        """[管理员] 查看或手动设置当前精力值。"""
+        """设置当前 SAN 值"""
         result = await commands.handle_set_san(event, self, value)
         yield event.plain_result(result)
 
@@ -706,33 +732,37 @@ class SelfEvolutionPlugin(Star):
         logger.warning(f"[CognitionCore] 用户 {user_id} 积分变动 {delta}，原因: {reason}")
         return f"用户情感积分已更新。当前调整理由：{reason}"
 
-    @filter.command("review_evolutions")
+    @filter.command_group("evolution")
+    def evolution_group(self):
+        """人格进化管理"""
+
+    @evolution_group.command("review")
     async def review_evolutions(self, event: AstrMessageEvent, page: int = 1):
-        """【管理员接口】列出待审核的人格进化请求，支持分页查询。"""
+        """查看待审核的人格进化"""
         if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
             yield event.plain_result("权限拒绝：此操作仅限系统管理员执行。")
             return
         yield event.plain_result(await self.persona.review_evolutions(event, page))
 
-    @filter.command("approve_evolution")
+    @evolution_group.command("approve")
     async def approve_evolution(self, event: AstrMessageEvent, request_id: int):
-        """【管理员接口】批准指定 ID 的人格进化请求。"""
+        """批准人格进化"""
         if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
             yield event.plain_result("权限拒绝：此操作仅限系统管理员执行。")
             return
         yield event.plain_result(await self.persona.approve_evolution(event, request_id))
 
-    @filter.command("reject_evolution")
+    @evolution_group.command("reject")
     async def reject_evolution(self, event: AstrMessageEvent, request_id: int):
-        """【管理员接口】拒绝指定 ID 的人格进化请求。"""
+        """拒绝人格进化"""
         if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
             yield event.plain_result("权限拒绝：此操作仅限系统管理员执行。")
             return
         yield event.plain_result(await self.persona.reject_evolution(event, request_id))
 
-    @filter.command("clear_evolutions")
+    @evolution_group.command("clear")
     async def clear_evolutions(self, event: AstrMessageEvent):
-        """【管理员接口】一键清空所有待审核的进化请求。"""
+        """清空待审核人格进化"""
         if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
             yield event.plain_result("权限拒绝：此操作仅限系统管理员执行。")
             return
@@ -928,11 +958,16 @@ class SelfEvolutionPlugin(Star):
         page_size: int = 100,
         max_pages: int = 20,
     ) -> str:
-        """获取指定用户的历史消息记录。
+        """获取指定用户的历史消息记录，用于画像分析或明确查询某个用户说过的话。
 
         触发场景：
-        - 需要了解用户最近的发言历史时
-        - 分析用户在群聊或私聊中的行为模式时
+        - 了解某个用户长期是什么风格（画像分析）
+        - 明确查询某用户具体说过什么
+
+        不适合回答：
+        - "群里刚刚/昨天聊了什么" → 用 get_group_recent_context
+        - "这个群最近在讨论什么" → 用 get_group_recent_context
+        - "昨天这个群聊了什么" → 用知识库长期记忆
 
         Args:
             target_user_id(string): 目标用户ID，不填则获取当前用户（可选）
@@ -993,6 +1028,7 @@ class SelfEvolutionPlugin(Star):
                     f"[Tool] get_user_messages: 群={group_id}, limit={limit}, page_size={page_size}, max_pages={max_pages}"
                 )
                 user_messages = []
+                seen_keys = set()
                 end_seq = None
 
                 for _ in range(max_pages):
@@ -1010,17 +1046,31 @@ class SelfEvolutionPlugin(Star):
                         sender = msg.get("sender", {})
                         sender_id = str(sender.get("user_id", ""))
                         if sender_id == str(target):
+                            msg_key = f"{msg.get('message_id', '')}:{msg.get('seq', '')}:{msg.get('time', '')}"
+                            if msg_key in seen_keys:
+                                continue
+                            seen_keys.add(msg_key)
                             msg_text = await parse_message_chain(msg, self)
                             if msg_text:
                                 user_messages.append(msg_text)
                             if len(user_messages) >= limit:
                                 break
-                        end_seq = msg.get("seq", None)
 
                     if len(user_messages) >= limit:
                         break
                     if len(page_msgs) < page_size:
                         break
+
+                    oldest_msg = page_msgs[0]
+                    for field in ("message_seq", "message_id"):
+                        if field in oldest_msg and oldest_msg[field] not in (None, ""):
+                            try:
+                                end_seq = int(oldest_msg[field])
+                            except (TypeError, ValueError):
+                                end_seq = None
+                            break
+                    else:
+                        end_seq = None
 
                 user_messages.reverse()
 
@@ -1036,9 +1086,89 @@ class SelfEvolutionPlugin(Star):
             logger.warning(f"[SelfEvolution] 获取用户消息失败: {e}")
             return f"获取历史消息失败: {e!s}"
 
-    @filter.command("view")
+    @filter.llm_tool(name="get_group_recent_context")
+    async def get_group_recent_context(
+        self,
+        event: AstrMessageEvent,
+        limit: int = 30,
+    ) -> str:
+        """获取群聊最近消息上下文，用于回答"群里刚刚在聊什么"类问题。
+
+        触发场景：
+        - 群里刚刚/最近在聊什么
+        - 你看看上下文
+        - 这个群最近讨论了什么话题
+
+        注意：
+        - 仅限群聊使用
+        - 不按用户筛选，返回整个群的最近消息
+        - 适合回答"群里刚刚/最近"类问题
+        - 不适合回答"某个人以前都说过什么"（用 get_user_messages）
+
+        Args:
+            limit(int): 最多返回的消息条数，默认30（可选）
+        """
+        group_id = event.get_group_id()
+        if not group_id:
+            return "此工具仅限群聊使用"
+
+        limit = min(max(1, limit), 200)
+
+        logger.debug(f"[Tool] get_group_recent_context: group={group_id}, limit={limit}")
+
+        try:
+            platform_insts = self.context.platform_manager.platform_insts
+            if not platform_insts:
+                logger.warning("[Tool] get_group_recent_context: 无法获取平台实例")
+                return "无法获取平台实例"
+
+            platform = platform_insts[0]
+            if not hasattr(platform, "get_client"):
+                logger.warning("[Tool] get_group_recent_context: 平台不支持获取 bot")
+                return "平台不支持获取 bot"
+
+            bot = platform.get_client()
+            if not bot:
+                logger.warning("[Tool] get_group_recent_context: 无法获取 bot 实例")
+                return "无法获取 bot 实例"
+
+            from .engine.context_injection import parse_message_chain
+
+            result = await bot.call_action("get_group_msg_history", group_id=int(group_id), count=limit)
+            messages = result.get("messages", [])
+            if not messages:
+                return f"群 {group_id} 暂无消息记录"
+
+            seen_keys = set()
+            formatted_messages = []
+            for msg in reversed(messages):
+                msg_key = f"{msg.get('message_id', '')}:{msg.get('seq', '')}:{msg.get('time', '')}"
+                if msg_key in seen_keys:
+                    continue
+                seen_keys.add(msg_key)
+
+                sender = msg.get("sender", {})
+                sender_nickname = sender.get("nickname", "未知")
+                msg_text = await parse_message_chain(msg, self)
+                if msg_text:
+                    formatted_messages.append(f"{sender_nickname}: {msg_text}")
+
+            if not formatted_messages:
+                return f"群 {group_id} 暂无可显示的消息"
+
+            return f"群 {group_id} 最近消息（共 {len(formatted_messages)} 条）：\n" + "\n".join(formatted_messages)
+
+        except Exception as e:
+            logger.warning(f"[SelfEvolution] 获取群上下文失败: {e}")
+            return f"获取群上下文失败: {e!s}"
+
+    @filter.command_group("profile")
+    def profile_group(self):
+        """用户画像命令"""
+
+    @profile_group.command("view")
     async def view_profile_cmd(self, event: AstrMessageEvent, user_id: str = ""):
-        """查看用户画像。普通用户只能看自己，管理员可以指定用户。"""
+        """查看用户画像"""
         if not commands.check_profile_admin(event, self):
             if user_id:
                 yield event.plain_result("权限拒绝：普通用户无法查看他人画像。")
@@ -1046,9 +1176,9 @@ class SelfEvolutionPlugin(Star):
         result = await commands.handle_view(event, self)
         yield event.plain_result(result)
 
-    @filter.command("create")
+    @profile_group.command("create")
     async def create_profile_cmd(self, event: AstrMessageEvent, user_id: str = ""):
-        """手动创建用户画像。普通用户只能给自己创建，管理员可以指定用户。"""
+        """手动创建画像"""
         if not commands.check_profile_admin(event, self):
             if user_id:
                 yield event.plain_result("权限拒绝：普通用户无法给他人创建画像。")
@@ -1056,9 +1186,9 @@ class SelfEvolutionPlugin(Star):
         result = await commands.handle_create(event, self)
         yield event.plain_result(result)
 
-    @filter.command("update")
+    @profile_group.command("update")
     async def update_profile_cmd(self, event: AstrMessageEvent, user_id: str = ""):
-        """手动更新用户画像。普通用户只能更新自己，管理员可以指定用户。"""
+        """手动更新画像"""
         if not commands.check_profile_admin(event, self):
             if user_id:
                 yield event.plain_result("权限拒绝：普通用户无法更新他人画像。")
@@ -1066,18 +1196,18 @@ class SelfEvolutionPlugin(Star):
         result = await commands.handle_update(event, self)
         yield event.plain_result(result)
 
-    @filter.command("delete_profile")
+    @profile_group.command("delete")
     async def delete_profile_cmd(self, event: AstrMessageEvent, user_id: str):
-        """【管理员】删除指定用户的画像。"""
+        """删除指定用户画像"""
         if not commands.check_profile_admin(event, self):
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
         result = await commands.handle_delete(event, self)
         yield event.plain_result(result)
 
-    @filter.command("profile_stats")
+    @profile_group.command("stats")
     async def profile_stats_cmd(self, event: AstrMessageEvent):
-        """【管理员】查看画像统计信息。"""
+        """查看画像统计"""
         if not commands.check_profile_admin(event, self):
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
@@ -1093,6 +1223,9 @@ class SelfEvolutionPlugin(Star):
         Args:
             limit(int): 返回数量，默认10，最大50
         """
+        if not getattr(self.cfg, "entertainment_enabled", True):
+            return "娱乐模块当前已关闭"
+
         if limit > 50:
             limit = 50
 
@@ -1119,6 +1252,10 @@ class SelfEvolutionPlugin(Star):
             logger.info(f"[Sticker] 发送表情包: UUID={sticker_uuid}")
         else:
             logger.info("[Sticker] 发送表情包: 随机")
+        if not getattr(self.cfg, "entertainment_enabled", True):
+            yield event.plain_result("娱乐模块当前已关闭。")
+            return
+
         group_id = event.get_group_id()
         if not group_id:
             yield event.plain_result("此功能仅限群聊使用")
@@ -1154,13 +1291,44 @@ class SelfEvolutionPlugin(Star):
             logger.warning(f"[Sticker] 发送表情包失败: {e}")
             yield event.plain_result(f"发送失败: {e}")
 
-    @filter.command("sticker")
-    async def sticker_cmd(self, event: AstrMessageEvent, action: str = "list", param: str = ""):
-        """表情包管理命令（全局）"""
+    @filter.command_group("sticker")
+    def sticker_group(self):
+        """表情包管理"""
+
+    @sticker_group.command("list")
+    async def sticker_list_cmd(self, event: AstrMessageEvent, page: str = ""):
+        """分页查看表情包"""
         if not commands.check_sticker_admin(event, self):
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
-        result = await commands.handle_sticker(event, self, action, param)
+        result = await commands.handle_sticker(event, self, "list", page)
+        yield event.plain_result(result)
+
+    @sticker_group.command("delete")
+    async def sticker_delete_cmd(self, event: AstrMessageEvent, sticker_uuid: str = ""):
+        """删除指定表情包"""
+        if not commands.check_sticker_admin(event, self):
+            yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
+            return
+        result = await commands.handle_sticker(event, self, "delete", sticker_uuid)
+        yield event.plain_result(result)
+
+    @sticker_group.command("clear")
+    async def sticker_clear_cmd(self, event: AstrMessageEvent):
+        """清空表情包"""
+        if not commands.check_sticker_admin(event, self):
+            yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
+            return
+        result = await commands.handle_sticker(event, self, "clear", "")
+        yield event.plain_result(result)
+
+    @sticker_group.command("stats")
+    async def sticker_stats_cmd(self, event: AstrMessageEvent):
+        """查看表情包统计"""
+        if not commands.check_sticker_admin(event, self):
+            yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
+            return
+        result = await commands.handle_sticker(event, self, "stats", "")
         yield event.plain_result(result)
 
     @filter.command("shut")

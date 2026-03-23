@@ -11,20 +11,35 @@ async def handle_sticker(event, plugin, action: str = "list", param: str = ""):
     dao = plugin.dao
 
     if action == "list":
-        page = int(param) if param and param.isdigit() else 1
+        if param:
+            if not param.isdigit():
+                return RESP_MESSAGES["invalid_param"]
+            page = int(param)
+            if page <= 0:
+                return RESP_MESSAGES["invalid_param"]
+        else:
+            page = 1
         page_size = 10
+        offset = (page - 1) * page_size
 
-        stickers = await dao.get_stickers(page_size)
+        stickers = await dao.get_stickers(page_size, offset=offset)
         total = await dao.get_sticker_count()
         today = await dao.get_today_sticker_count()
 
         if not stickers:
-            return "暂无表情包。"
+            if page == 1:
+                return "暂无表情包。"
+            return f"第 {page} 页暂无表情包。"
 
-        result = [f"【表情包列表】（共 {total} 张，今日新增 {today} 张）\n"]
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        has_next = page < total_pages
+
+        result = [f"【表情包列表】（第 {page}/{total_pages} 页，共 {total} 张，今日新增 {today} 张）\n"]
         for s in stickers:
             result.append(f"UUID:{s['uuid']} | 用户:{s['user_id']}")
+        result.append(f"\n是否还有下一页：{'有' if has_next else '无'}")
         result.append("\n【管理指令】")
+        result.append("/sticker list [页码]     # 查看指定页")
         result.append("/sticker delete <UUID>  # 删除指定UUID")
         result.append("/sticker clear           # 清空所有表情包")
         result.append("/sticker stats           # 查看统计")
