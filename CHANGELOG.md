@@ -23,6 +23,14 @@
 
 ### Fixed
 
+### 2026-03-23 补充记录
+
+- 新增 `/db rebuild` 管理员命令，用于删除插件数据库文件并重建空库
+- `/db confirm` 现在会根据最近一次待确认动作执行 `reset` 或 `rebuild`
+- 修复知识库智能检索误调用 `KBHelper.retrieve()` 的问题，改为走 `kb_manager.retrieve()`
+- 补齐 `pending_evolutions`、`session_reflections`、`group_daily_reports` 的建表逻辑
+- README 补充数据库维护说明与重装插件注意事项
+
 - `dao.py` timeout 参数语法错误 `3.0.0` → `3.0`
 
 ## [3.0.0] - 2026-03-22
