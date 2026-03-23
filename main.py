@@ -960,14 +960,18 @@ class SelfEvolutionPlugin(Star):
     ) -> str:
         """获取指定用户的历史消息记录，用于画像分析或明确查询某个用户说过的话。
 
+        工具职责划分：
+        - get_group_recent_context: 回答"刚刚/最近在聊什么"
+        - get_group_memory_summary: 回答"昨天/某天群里聊了什么"
+        - get_user_messages: 回答"某个人以前说过什么"
+
         触发场景：
         - 了解某个用户长期是什么风格（画像分析）
         - 明确查询某用户具体说过什么
 
         不适合回答：
-        - "群里刚刚/昨天聊了什么" → 用 get_group_recent_context
+        - "群里刚刚/昨天聊了什么" → 用 get_group_recent_context / get_group_memory_summary
         - "这个群最近在讨论什么" → 用 get_group_recent_context
-        - "昨天这个群聊了什么" → 用知识库长期记忆
 
         Args:
             target_user_id(string): 目标用户ID，不填则获取当前用户（可选）
@@ -1094,6 +1098,11 @@ class SelfEvolutionPlugin(Star):
     ) -> str:
         """获取群聊最近消息上下文，用于回答"群里刚刚在聊什么"类问题。
 
+        工具职责划分：
+        - get_group_recent_context: 回答"刚刚/最近在聊什么"
+        - get_group_memory_summary: 回答"昨天/某天群里聊了什么"
+        - get_user_messages: 回答"某个人以前说过什么"
+
         触发场景：
         - 群里刚刚/最近在聊什么
         - 你看看上下文
@@ -1102,8 +1111,8 @@ class SelfEvolutionPlugin(Star):
         注意：
         - 仅限群聊使用
         - 不按用户筛选，返回整个群的最近消息
-        - 适合回答"群里刚刚/最近"类问题
         - 不适合回答"某个人以前都说过什么"（用 get_user_messages）
+        - 不适合回答"昨天/某天群里聊了什么"（用 get_group_memory_summary）
 
         Args:
             limit(int): 最多返回的消息条数，默认30（可选）
@@ -1161,6 +1170,46 @@ class SelfEvolutionPlugin(Star):
         except Exception as e:
             logger.warning(f"[SelfEvolution] 获取群上下文失败: {e}")
             return f"获取群上下文失败: {e!s}"
+
+    @filter.llm_tool(name="get_group_memory_summary")
+    async def get_group_memory_summary(
+        self,
+        event: AstrMessageEvent,
+        date: str = "yesterday",
+        group_id: str = None,
+    ) -> str:
+        """获取指定日期的群聊总结，用于回答"昨天/前几天/某天群里聊了什么"类问题。
+
+        触发场景：
+        - 昨天这个群聊了什么
+        - 前天群里讨论了什么
+        - 查看某天的群聊总结
+
+        工具职责划分：
+        - get_group_recent_context: 回答"刚刚/最近在聊什么"
+        - get_group_memory_summary: 回答"昨天/某天群里聊了什么"
+        - get_user_messages: 回答"某个人以前说过什么"
+
+        Args:
+            date(string): 日期，支持：
+                - yesterday: 昨天
+                - today: 今天
+                - YYYY-MM-DD 格式，如 2026-03-20
+                默认 yesterday
+            group_id(string): 群号，不填则默认当前群（可选）
+        """
+        target_group_id = group_id or event.get_group_id()
+        if not target_group_id:
+            return "此工具仅限群聊使用"
+
+        if not date or not date.strip():
+            return "请提供有效的日期参数"
+
+        result = await self.memory.get_summary_by_date(target_group_id, date)
+        if not result:
+            return f"群 {target_group_id} 在 {date} 暂无总结记录"
+
+        return result
 
     @filter.command_group("profile")
     def profile_group(self):
