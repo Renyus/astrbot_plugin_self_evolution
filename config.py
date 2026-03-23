@@ -62,16 +62,8 @@ class PluginConfig:
         return self._config.get("memory_kb_name", "self_evolution_memory")
 
     @property
-    def memory_msg_count(self):
-        """[deprecated] 兼容旧键，请使用 memory_fetch_page_size"""
-        return int(self._config.get("memory_msg_count", 500))
-
-    @property
     def memory_fetch_page_size(self):
-        val = self._config.get("memory_fetch_page_size")
-        if val is None:
-            val = self._config.get("memory_msg_count")
-        return int(val if val is not None else 500)
+        return int(self._config.get("memory_fetch_page_size", 500))
 
     @property
     def memory_summary_chunk_size(self):
@@ -92,43 +84,16 @@ class PluginConfig:
         return int(self._config.get("profile_cooldown_minutes", 10))
 
     @property
-    def enable_profile_update(self):
-        """[deprecated] 兼容旧键，请使用 enable_profile_injection"""
-        return self._parse_bool(self._config.get("enable_profile_update"), True)
-
-    @property
     def enable_profile_injection(self):
-        val = self._config.get("enable_profile_injection")
-        if val is None:
-            val = self._config.get("enable_profile_update")
-        return self._parse_bool(val, True)
+        return self._parse_bool(self._config.get("enable_profile_injection"), True)
 
     @property
     def enable_profile_fact_writeback(self):
-        val = self._config.get("enable_profile_fact_writeback")
-        if val is None:
-            val = self._config.get("enable_profile_update")
-        return self._parse_bool(val, True)
+        return self._parse_bool(self._config.get("enable_profile_fact_writeback"), True)
 
     @property
     def enable_kb_memory_recall(self):
         return self._parse_bool(self._config.get("enable_kb_memory_recall"), True)
-
-    @property
-    def target_group_scopes(self):
-        old_list = self._config.get("target_group_scopes", [])
-        if isinstance(old_list, str):
-            old_list = [g.strip() for g in old_list.split(",") if g.strip()]
-        new_list = self._config.get("target_scopes", [])
-        if isinstance(new_list, str):
-            new_list = [g.strip() for g in new_list.split(",") if g.strip()]
-        seen = set()
-        merged = []
-        for g in list(old_list) + list(new_list):
-            if g and g not in seen:
-                seen.add(g)
-                merged.append(g)
-        return merged
 
     @property
     def target_scopes(self):
@@ -198,16 +163,8 @@ class PluginConfig:
         return self._parse_bool(self._config.get("interject_dry_run"), False)
 
     @property
-    def interject_random_bypass_rate(self):
-        """[deprecated] 兼容旧键，请使用 interject_trigger_probability"""
-        return float(self._config.get("interject_random_bypass_rate", 0.5))
-
-    @property
     def interject_trigger_probability(self):
-        val = self._config.get("interject_trigger_probability")
-        if val is None:
-            val = self._config.get("interject_random_bypass_rate")
-        return float(val if val is not None else 0.5)
+        return float(self._config.get("interject_trigger_probability", 0.5))
 
     @property
     def interject_analyze_count(self):

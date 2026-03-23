@@ -89,7 +89,7 @@ async def _resolve_target_scopes(
     Returns:
         (scopes, skip_reason)
     """
-    whitelist = plugin.cfg.target_group_scopes
+    whitelist = plugin.cfg.target_scopes
     if whitelist:
         all_scopes = [str(g) for g in whitelist]
         filtered = []

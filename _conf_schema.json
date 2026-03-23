@@ -46,13 +46,6 @@
         "type": "string",
         "default": "self_evolution_memory"
     },
-    "memory_msg_count": {
-        "title": "每日总结分页消息数（兼容旧键）",
-        "description": "总结分页大小",
-        "hint": "执行前一自然日会话总结时，每次从 NapCat 历史记录分页拉取的消息数量。",
-        "type": "int",
-        "default": 500
-    },
     "memory_fetch_page_size": {
         "title": "记忆分页拉取大小",
         "description": "每日总结时分页从 NapCat 拉取消息的数量",
@@ -89,12 +82,6 @@
         "type": "int",
         "default": 10
     },
-    "enable_profile_update": {
-        "title": "AI回复时注入画像（兼容旧键）",
-        "description": "@或引用时注入用户画像",
-        "type": "bool",
-        "default": true
-    },
     "enable_profile_injection": {
         "title": "启用画像内容注入",
         "description": "AI回复时注入用户画像摘要内容",
@@ -112,13 +99,6 @@
         "description": "AI回复时从知识库召回长期记忆上下文",
         "type": "bool",
         "default": true
-    },
-    "target_group_scopes": {
-        "title": "目标群范围（兼容旧键）",
-        "description": "指定要处理画像、记忆、插嘴的群",
-        "hint": "群号列表，如：[123456789, 987654321]，留空自动获取",
-        "type": "list",
-        "default": []
     },
     "target_scopes": {
         "title": "后台任务目标范围",
@@ -224,13 +204,6 @@
         "hint": "建议开启1-2天调优参数后关闭",
         "type": "bool",
         "default": false
-    },
-    "interject_random_bypass_rate": {
-        "title": "插嘴触发概率（兼容旧键）",
-        "description": "LLM判定满足条件后，最终执行的概率阈值",
-        "hint": "默认 0.5，设为 1 则每次必触发",
-        "type": "float",
-        "default": 0.5
     },
     "interject_trigger_probability": {
         "title": "插嘴执行概率",
@@ -575,3 +548,4 @@
         "default": "远程人偶自动应答模式：你好，你好，大家好，祝你拥有愉快的一天，再见。"
     }
 }
+
