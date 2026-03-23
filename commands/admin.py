@@ -108,6 +108,31 @@ async def handle_db(event, plugin, action: str = "", param: str = ""):
         )
 
 
+async def handle_set_san(event, plugin, value: str = ""):
+    """查看或设置精力值"""
+    ctx = CommandContext.from_event(event, plugin)
+    deny = ensure_admin(ctx)
+    if deny:
+        return deny
+
+    if not plugin.san_system.enabled:
+        return "SAN 精力系统未启用"
+
+    if not value:
+        current = plugin.san_system.value
+        status = plugin.san_system.get_status()
+        return f"当前精力值：{current}/{plugin.san_system.max_value}（{status}）"
+
+    try:
+        new_val = int(value)
+    except ValueError:
+        return RESP_MESSAGES["invalid_param"]
+
+    actual = plugin.san_system.set_value(new_val)
+    status = plugin.san_system.get_status()
+    return f"精力值已设置为：{actual}/{plugin.san_system.max_value}（{status}）"
+
+
 def check_admin(event, plugin):
     """检查是否有管理员权限"""
     ctx = CommandContext.from_event(event, plugin)

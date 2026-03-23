@@ -11,6 +11,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `/set_san [值]` 管理员命令：查看或手动设置当前精力值
+
 ### Changed
 
 - `/view` 命令改为纯只读，不再隐式触发 LLM 刷新画像（副作用移至 `/update`）

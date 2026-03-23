@@ -142,6 +142,13 @@ class SANSystem:
     def value(self):
         return self._san_value or 0
 
+    def set_value(self, new_value: int) -> int:
+        """管理员手动设置精力值，返回实际设置值（会裁剪到合法区间 [0, max_value]）"""
+        if not self.enabled:
+            return -1
+        self._san_value = max(0, min(self.max_value, int(new_value)))
+        return self._san_value
+
     async def analyze_all_groups(self):
         """定时分析所有群的消息，动态调整 SAN 值"""
         if not self.enabled or not self.auto_analyze_enabled:

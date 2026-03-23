@@ -172,6 +172,71 @@ class HandleDbTests(IsolatedAsyncioTestCase):
         self.assertNotIn("1001", plugin._pending_db_reset)
 
 
+class HandleSetSanTests(IsolatedAsyncioTestCase):
+    async def test_show_san_value(self):
+        plugin = SimpleNamespace(
+            admin_users=["1001"],
+            san_system=SimpleNamespace(
+                enabled=True,
+                value=75,
+                max_value=100,
+                get_status=lambda: "精力充沛",
+            ),
+        )
+        event = _FakeEvent(is_admin=True)
+        result = await admin_commands.handle_set_san(event, plugin)
+        self.assertIn("75", result)
+        self.assertIn("100", result)
+        self.assertIn("精力充沛", result)
+
+    async def test_set_san_value(self):
+        plugin = SimpleNamespace(
+            admin_users=["1001"],
+            san_system=SimpleNamespace(
+                enabled=True,
+                value=50,
+                max_value=100,
+                get_status=lambda: "略有疲态",
+                set_value=lambda v: v,
+            ),
+        )
+        event = _FakeEvent(is_admin=True)
+        result = await admin_commands.handle_set_san(event, plugin, "80")
+        self.assertIn("80", result)
+
+    async def test_set_san_rejects_non_admin(self):
+        plugin = SimpleNamespace(
+            admin_users=[],
+            san_system=SimpleNamespace(enabled=True),
+        )
+        event = _FakeEvent(is_admin=False)
+        result = await admin_commands.handle_set_san(event, plugin)
+        self.assertEqual(result, "权限拒绝：此操作仅限管理员执行。")
+
+    async def test_show_returns_when_san_disabled(self):
+        plugin = SimpleNamespace(
+            admin_users=["1001"],
+            san_system=SimpleNamespace(enabled=False),
+        )
+        event = _FakeEvent(is_admin=True)
+        result = await admin_commands.handle_set_san(event, plugin)
+        self.assertEqual(result, "SAN 精力系统未启用")
+
+    async def test_invalid_value_rejected(self):
+        plugin = SimpleNamespace(
+            admin_users=["1001"],
+            san_system=SimpleNamespace(
+                enabled=True,
+                value=50,
+                max_value=100,
+                get_status=lambda: "略有疲态",
+            ),
+        )
+        event = _FakeEvent(is_admin=True)
+        result = await admin_commands.handle_set_san(event, plugin, "abc")
+        self.assertEqual(result, "请输入有效的参数。")
+
+
 class CheckAdminTests(IsolatedAsyncioTestCase):
     def test_event_admin_true(self):
         plugin = SimpleNamespace(admin_users=[])

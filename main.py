@@ -684,6 +684,12 @@ class SelfEvolutionPlugin(Star):
         logger.warning(f"[SelfEvolution] 管理员 {event.get_sender_id()} 强制重置了用户 {user_id} 的好感度为 {score}。")
         yield event.plain_result(f"已成功将用户 {user_id} 的情感评分修正为: {score}")
 
+    @filter.command("set_san")
+    async def set_san(self, event: AstrMessageEvent, value: str = ""):
+        """[管理员] 查看或手动设置当前精力值。"""
+        result = await commands.handle_set_san(event, self, value)
+        yield event.plain_result(result)
+
     @filter.llm_tool(name="update_affinity")
     async def update_affinity_tool(self, event: AstrMessageEvent, delta: int, reason: str) -> str:
         """根据用户的言行调整其情感积分（好感度）。

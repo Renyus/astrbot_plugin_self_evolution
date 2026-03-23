@@ -149,6 +149,7 @@
 ### 管理员命令
 
 - `/set_affinity <用户ID> <分数>`
+- `/set_san [值]`
 - `/delete_profile <用户ID>`
 - `/profile_stats`
 - `/review_evolutions [页码]`
@@ -157,6 +158,9 @@
 - `/clear_evolutions`
 - `/sticker <操作>`
 - `/db <操作>`
+
+说明：
+- `/set_san` 不带参数时显示当前精力值和状态，带参数时设置为指定值
 
 ## LLM 工具
 
