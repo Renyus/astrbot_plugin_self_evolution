@@ -138,17 +138,6 @@ class SelfEvolutionDAO:
             )
         """)
         await db.execute("""
-            CREATE TABLE IF NOT EXISTS stickers (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                uuid TEXT UNIQUE NOT NULL,
-                hash TEXT UNIQUE NOT NULL,
-                group_id TEXT NOT NULL,
-                user_id TEXT NOT NULL,
-                url TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )
-        """)
-        await db.execute("""
             CREATE TABLE IF NOT EXISTS pending_evolutions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT NOT NULL,
@@ -505,170 +494,9 @@ class SelfEvolutionDAO:
             await db.execute("UPDATE pending_evolutions SET status = 'cleared' WHERE status = 'pending_approval'")
             await db.commit()
 
-    # ========== 表情包相关方法 ==========
+    # ========== 表情包相关方法（已废弃，统一使用 StickerStore） ==========
 
-    @staticmethod
-    def _normalize_sticker_url(url: str) -> str:
-        """标准化表情包URL，确保是有效的HTTP/HTTPS URL"""
-        if not url:
-            return ""
-        url = url.strip()
-        if url.startswith("http://") or url.startswith("https://"):
-            return url
-        if url.startswith("//"):
-            return "https:" + url
-        return "https://" + url
-
-    @with_db_retry()
-    async def add_sticker(
-        self,
-        group_id: str,
-        user_id: str,
-        url: str,
-        sticker_hash: str = None,
-    ) -> str | None:
-        """添加表情包到数据库，返回uuid或None"""
-        url = self._normalize_sticker_url(url)
-        if not url:
-            return None
-        db = await self.get_conn()
-        async with self._write_lock:
-            try:
-                sticker_uuid = uuid.uuid4().hex
-                if sticker_hash is None:
-                    sticker_hash = hashlib.md5(url.encode()).hexdigest()
-                await db.execute(
-                    "INSERT INTO stickers (uuid, hash, group_id, user_id, url, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
-                    (
-                        sticker_uuid,
-                        sticker_hash,
-                        group_id,
-                        user_id,
-                        url,
-                    ),
-                )
-                await db.commit()
-                return sticker_uuid
-            except aiosqlite.IntegrityError:
-                return None
-
-    @with_db_retry()
-    async def get_sticker_count(self) -> int:
-        """获取表情包总数"""
-        db = await self.get_conn()
-        async with self._db_lock:
-            cursor = await db.execute("SELECT COUNT(*) as cnt FROM stickers")
-            row = await cursor.fetchone()
-            return row["cnt"] if row else 0
-
-    @with_db_retry()
-    async def get_today_sticker_count(self) -> int:
-        """获取今日新增表情包数量"""
-        db = await self.get_conn()
-        async with self._db_lock:
-            cursor = await db.execute("SELECT COUNT(*) as cnt FROM stickers WHERE date(created_at) = date('now')")
-            row = await cursor.fetchone()
-            return row["cnt"] if row else 0
-
-    @with_db_retry()
-    async def get_random_sticker(self) -> dict | None:
-        """随机获取一张表情包（全局）"""
-        db = await self.get_conn()
-        async with self._db_lock:
-            cursor = await db.execute(
-                "SELECT id, group_id, user_id, url, created_at FROM stickers ORDER BY RANDOM() LIMIT 1"
-            )
-            row = await cursor.fetchone()
-            if row:
-                return {
-                    "id": row["id"],
-                    "group_id": row["group_id"],
-                    "user_id": row["user_id"],
-                    "url": row["url"],
-                    "created_at": row["created_at"],
-                }
-            return None
-
-    @with_db_retry()
-    async def delete_sticker_by_uuid(self, sticker_uuid: str) -> bool:
-        """根据UUID删除表情包"""
-        db = await self.get_conn()
-        async with self._write_lock:
-            cursor = await db.execute(
-                "DELETE FROM stickers WHERE uuid = ?",
-                (sticker_uuid,),
-            )
-            await db.commit()
-            return cursor.rowcount > 0
-
-    @with_db_retry()
-    async def delete_oldest_sticker(self) -> bool:
-        """删除最旧的表情包"""
-        db = await self.get_conn()
-        async with self._write_lock:
-            cursor = await db.execute(
-                "DELETE FROM stickers WHERE id = (SELECT id FROM stickers ORDER BY created_at ASC LIMIT 1)"
-            )
-            await db.commit()
-            return cursor.rowcount > 0
-
-    @with_db_retry()
-    async def get_sticker_stats(self) -> dict:
-        """获取表情包统计（全局）"""
-        db = await self.get_conn()
-        async with self._db_lock:
-            total = await db.execute("SELECT COUNT(*) as cnt FROM stickers")
-            today = await db.execute("SELECT COUNT(*) as cnt FROM stickers WHERE date(created_at) = date('now')")
-            total_row = await total.fetchone()
-            today_row = await today.fetchone()
-            return {
-                "total": total_row["cnt"] if total_row else 0,
-                "today": today_row["cnt"] if today_row else 0,
-            }
-
-    @with_db_retry()
-    async def get_stickers(self, limit: int = 10, offset: int = 0) -> list:
-        """获取表情包列表（全局）"""
-        db = await self.get_conn()
-        async with self._db_lock:
-            cursor = await db.execute(
-                "SELECT id, uuid, group_id, user_id, url, created_at FROM stickers ORDER BY id DESC LIMIT ? OFFSET ?",
-                (limit, offset),
-            )
-            rows = await cursor.fetchall()
-            return [
-                {
-                    "id": row["id"],
-                    "uuid": row["uuid"],
-                    "group_id": row["group_id"],
-                    "user_id": row["user_id"],
-                    "url": row["url"],
-                    "created_at": row["created_at"],
-                }
-                for row in rows
-            ]
-
-    @with_db_retry()
-    async def get_sticker_by_uuid(self, sticker_uuid: str) -> dict | None:
-        """根据uuid获取表情包信息"""
-        db = await self.get_conn()
-        async with self._db_lock:
-            cursor = await db.execute(
-                "SELECT id, uuid, hash, group_id, user_id, url, created_at FROM stickers WHERE uuid = ?",
-                (sticker_uuid,),
-            )
-            row = await cursor.fetchone()
-            if row:
-                return {
-                    "id": row["id"],
-                    "uuid": row["uuid"],
-                    "hash": row["hash"],
-                    "group_id": row["group_id"],
-                    "user_id": row["user_id"],
-                    "url": row["url"],
-                    "created_at": row["created_at"],
-                }
-            return None
+    # @deprecated: 请使用 StickerStore
 
     # ========== 内心独白相关方法 ==========
 
@@ -683,7 +511,6 @@ class SelfEvolutionDAO:
             "session_reflections",
             "group_daily_reports",
             "user_relationships",
-            "stickers",
         ]
 
         async with self._db_lock:
@@ -708,7 +535,6 @@ class SelfEvolutionDAO:
             "session_reflections",
             "group_daily_reports",
             "user_relationships",
-            "stickers",
         ]
 
         async with self._write_lock:

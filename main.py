@@ -30,6 +30,7 @@ from .engine.memory_router import MemoryRouter
 from .engine.meta_infra import MetaInfra
 from .engine.persona import PersonaManager
 from .engine.profile import ProfileManager
+from .engine.sticker_store import StickerStore
 from .scheduler.register import register_tasks
 
 PROTECTED_TOOLS = frozenset(
@@ -72,7 +73,7 @@ class PromptContext:
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "CognitionCore 7.0 数字生命。",
-    "Ver 3.1",
+    "Ver 3.1.1",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
@@ -105,6 +106,9 @@ class SelfEvolutionPlugin(Star):
         self.config = config or {}
         self.data_dir = StarTools.get_data_dir() / "self_evolution"
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.stickers_dir = self.data_dir / "stickers"
+        self.stickers_dir.mkdir(parents=True, exist_ok=True)
+        self.sticker_store = StickerStore(self.stickers_dir)
         db_path = os.path.join(self.data_dir, "self_evolution.db")
 
         # 配置系统（提前初始化，以便后续使用）
@@ -585,6 +589,8 @@ class SelfEvolutionPlugin(Star):
         """插件加载完成后，注册定时任务"""
         logger.info("[SelfEvolution] on_loaded 开始执行")
         await register_tasks(self)
+
+        asyncio.create_task(self.sticker_store.sync_from_files())
 
     @filter.command_group("system")
     def system_group(self):
@@ -1308,20 +1314,42 @@ class SelfEvolutionPlugin(Star):
             yield event.plain_result("此功能仅限群聊使用")
             return
 
-        sticker = await self.entertainment.get_sticker_for_sending()
-        if not sticker:
-            yield event.plain_result("暂无可用表情包")
-            return
+        max_retries = 3
+        last_error = None
 
-        try:
-            from astrbot.core.message.components import Image
+        skipped = 0
+        for attempt in range(max_retries):
+            sticker = await self.sticker_store.get_random_sticker()
+            if not sticker:
+                logger.warning("[Sticker] 没有可用的表情包")
+                break
 
-            url = sticker["url"]
-            yield event.chain_result([Image.fromURL(url)])
-            return
-        except Exception as e:
-            logger.warning(f"[Sticker] 发送表情包失败: {e}")
-            yield event.plain_result(f"发送失败: {e}")
+            try:
+                import base64
+                from pathlib import Path
+
+                file_path = self.sticker_store.get_sticker_path(sticker)
+                if not file_path or not Path(file_path).exists():
+                    logger.warning(f"[Sticker] 表情包文件不存在，禁用: {sticker['filename']}")
+                    await self.sticker_store.disable_sticker(sticker["uuid"])
+                    skipped += 1
+                    continue
+
+                with open(file_path, "rb") as f:
+                    data = f.read()
+                bs64 = base64.b64encode(data).decode()
+                from astrbot.core.message.components import Image
+
+                yield event.chain_result([Image(f"base64://{bs64}")])
+                return
+            except Exception as e:
+                last_error = e
+                logger.warning(f"[Sticker] 发送表情包失败(尝试 {attempt + 1}/{max_retries}): {e}")
+                skipped += 1
+                continue
+
+        if skipped > 0:
+            yield event.plain_result(f"发送失败，已跳过 {skipped} 张问题表情包")
 
     @filter.command_group("sticker")
     def sticker_group(self):
@@ -1346,11 +1374,22 @@ class SelfEvolutionPlugin(Star):
             yield event.plain_result("请提供表情包 UUID：/sticker preview <uuid>")
             return
         result = await commands.handle_sticker(event, self, "preview", sticker_uuid)
-        if isinstance(result, dict) and "image_url" in result:
+        if isinstance(result, dict) and "image_path" in result:
             try:
+                import base64
+                from pathlib import Path
+
+                file_path = Path(result["image_path"])
+                if not file_path.exists():
+                    yield event.plain_result(f"表情包文件不存在: {result['image_path']}")
+                    return
+
+                with open(file_path, "rb") as f:
+                    data = f.read()
+                bs64 = base64.b64encode(data).decode()
                 from astrbot.core.message.components import Image
 
-                yield event.chain_result([Image.fromURL(result["image_url"])])
+                yield event.chain_result([Image(f"base64://{bs64}")])
                 return
             except Exception as e:
                 logger.warning(f"[Sticker] 预览表情包失败: {e}")
@@ -1376,6 +1415,24 @@ class SelfEvolutionPlugin(Star):
         result = await commands.handle_sticker(event, self, "clear", "")
         yield event.plain_result(result)
 
+    @sticker_group.command("disable")
+    async def sticker_disable_cmd(self, event: AstrMessageEvent, sticker_uuid: str = ""):
+        """禁用指定表情包"""
+        if not commands.check_sticker_admin(event, self):
+            yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
+            return
+        result = await commands.handle_sticker(event, self, "disable", sticker_uuid)
+        yield event.plain_result(result)
+
+    @sticker_group.command("enable")
+    async def sticker_enable_cmd(self, event: AstrMessageEvent, sticker_uuid: str = ""):
+        """启用指定表情包"""
+        if not commands.check_sticker_admin(event, self):
+            yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
+            return
+        result = await commands.handle_sticker(event, self, "enable", sticker_uuid)
+        yield event.plain_result(result)
+
     @sticker_group.command("stats")
     async def sticker_stats_cmd(self, event: AstrMessageEvent):
         """查看表情包统计"""
@@ -1383,6 +1440,70 @@ class SelfEvolutionPlugin(Star):
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
         result = await commands.handle_sticker(event, self, "stats", "")
+        yield event.plain_result(result)
+
+    @sticker_group.command("sync")
+    async def sticker_sync_cmd(self, event: AstrMessageEvent):
+        """同步本地表情包目录"""
+        if not commands.check_sticker_admin(event, self):
+            yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
+            return
+        result = await commands.handle_sticker(event, self, "sync", "")
+        yield event.plain_result(result)
+
+    @sticker_group.command("add")
+    async def sticker_add_cmd(self, event: AstrMessageEvent):
+        """添加表情包（发送图片后使用）"""
+        if not commands.check_sticker_admin(event, self):
+            yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
+            return
+
+        message_obj = getattr(event, "message_obj", None)
+        if not message_obj or not hasattr(message_obj, "message"):
+            yield event.plain_result("请在发送图片后使用此命令")
+            return
+
+        from astrbot.core.message.components import Image
+
+        image_found = False
+        for comp in message_obj.message:
+            if isinstance(comp, Image):
+                image_found = True
+                raw_msg = getattr(event.message_obj, "raw_message", None)
+                image_data = {}
+
+                if raw_msg and hasattr(raw_msg, "get"):
+                    raw_msg_list = raw_msg.get("message")
+                    if raw_msg_list:
+                        comp_file = getattr(comp, "file", "") or ""
+                        for seg in raw_msg_list:
+                            if isinstance(seg, dict) and seg.get("type") == "image":
+                                seg_data = seg.get("data", {})
+                                if isinstance(seg_data, dict) and seg_data.get("file") == comp_file:
+                                    image_data = seg_data
+                                    break
+
+                if not image_data:
+                    image_data = {
+                        "file": getattr(comp, "file", "") or "",
+                        "url": getattr(comp, "url", "") or "",
+                        "sub_type": 0,
+                    }
+
+                result = await self.entertainment.add_sticker_from_image(event, image_data)
+                yield event.plain_result(result["message"])
+                return
+
+        if not image_found:
+            yield event.plain_result("请在发送图片后使用此命令，例如：发送图片后输入 /sticker add")
+
+    @sticker_group.command("migrate")
+    async def sticker_migrate_cmd(self, event: AstrMessageEvent):
+        """从旧数据库迁移表情包到本地文件"""
+        if not commands.check_sticker_admin(event, self):
+            yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
+            return
+        result = await commands.handle_sticker(event, self, "migrate", "")
         yield event.plain_result(result)
 
     @filter.command("shut")

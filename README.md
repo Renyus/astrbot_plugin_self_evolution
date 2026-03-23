@@ -206,14 +206,21 @@
 - `/sticker list [页码]`
 - `/sticker preview <UUID>`
 - `/sticker delete <UUID>`
+- `/sticker disable <UUID>`
+- `/sticker enable <UUID>`
 - `/sticker clear`
 - `/sticker stats`
+- `/sticker sync`
+- `/sticker add`
+- `/sticker migrate`
 - `/db <操作>`
 
 说明：
 - `/san show` 所有人可用，用于查看当前 SAN 状态
 - `/san set` 仅管理员可用；不带参数时显示当前精力值和状态，带参数时设置为指定值
 - `/sticker list [页码]` 支持分页查看
+- **表情包现已完全由本地资产目录管理**（`data/self_evolution/stickers/`），不再使用数据库存储
+- **删除数据库不会影响表情包**，表情包文件独立存储在本地目录
 
 ## LLM 工具
 

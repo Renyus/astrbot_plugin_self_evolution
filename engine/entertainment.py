@@ -3,8 +3,14 @@
 """
 
 import hashlib
+import mimetypes
+import os
 import random
 import time
+from pathlib import Path
+
+import aiofiles
+import aiohttp
 
 from astrbot.api import logger
 
@@ -22,8 +28,16 @@ class EntertainmentEngine:
         return self.plugin.dao
 
     @property
+    def sticker_store(self):
+        return self.plugin.sticker_store
+
+    @property
     def cfg(self):
         return self.plugin.cfg
+
+    @property
+    def stickers_dir(self) -> Path:
+        return self.plugin.stickers_dir
 
     # ========== 今日老婆 ==========
 
@@ -166,24 +180,89 @@ class EntertainmentEngine:
         url: str,
         sticker_hash: str,
     ) -> bool:
-        """保存表情包到数据库"""
-        daily_count = await self.dao.get_today_sticker_count()
-        if daily_count >= self.cfg.sticker_daily_limit:
-            logger.debug(f"[Sticker] 今日已达上限 {self.cfg.sticker_daily_limit}")
-            return False
-
-        total_count = await self.dao.get_sticker_count()
+        """保存表情包到 StickerStore"""
+        total_count = (await self.sticker_store.get_stats())["total"]
         if total_count >= self.cfg.sticker_total_limit:
-            await self.dao.delete_oldest_sticker()
+            await self.sticker_store.delete_oldest_sticker()
             logger.debug("[Sticker] 已达总上限，删除最旧的")
 
-        sticker_uuid = await self.dao.add_sticker(group_id, user_id, url, sticker_hash)
-        if sticker_uuid:
-            logger.debug(f"[Sticker] 成功学习表情包: user={user_id}, group={group_id}, hash={sticker_hash[:8]}")
-            return True
-        else:
-            logger.debug(f"[Sticker] 表情包已存在: hash={sticker_hash[:8]}")
+        try:
+            import aiohttp
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    if resp.status != 200:
+                        logger.debug(f"[Sticker] 下载图片失败: HTTP {resp.status}")
+                        return False
+                    image_content = await resp.read()
+
+            mime_type = resp.headers.get("Content-Type", "image/jpeg")
+
+            sticker = await self.sticker_store.add_sticker(
+                group_id=group_id,
+                user_id=user_id,
+                content=image_content,
+                mime_type=mime_type,
+                source_url=url,
+            )
+
+            if sticker:
+                logger.debug(f"[Sticker] 成功学习表情包: user={user_id}, group={group_id}, hash={sticker_hash[:8]}")
+                return True
+            else:
+                logger.debug(f"[Sticker] 表情包已存在: hash={sticker_hash[:8]}")
+                return False
+
+        except Exception as e:
+            logger.warning(f"[Sticker] 保存表情包失败: {e}")
             return False
+
+    async def add_sticker_from_image(self, event, image_data: dict) -> dict:
+        """
+        从上传的图片添加表情包到本地目录
+
+        Args:
+            event: 消息事件
+            image_data: 包含 file, url, sub_type 等字段的图片数据
+
+        Returns:
+            dict: {"success": bool, "message": str}
+        """
+        img_url = image_data.get("url", "")
+
+        if not img_url:
+            return {"success": False, "message": "无法获取图片URL"}
+
+        group_id = event.get_group_id() or "private"
+        user_id = str(event.get_sender_id())
+
+        try:
+            import aiohttp
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(img_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    if resp.status != 200:
+                        return {"success": False, "message": f"下载图片失败: HTTP {resp.status}"}
+                    image_content = await resp.read()
+
+            mime_type = resp.headers.get("Content-Type", "image/jpeg")
+
+            sticker = await self.sticker_store.add_sticker(
+                group_id=group_id,
+                user_id=user_id,
+                content=image_content,
+                mime_type=mime_type,
+                source_url=img_url,
+            )
+
+            if sticker:
+                return {"success": True, "message": f"已添加表情包: {sticker['uuid']}", "uuid": sticker["uuid"]}
+            else:
+                return {"success": False, "message": "该图片已存在于表情包库中"}
+
+        except Exception as e:
+            logger.warning(f"[Sticker] 添加表情包失败: {e}")
+            return {"success": False, "message": f"添加失败: {e}"}
 
     async def should_send_sticker(self) -> bool:
         """判断当前是否应该发表情包（全局）"""
@@ -196,12 +275,12 @@ class EntertainmentEngine:
             logger.debug(f"[Sticker] 发表情包冷却中，剩余 {int(cooldown_seconds - (time.time() - last_time))} 秒")
             return False
 
-        sticker = await self.dao.get_random_sticker()
+        sticker = await self.sticker_store.get_random_sticker()
         return sticker is not None
 
     async def get_sticker_for_sending(self) -> dict | None:
         """获取要发送的表情包（全局）"""
-        sticker = await self.dao.get_random_sticker()
+        sticker = await self.sticker_store.get_random_sticker()
         if sticker:
             self._last_send_time["global"] = time.time()
         return sticker
@@ -210,11 +289,12 @@ class EntertainmentEngine:
         """列出表情包（全局）"""
         if not getattr(self.cfg, "entertainment_enabled", True):
             return []
-        return await self.dao.get_stickers(limit)
+        stickers, _ = await self.sticker_store.list_stickers(limit)
+        return stickers
 
     async def get_sticker_stats(self) -> dict:
         """获取表情包统计（全局）"""
-        return await self.dao.get_sticker_stats()
+        return await self.sticker_store.get_stats()
 
     async def get_prompt_injection(self) -> str:
         """获取表情包相关的 prompt 注入"""
