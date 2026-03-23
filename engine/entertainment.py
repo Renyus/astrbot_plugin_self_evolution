@@ -117,11 +117,15 @@ class EntertainmentEngine:
                 sub_type = image_sub_types.get(comp_file, 0)
                 img_url = image_sources.get(comp_file, "")
 
+                if not comp_file:
+                    logger.debug(f"[Sticker] 未找到图片file ID，跳过")
+                    continue
+
                 if not img_url:
                     logger.debug(f"[Sticker] 未找到图片URL，跳过: file={comp_file}")
                     continue
 
-                sticker_hash = hashlib.md5(img_url.encode()).hexdigest()
+                sticker_hash = hashlib.md5(comp_file.encode()).hexdigest()
 
                 if sub_type == 0:
                     freq_threshold = self.cfg.sticker_freq_threshold
