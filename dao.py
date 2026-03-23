@@ -507,6 +507,18 @@ class SelfEvolutionDAO:
 
     # ========== 表情包相关方法 ==========
 
+    @staticmethod
+    def _normalize_sticker_url(url: str) -> str:
+        """标准化表情包URL，确保是有效的HTTP/HTTPS URL"""
+        if not url:
+            return ""
+        url = url.strip()
+        if url.startswith("http://") or url.startswith("https://"):
+            return url
+        if url.startswith("//"):
+            return "https:" + url
+        return "https://" + url
+
     @with_db_retry()
     async def add_sticker(
         self,
@@ -516,6 +528,9 @@ class SelfEvolutionDAO:
         sticker_hash: str = None,
     ) -> str | None:
         """添加表情包到数据库，返回uuid或None"""
+        url = self._normalize_sticker_url(url)
+        if not url:
+            return None
         db = await self.get_conn()
         async with self._write_lock:
             try:
@@ -714,7 +729,11 @@ class SelfEvolutionDAO:
     async def delete_and_rebuild(self) -> dict:
         """删除数据库文件并重建空数据库。"""
         db_file = Path(self.db_path)
-        related_files = [db_file, db_file.with_suffix(f"{db_file.suffix}-wal"), db_file.with_suffix(f"{db_file.suffix}-shm")]
+        related_files = [
+            db_file,
+            db_file.with_suffix(f"{db_file.suffix}-wal"),
+            db_file.with_suffix(f"{db_file.suffix}-shm"),
+        ]
         deleted_files = []
 
         await self.close()
