@@ -1320,6 +1320,7 @@ class SelfEvolutionPlugin(Star):
         for attempt in range(max_retries):
             sticker = await self.sticker_store.get_random_sticker()
             if not sticker:
+                logger.warning("[Sticker] 没有可用的表情包")
                 break
 
             try:
@@ -1334,10 +1335,15 @@ class SelfEvolutionPlugin(Star):
 
                 with open(file_path, "rb") as f:
                     data = f.read()
+                logger.info(f"[Sticker] 读取文件成功: path={file_path}, size={len(data)} bytes")
                 bs64 = base64.b64encode(data).decode()
+                logger.info(f"[Sticker] base64编码成功: bs64_length={len(bs64)}")
                 from astrbot.core.message.components import Image
 
-                yield event.chain_result([Image(f"base64://{bs64}")])
+                img = Image(f"base64://{bs64}")
+                logger.info(f"[Sticker] Image对象创建成功: file={img.file[:50]}...")
+                yield event.chain_result([img])
+                logger.info(f"[Sticker] chain_result已发送")
                 return
             except Exception as e:
                 last_error = e
