@@ -41,7 +41,7 @@ class MemoryManagerTests(IsolatedAsyncioTestCase):
     async def test_get_target_scopes_keeps_private_active_sessions(self):
         plugin = SimpleNamespace(
             cfg=SimpleNamespace(target_scopes=[]),
-            eavesdropping=SimpleNamespace(active_users={"6001": {}, "private_7001": {}}),
+            eavesdropping=SimpleNamespace(get_active_scopes=lambda: ["6001", "private_7001"]),
             dao=SimpleNamespace(list_known_scopes=AsyncMock(return_value=[])),
         )
         manager = MemoryManager(plugin)

@@ -396,9 +396,10 @@ class MemoryManager:
             logger.debug(f"[Memory] 使用白名单群列表: {whitelist}")
             scopes.extend(str(group_id) for group_id in whitelist)
         else:
-            # 方式2: eavesdropping active_users
-            if hasattr(self.plugin, "eavesdropping") and hasattr(self.plugin.eavesdropping, "active_users"):
-                active_scopes = list(self.plugin.eavesdropping.active_users)
+            # 方式2: eavesdropping get_active_scopes()
+            eavesdropping = getattr(self.plugin, "eavesdropping", None)
+            if eavesdropping and hasattr(eavesdropping, "get_active_scopes"):
+                active_scopes = eavesdropping.get_active_scopes()
                 if active_scopes:
                     logger.debug(f"[Memory] 使用 eavesdropping 活跃会话列表: {active_scopes}")
                     scopes.extend(active_scopes)

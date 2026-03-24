@@ -104,18 +104,17 @@ async def _resolve_target_scopes(
         logger.debug(f"[Scheduler][{task_name}] 使用白名单（过滤后）: {scopes}")
         return scopes, ""
 
-    active_users = getattr(getattr(plugin, "eavesdropping", None), "active_users", None) or {}
-
     if include_groups and not include_private:
-        scopes = [g for g in active_users if not str(g).startswith("private_")]
+        active_scopes = getattr(plugin, "eavesdropping", None) and plugin.eavesdropping.get_active_scopes() or []
+        scopes = [g for g in active_scopes if not str(g).startswith("private_")]
         if scopes:
-            logger.debug(f"[Scheduler][{task_name}] 使用 active_users 群列表: {scopes}")
+            logger.debug(f"[Scheduler][{task_name}] 使用 get_active_scopes 群列表: {scopes}")
             return scopes, ""
 
     if include_private and include_groups:
-        scopes = list(active_users)
+        scopes = getattr(plugin, "eavesdropping", None) and plugin.eavesdropping.get_active_scopes() or []
         if scopes:
-            logger.debug(f"[Scheduler][{task_name}] 使用 active_users (含私聊): {scopes}")
+            logger.debug(f"[Scheduler][{task_name}] 使用 get_active_scopes (含私聊): {scopes}")
             return scopes, ""
 
     if include_groups:
@@ -289,12 +288,8 @@ async def scheduled_interject(plugin) -> ScheduledTaskResult:
 
 async def _interject_impl(plugin):
     scopes, _ = await _resolve_target_scopes(plugin, "Interject", include_private=False, include_groups=True)
-    new_system = getattr(plugin.cfg, "engagement_new_system_enabled", False)
     for group_id in scopes:
-        if new_system:
-            await plugin.eavesdropping.check_engagement(group_id)
-        else:
-            await plugin.eavesdropping.interject_check_group(group_id)
+        await plugin.eavesdropping.check_engagement(group_id)
 
 
 async def scheduled_profile_cleanup(plugin) -> ScheduledTaskResult:
