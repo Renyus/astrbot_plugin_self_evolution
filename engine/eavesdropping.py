@@ -325,7 +325,7 @@ class EavesdroppingEngine:
         return params["daily_boost"]
 
     async def handle_message(self, event: AstrMessageEvent):
-        msg_text = event.get_extra("self_evolution_message_text", event.message_str or "")
+        raise NotImplementedError("旧被动互动系统已退役，请使用 process_passive_engagement()")
         session_id = str(event.session_id)
         user_id = str(event.get_sender_id())
         sender_name = event.get_sender_name() or "Unknown"
