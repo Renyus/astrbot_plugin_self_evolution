@@ -136,22 +136,6 @@ class PluginConfig:
         return int(self._config.get("interject_silence_timeout", 15))
 
     @property
-    def interject_local_filter_enabled(self):
-        return self._parse_bool(self._config.get("interject_local_filter_enabled"), True)
-
-    @property
-    def interject_require_at(self):
-        return self._parse_bool(self._config.get("interject_require_at"), True)
-
-    @property
-    def interject_urgency_threshold(self):
-        return int(self._config.get("interject_urgency_threshold", 80))
-
-    @property
-    def interject_dry_run(self):
-        return self._parse_bool(self._config.get("interject_dry_run"), False)
-
-    @property
     def interject_trigger_probability(self):
         return float(self._config.get("interject_trigger_probability", 0.5))
 

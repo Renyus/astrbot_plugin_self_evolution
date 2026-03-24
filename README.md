@@ -469,7 +469,6 @@
 - `interject_min_msg_count`
 - `interject_silence_timeout`
 - `interject_analyze_count`
-- `interject_urgency_threshold`
 - `engagement_react_probability`
 
 ### 行为

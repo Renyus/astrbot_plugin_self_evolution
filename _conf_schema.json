@@ -286,34 +286,6 @@
         "type": "int",
         "default": 15
     },
-    "interject_local_filter_enabled": {
-        "title": "行为 / 插嘴本地过滤",
-        "description": "启用本地过滤",
-        "hint": "在调用 LLM 前先做轻量资格过滤。",
-        "type": "bool",
-        "default": true
-    },
-    "interject_require_at": {
-        "title": "行为 / 插嘴需点名",
-        "description": "要求最新消息@我",
-        "hint": "开启后，只有最新消息点名机器人时才允许继续分析。",
-        "type": "bool",
-        "default": true
-    },
-    "interject_urgency_threshold": {
-        "title": "行为 / 插嘴紧迫阈值",
-        "description": "插嘴紧迫阈值",
-        "hint": "LLM 判断的紧迫度低于该值时，不执行插嘴。",
-        "type": "int",
-        "default": 80
-    },
-    "interject_dry_run": {
-        "title": "行为 / 插嘴仅演练",
-        "description": "仅记录不发送",
-        "hint": "开启后只记录日志，不真正发言。",
-        "type": "bool",
-        "default": false
-    },
     "interject_trigger_probability": {
         "title": "行为 / 插嘴触发概率",
         "description": "最终发送概率",

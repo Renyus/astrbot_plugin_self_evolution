@@ -48,6 +48,10 @@ class ConfigContractTests(TestCase):
             "boredom_enabled",
             "boredom_consecutive_count",
             "engagement_new_system_enabled",
+            "interject_local_filter_enabled",
+            "interject_require_at",
+            "interject_urgency_threshold",
+            "interject_dry_run",
         }
 
         for key in removed_keys:
