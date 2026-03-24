@@ -74,7 +74,7 @@ class PromptContext:
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "CognitionCore 7.0 数字生命。",
-    "Ver 3.1.2",
+    "Ver 3.1.3",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
