@@ -328,27 +328,6 @@
         "type": "int",
         "default": 15
     },
-    "eavesdrop_message_threshold": {
-        "title": "行为 / 被动互动阈值",
-        "description": "被动消息阈值",
-        "hint": "被动互动的基础触发阈值。",
-        "type": "int",
-        "default": 20
-    },
-    "eavesdrop_threshold_min": {
-        "title": "行为 / 被动阈值下限",
-        "description": "被动阈值下限",
-        "hint": "被动互动阈值的最小值。",
-        "type": "int",
-        "default": 10
-    },
-    "eavesdrop_threshold_max": {
-        "title": "行为 / 被动阈值上限",
-        "description": "被动阈值上限",
-        "hint": "被动互动阈值的最大值。",
-        "type": "int",
-        "default": 50
-    },
     "affinity_recovery_enabled": {
         "title": "行为 / 关系每日恢复",
         "description": "启用每日好感度恢复",
@@ -362,13 +341,6 @@
         "type": "float",
         "default": 0.15,
         "hint": "casual场景下随机触发轻反应(表情包/短句)的概率。"
-    },
-    "engagement_new_system_enabled": {
-        "title": "行为 / 使用新版社交引擎",
-        "description": "启用新版分级参与引擎",
-        "type": "bool",
-        "default": false,
-        "hint": "启用后将使用新的IGNORE/REACT/BRIEF/FULL分级参与系统。"
     },
     "san_enabled": {
         "title": "行为 / SAN 模块",
@@ -454,55 +426,6 @@
         "default": -5,
         "hint": "负向群氛围对 SAN 的额外惩罚。"
     },
-    "leaky_integrator_enabled": {
-        "title": "行为 / 漏斗积分",
-        "description": "启用漏斗积分",
-        "hint": "用积分衰减模型累积互动意愿。",
-        "type": "bool",
-        "default": true
-    },
-    "leaky_decay_factor": {
-        "title": "行为 / 衰减系数",
-        "description": "积分衰减系数",
-        "hint": "每轮更新时意愿积分的衰减比例。",
-        "type": "float",
-        "default": 0.9
-    },
-    "leaky_trigger_threshold": {
-        "title": "行为 / 触发积分",
-        "description": "积分触发阈值",
-        "hint": "积分达到该值时更容易触发被动互动。",
-        "type": "int",
-        "default": 5
-    },
-    "interest_boost": {
-        "title": "行为 / 兴趣加成",
-        "description": "兴趣额外加成",
-        "hint": "命中高兴趣内容时给予的额外意愿加成。",
-        "type": "float",
-        "default": 2.0
-    },
-    "daily_chat_boost": {
-        "title": "行为 / 日常加成",
-        "description": "日常聊天加成",
-        "hint": "普通聊天给予的基础意愿加成。",
-        "type": "float",
-        "default": 1.0
-    },
-    "desire_cooldown_messages": {
-        "title": "行为 / 消息冷却",
-        "description": "消息冷却数量",
-        "hint": "触发后在若干条消息内降低再次互动意愿。",
-        "type": "int",
-        "default": 5
-    },
-    "desire_cooldown_seconds": {
-        "title": "行为 / 时间冷却",
-        "description": "时间冷却秒数",
-        "hint": "触发后在若干秒内降低再次互动意愿。",
-        "type": "int",
-        "default": 60
-    },
     "dropout_enabled": {
         "title": "行为 / 随机留白",
         "description": "启用随机留白",
@@ -530,27 +453,6 @@
         "hint": "命中这些关键词时提升惊奇加成。",
         "type": "string",
         "default": "突然|惊讶|没想到|居然"
-    },
-    "inner_monologue_enabled": {
-        "title": "行为 / 内心独白",
-        "description": "启用内心独白",
-        "hint": "为模型补充内在状态提示。",
-        "type": "bool",
-        "default": true
-    },
-    "boredom_enabled": {
-        "title": "行为 / 无聊机制",
-        "description": "启用无聊机制",
-        "hint": "连续无效聊天时加入无聊感表现。",
-        "type": "bool",
-        "default": true
-    },
-    "boredom_consecutive_count": {
-        "title": "行为 / 无聊阈值",
-        "description": "无聊累计条数",
-        "hint": "达到该连续次数后触发无聊逻辑。",
-        "type": "int",
-        "default": 10
     },
     "debate_enabled": {
         "title": "实验 / 辩论审查开关",

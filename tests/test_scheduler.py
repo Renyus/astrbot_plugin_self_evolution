@@ -38,7 +38,7 @@ class ResolveTargetScopesTests(IsolatedAsyncioTestCase):
     async def test_whitelist_takes_priority(self):
         plugin = SimpleNamespace(
             cfg=SimpleNamespace(target_scopes=["1001", "1002"]),
-            eavesdropping=SimpleNamespace(active_users={"2001": {}}),
+            eavesdropping=SimpleNamespace(get_active_scopes=lambda: ["2001"]),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[])),
         )
         scopes, reason = await tasks._resolve_target_scopes(plugin, "TestTask")
@@ -48,7 +48,7 @@ class ResolveTargetScopesTests(IsolatedAsyncioTestCase):
     async def test_whitelist_private_scopes_filtered_when_include_private_false(self):
         plugin = SimpleNamespace(
             cfg=SimpleNamespace(target_scopes=["1001", "private_7001", "1002"]),
-            eavesdropping=SimpleNamespace(active_users={}),
+            eavesdropping=SimpleNamespace(get_active_scopes=lambda: []),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[])),
         )
         scopes, reason = await tasks._resolve_target_scopes(plugin, "TestTask", include_private=False)
@@ -58,7 +58,7 @@ class ResolveTargetScopesTests(IsolatedAsyncioTestCase):
     async def test_active_users_used_when_no_whitelist(self):
         plugin = SimpleNamespace(
             cfg=SimpleNamespace(target_scopes=[]),
-            eavesdropping=SimpleNamespace(active_users={"private_7001": {}, "2001": {}}),
+            eavesdropping=SimpleNamespace(get_active_scopes=lambda: ["private_7001", "2001"]),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[])),
         )
         scopes, reason = await tasks._resolve_target_scopes(plugin, "TestTask")
@@ -67,7 +67,7 @@ class ResolveTargetScopesTests(IsolatedAsyncioTestCase):
     async def test_include_private_false_filters_private_scopes(self):
         plugin = SimpleNamespace(
             cfg=SimpleNamespace(target_scopes=[]),
-            eavesdropping=SimpleNamespace(active_users={"private_7001": {}, "2001": {}}),
+            eavesdropping=SimpleNamespace(get_active_scopes=lambda: ["private_7001", "2001"]),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[])),
         )
         scopes, reason = await tasks._resolve_target_scopes(plugin, "TestTask", include_private=False)
@@ -78,7 +78,7 @@ class ResolveTargetScopesTests(IsolatedAsyncioTestCase):
         platform = SimpleNamespace(get_client=lambda: bot)
         plugin = SimpleNamespace(
             cfg=SimpleNamespace(target_scopes=[]),
-            eavesdropping=SimpleNamespace(active_users={}),
+            eavesdropping=SimpleNamespace(get_active_scopes=lambda: []),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[platform])),
         )
         scopes, reason = await tasks._resolve_target_scopes(plugin, "TestTask")
@@ -87,7 +87,7 @@ class ResolveTargetScopesTests(IsolatedAsyncioTestCase):
     async def test_returns_empty_when_no_sources(self):
         plugin = SimpleNamespace(
             cfg=SimpleNamespace(target_scopes=[]),
-            eavesdropping=SimpleNamespace(active_users={}),
+            eavesdropping=SimpleNamespace(get_active_scopes=lambda: []),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[])),
         )
         scopes, reason = await tasks._resolve_target_scopes(plugin, "TestTask")
@@ -134,7 +134,7 @@ class ScheduledTaskSkipTests(IsolatedAsyncioTestCase):
     async def test_scheduled_interject_skips_when_no_scopes(self):
         plugin = SimpleNamespace(
             cfg=SimpleNamespace(target_scopes=[]),
-            eavesdropping=SimpleNamespace(active_users={}),
+            eavesdropping=SimpleNamespace(get_active_scopes=lambda: []),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[])),
         )
         result = await tasks.scheduled_interject(plugin)
@@ -162,12 +162,12 @@ class SchedulerTasksTests(IsolatedAsyncioTestCase):
         plugin = SimpleNamespace(
             cfg=SimpleNamespace(target_scopes=[]),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[platform])),
-            eavesdropping=SimpleNamespace(active_users={}, interject_check_group=AsyncMock()),
+            eavesdropping=SimpleNamespace(get_active_scopes=lambda: [], check_engagement=AsyncMock()),
         )
 
         await tasks.scheduled_interject(plugin)
 
-        plugin.eavesdropping.interject_check_group.assert_has_awaits([call("1001"), call("1002")])
+        plugin.eavesdropping.check_engagement.assert_has_awaits([call("1001"), call("1002")])
 
     async def test_scheduled_reflection_falls_back_to_platform_groups_when_active_users_empty(self):
         bot = SimpleNamespace(call_action=AsyncMock(return_value={"data": [{"group_id": 2001}]}))
@@ -175,7 +175,7 @@ class SchedulerTasksTests(IsolatedAsyncioTestCase):
         plugin = SimpleNamespace(
             cfg=SimpleNamespace(target_scopes=[]),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[platform])),
-            eavesdropping=SimpleNamespace(active_users={}),
+            eavesdropping=SimpleNamespace(get_active_scopes=lambda: []),
             dao=SimpleNamespace(
                 init_db=AsyncMock(),
                 recover_all_affinity=AsyncMock(),
@@ -205,7 +205,7 @@ class SchedulerTasksTests(IsolatedAsyncioTestCase):
     async def test_scheduled_reflection_keeps_private_active_scopes(self):
         plugin = SimpleNamespace(
             cfg=SimpleNamespace(target_scopes=[]),
-            eavesdropping=SimpleNamespace(active_users={"private_7001": {}, "2001": {}}),
+            eavesdropping=SimpleNamespace(get_active_scopes=lambda: ["private_7001", "2001"]),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[])),
             dao=SimpleNamespace(
                 init_db=AsyncMock(),
@@ -231,7 +231,7 @@ class SchedulerTasksTests(IsolatedAsyncioTestCase):
         plugin = SimpleNamespace(
             cfg=SimpleNamespace(target_scopes=["3001"]),
             context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[platform])),
-            eavesdropping=SimpleNamespace(active_users={}),
+            eavesdropping=SimpleNamespace(get_active_scopes=lambda: []),
             dao=SimpleNamespace(
                 init_db=AsyncMock(),
                 recover_all_affinity=AsyncMock(),
@@ -259,9 +259,9 @@ class SchedulerTasksTests(IsolatedAsyncioTestCase):
                 auto_profile_batch_interval=0,
             ),
             get_group_umo=lambda group_id: "qq:group:3001",
-            profile=SimpleNamespace(analyze_and_build_profiles=AsyncMock()),
+            profile_builder=SimpleNamespace(analyze_and_build_profiles=AsyncMock()),
         )
 
         await tasks.scheduled_profile_build(plugin)
 
-        plugin.profile.analyze_and_build_profiles.assert_awaited_once_with("3001", umo="qq:group:3001")
+        plugin.profile_builder.analyze_and_build_profiles.assert_awaited_once_with("3001", umo="qq:group:3001")

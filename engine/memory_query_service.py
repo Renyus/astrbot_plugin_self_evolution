@@ -81,7 +81,8 @@ class MemoryQueryService:
             scope_id = request.scope_id
             date = request.date or "yesterday"
 
-            if not hasattr(self.plugin, "memory"):
+            store = getattr(self.plugin, "session_memory_store", None)
+            if not store:
                 return MemoryQueryResult(
                     intent=request.intent,
                     text="",
@@ -89,7 +90,7 @@ class MemoryQueryService:
                     hit_count=0,
                 )
 
-            summary = await self.plugin.memory.get_summary_by_date(scope_id, date)
+            summary = await store.get_summary_by_date(scope_id, date)
             hit = 1 if summary else 0
             self._debug(f"[MemoryQuery] intent=daily_summary scope={scope_id} date={date} hit={hit}")
             return MemoryQueryResult(
@@ -114,7 +115,8 @@ class MemoryQueryService:
             query = request.query
             limit = request.limit
 
-            if not hasattr(self.plugin, "memory"):
+            store = getattr(self.plugin, "session_memory_store", None)
+            if not store:
                 return MemoryQueryResult(
                     intent=request.intent,
                     text="",
@@ -122,7 +124,7 @@ class MemoryQueryService:
                     hit_count=0,
                 )
 
-            events = await self.plugin.memory.retrieve_events(scope_id, query, limit)
+            events = await store.retrieve_events(scope_id, query, limit)
             if not events:
                 self._debug(f"[MemoryQuery] intent=session_event scope={scope_id} query='{query}' hit=0")
                 return MemoryQueryResult(
@@ -156,7 +158,8 @@ class MemoryQueryService:
             scope_id = request.scope_id
             user_id = request.user_id
 
-            if not hasattr(self.plugin, "profile"):
+            svc = getattr(self.plugin, "profile_summary_service", None)
+            if not svc:
                 return MemoryQueryResult(
                     intent=request.intent,
                     text="",
@@ -164,7 +167,7 @@ class MemoryQueryService:
                     hit_count=0,
                 )
 
-            summary = await self.plugin.profile.get_structured_summary(scope_id, user_id, max_items=8)
+            summary = await svc.get_structured_summary(scope_id, user_id, max_items=8)
             hit = 1 if summary else 0
             self._debug(f"[MemoryQuery] intent=user_profile scope={scope_id} user={user_id} hit={hit}")
             return MemoryQueryResult(
@@ -247,7 +250,8 @@ class MemoryQueryService:
             query = request.query
             max_results = request.limit
 
-            if not hasattr(self.plugin, "memory"):
+            store = getattr(self.plugin, "session_memory_store", None)
+            if not store:
                 return MemoryQueryResult(
                     intent=request.intent,
                     text="",
@@ -255,7 +259,7 @@ class MemoryQueryService:
                     hit_count=0,
                 )
 
-            text = await self.plugin.memory.smart_retrieve(scope_id, query, max_results)
+            text = await store.retrieve_summary(scope_id, query, max_results)
             hit = 1 if text else 0
             self._debug(f"[MemoryQuery] intent=fallback_kb scope={scope_id} query='{query}' hit={hit}")
             return MemoryQueryResult(

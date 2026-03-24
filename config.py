@@ -159,19 +159,6 @@ class PluginConfig:
     def interject_analyze_count(self):
         return int(self._config.get("interject_analyze_count", 15))
 
-    # Eavesdrop desire
-    @property
-    def eavesdrop_message_threshold(self):
-        return int(self._config.get("eavesdrop_message_threshold", 20))
-
-    @property
-    def eavesdrop_threshold_min(self):
-        return int(self._config.get("eavesdrop_threshold_min", 10))
-
-    @property
-    def eavesdrop_threshold_max(self):
-        return int(self._config.get("eavesdrop_threshold_max", 50))
-
     # SAN
     @property
     def san_enabled(self):
@@ -220,35 +207,6 @@ class PluginConfig:
     @property
     def san_negative_vibe_penalty(self):
         return int(self._config.get("san_negative_vibe_penalty", -5))
-
-    # Desire model
-    @property
-    def leaky_integrator_enabled(self):
-        return self._parse_bool(self._config.get("leaky_integrator_enabled"), True)
-
-    @property
-    def leaky_decay_factor(self):
-        return float(self._config.get("leaky_decay_factor", 0.9))
-
-    @property
-    def leaky_trigger_threshold(self):
-        return int(self._config.get("leaky_trigger_threshold", 5))
-
-    @property
-    def interest_boost(self):
-        return float(self._config.get("interest_boost", 2.0))
-
-    @property
-    def daily_chat_boost(self):
-        return float(self._config.get("daily_chat_boost", 1.0))
-
-    @property
-    def desire_cooldown_messages(self):
-        return int(self._config.get("desire_cooldown_messages", 5))
-
-    @property
-    def desire_cooldown_seconds(self):
-        return int(self._config.get("desire_cooldown_seconds", 60))
 
     # Dropout
     @property
@@ -314,18 +272,6 @@ class PluginConfig:
             "surprise_boost_keywords",
             "突然|惊讶|没想到|居然",
         )
-
-    @property
-    def inner_monologue_enabled(self):
-        return self._parse_bool(self._config.get("inner_monologue_enabled"), True)
-
-    @property
-    def boredom_enabled(self):
-        return self._parse_bool(self._config.get("boredom_enabled"), True)
-
-    @property
-    def boredom_consecutive_count(self):
-        return int(self._config.get("boredom_consecutive_count", 10))
 
     # Entertainment
     @property
@@ -400,10 +346,6 @@ class PluginConfig:
     @property
     def engagement_react_probability(self) -> float:
         return float(self._config.get("engagement_react_probability", 0.15))
-
-    @property
-    def engagement_new_system_enabled(self) -> bool:
-        return self._parse_bool(self._config.get("engagement_new_system_enabled"), False)
 
     # Misc
     @property

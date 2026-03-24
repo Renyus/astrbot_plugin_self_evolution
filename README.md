@@ -413,7 +413,6 @@
 - `review_mode`
 - `persona_name`
 - `admin_users`
-- `critical_keywords`
 - `target_scopes`
 - `debug_log_enabled`
 
@@ -471,7 +470,6 @@
 - `interject_silence_timeout`
 - `interject_analyze_count`
 - `interject_urgency_threshold`
-- `engagement_new_system_enabled`
 - `engagement_react_probability`
 
 ### 行为

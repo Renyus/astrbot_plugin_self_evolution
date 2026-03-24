@@ -21,13 +21,13 @@ class TestQueryServiceDispatch(IsolatedAsyncioTestCase):
             memory_query_fallback_enabled=True,
         )
         return SimpleNamespace(
-            profile=SimpleNamespace(
+            profile_summary_service=SimpleNamespace(
                 get_structured_summary=AsyncMock(return_value="用户画像摘要"),
             ),
-            memory=SimpleNamespace(
+            session_memory_store=SimpleNamespace(
                 get_summary_by_date=AsyncMock(return_value="昨天总结"),
                 retrieve_events=AsyncMock(return_value=["事件1", "事件2"]),
-                smart_retrieve=AsyncMock(return_value="KB检索结果"),
+                retrieve_summary=AsyncMock(return_value="KB检索结果"),
             ),
             get_user_messages_for_tool=AsyncMock(return_value=[{"text": "消息1"}, {"text": "消息2"}]),
             cfg=cfg,
@@ -246,7 +246,7 @@ class TestQueryDailySummary(IsolatedAsyncioTestCase):
     async def test_delegates_to_memory_get_summary_by_date(self):
         mock_get_summary = AsyncMock(return_value="昨天群聊总结")
         plugin = SimpleNamespace(
-            memory=SimpleNamespace(get_summary_by_date=mock_get_summary),
+            session_memory_store=SimpleNamespace(get_summary_by_date=mock_get_summary),
         )
         service = MemoryQueryService(plugin)
 
@@ -268,7 +268,7 @@ class TestQueryDailySummary(IsolatedAsyncioTestCase):
     async def test_defaults_date_to_yesterday(self):
         mock_get_summary = AsyncMock(return_value="总结文本")
         plugin = SimpleNamespace(
-            memory=SimpleNamespace(get_summary_by_date=mock_get_summary),
+            session_memory_store=SimpleNamespace(get_summary_by_date=mock_get_summary),
         )
         service = MemoryQueryService(plugin)
 
@@ -288,7 +288,7 @@ class TestQueryDailySummary(IsolatedAsyncioTestCase):
     async def test_zero_hit_count_when_no_summary(self):
         mock_get_summary = AsyncMock(return_value="")
         plugin = SimpleNamespace(
-            memory=SimpleNamespace(get_summary_by_date=mock_get_summary),
+            session_memory_store=SimpleNamespace(get_summary_by_date=mock_get_summary),
         )
         service = MemoryQueryService(plugin)
 
@@ -327,7 +327,7 @@ class TestQuerySessionEvent(IsolatedAsyncioTestCase):
     async def test_formats_events_as_dashed_lines(self):
         mock_retrieve = AsyncMock(return_value=["群里决定周日联机", "约好周三开会"])
         plugin = SimpleNamespace(
-            memory=SimpleNamespace(retrieve_events=mock_retrieve),
+            session_memory_store=SimpleNamespace(retrieve_events=mock_retrieve),
         )
         service = MemoryQueryService(plugin)
 
@@ -368,7 +368,7 @@ class TestQueryUserProfile(IsolatedAsyncioTestCase):
     async def test_delegates_to_profile_get_structured_summary(self):
         mock_summary = AsyncMock(return_value="用户是一名程序员，喜欢游戏")
         plugin = SimpleNamespace(
-            profile=SimpleNamespace(get_structured_summary=mock_summary),
+            profile_summary_service=SimpleNamespace(get_structured_summary=mock_summary),
         )
         service = MemoryQueryService(plugin)
 
@@ -476,7 +476,7 @@ class TestQueryFallbackKB(IsolatedAsyncioTestCase):
         mock_smart = AsyncMock(return_value="知识库检索到的相关内容")
         cfg = SimpleNamespace(memory_query_fallback_enabled=True)
         plugin = SimpleNamespace(
-            memory=SimpleNamespace(smart_retrieve=mock_smart),
+            session_memory_store=SimpleNamespace(retrieve_summary=mock_smart),
             cfg=cfg,
         )
         service = MemoryQueryService(plugin)
@@ -499,7 +499,7 @@ class TestQueryFallbackKB(IsolatedAsyncioTestCase):
         mock_smart = AsyncMock(return_value="")
         cfg = SimpleNamespace(memory_query_fallback_enabled=True)
         plugin = SimpleNamespace(
-            memory=SimpleNamespace(smart_retrieve=mock_smart),
+            session_memory_store=SimpleNamespace(retrieve_summary=mock_smart),
             cfg=cfg,
         )
         service = MemoryQueryService(plugin)

@@ -56,11 +56,6 @@ class ProfileManager:
     def dropout_edge_rate(self):
         return self.plugin.cfg.dropout_edge_rate
 
-    @property
-    def core_info_keywords(self):
-        keywords = self.plugin.cfg.core_info_keywords
-        return [k.strip() for k in keywords.split(",")]
-
     def _get_profile_path(self, group_id: str, user_id: str, nickname: str = "") -> Path:
         return self.profile_dir / f"{group_id}_{user_id}.yaml"
 
@@ -105,11 +100,7 @@ class ProfileManager:
         return str(sender_id or "")
 
     def _is_core_info(self, line: str) -> bool:
-        """判断是否为核心信息（永不丢失）"""
-        line_lower = line.lower()
-        for keyword in self.core_info_keywords:
-            if keyword.lower() in line_lower:
-                return True
+        """判断是否为核心信息（永不丢失）- 已废弃，始终返回 False"""
         return False
 
     def _cleanup_expired_cache(self):
@@ -897,24 +888,14 @@ class ProfileManager:
         return result
 
     async def cleanup_expired_profiles(self, days: int = 90):
-        """清理过期画像 - 根据文件修改时间删除长时间未更新的画像"""
+        """清理过期画像（兼容门面，转发到 ProfileStore）"""
         try:
-            cutoff_time = time.time() - (days * 86400)
-            deleted_count = 0
-
-            for profile_path in self.profile_dir.glob("*.yaml"):
-                try:
-                    if profile_path.stat().st_mtime < cutoff_time:
-                        profile_path.unlink()
-                        deleted_count += 1
-                        logger.debug(f"[Profile] 已删除过期画像: {profile_path.name}")
-                except Exception as e:
-                    logger.warning(f"[Profile] 删除画像失败 {profile_path.name}: {e}")
-
-            logger.debug(f"[Profile] 清理完成，共删除 {deleted_count} 个过期画像")
-            return deleted_count
+            store = getattr(self.plugin, "profile_store", None)
+            if store:
+                return await store.cleanup_expired_profiles(days)
+            return 0
         except Exception as e:
-            logger.warning(f"[Profile] 清理过期画像失败: {e}")
+            logger.warning(f"[Profile] cleanup_expired_profiles 转发失败: {e}")
             return 0
 
     async def view_profile(self, group_id: str, user_id: str) -> str:

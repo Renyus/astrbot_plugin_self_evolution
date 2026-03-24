@@ -33,6 +33,11 @@ from .engine.memory_types import MemoryQueryIntent, MemoryQueryRequest
 from .engine.meta_infra import MetaInfra
 from .engine.persona import PersonaManager
 from .engine.profile import ProfileManager
+from .engine.profile_builder import ProfileBuilder
+from .engine.profile_store import ProfileStore
+from .engine.profile_summary_service import ProfileSummaryService
+from .engine.session_memory_store import SessionMemoryStore
+from .engine.session_memory_summarizer import SessionMemorySummarizer
 from .engine.sticker_store import StickerStore
 from .scheduler.register import register_tasks
 
@@ -76,7 +81,7 @@ class PromptContext:
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "CognitionCore 7.0 数字生命。",
-    "Ver 3.1.4",
+    "Ver 3.2.0",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
@@ -131,6 +136,12 @@ class SelfEvolutionPlugin(Star):
             self.memory = MemoryManager(self)
             self.persona = PersonaManager(self)
             self.profile = ProfileManager(self)
+            # 正式服务对象（facade 背后）
+            self.session_memory_store = SessionMemoryStore(self)
+            self.session_memory_summarizer = SessionMemorySummarizer(self)
+            self.profile_store = ProfileStore(self)
+            self.profile_builder = ProfileBuilder(self)
+            self.profile_summary_service = ProfileSummaryService(self)
             # 娱乐功能模块
             self.entertainment = EntertainmentEngine(self)
             # 关系温度引擎
@@ -145,7 +156,7 @@ class SelfEvolutionPlugin(Star):
             self.memory_router = MemoryRouter(self)
             self.memory_tools = MemoryTools(self)
             logger.info(
-                "[SelfEvolution] 核心组件 (DAO, Eavesdropping, Entertainment, ImageCache, MetaInfra, Memory, Persona, Profile, SAN, Reflection) 初始化完成。"
+                "[SelfEvolution] 核心组件 (DAO, Eavesdropping, Entertainment, ImageCache, MetaInfra, Memory, Persona, Profile, SAN, Reflection, SessionMemory*, Profile*) 初始化完成。"
             )
         except Exception as e:
             logger.error(f"[SelfEvolution] 核心组件初始化失败: {e}")
@@ -156,7 +167,6 @@ class SelfEvolutionPlugin(Star):
         self._pending_db_reset = {}  # 待确认的数据库操作 {user_id: {"action": str, "expires_at": timestamp}}
         self._shut_until = None  # 闭嘴截止时间 (timestamp)
         self._shut_until_by_group = {}  # 群级别闭嘴 {群号: 截止时间}
-        self._interject_history = {}  # 群插嘴历史 {群号: {"last_time": timestamp, "last_msg_id": str}}
         self._group_umo_cache = {}  # 最近见过的群会话来源 {group_id: unified_msg_origin}
         self._private_umo_cache = {}  # 最近见过的私聊会话来源 {private_user_id: unified_msg_origin}
         self._scope_registry_touch_cache = {}  # 会话范围持久化防抖 {scope_id: last_touch_timestamp}
@@ -497,11 +507,6 @@ class SelfEvolutionPlugin(Star):
         if reply_format:
             parts.append(reply_format)
 
-        if self.cfg.inner_monologue_enabled:
-            inner = getattr(ctx.event, "_inner_monologue", None) if ctx.event else None
-            if inner:
-                parts.append(f"【内心独白】{inner}")
-
         return "\n\n" + "\n\n".join(parts) + "\n" if parts else ""
 
     def _should_inject_preference_hints(self, ctx: PromptContext) -> bool:
@@ -612,12 +617,8 @@ class SelfEvolutionPlugin(Star):
         if group_id and self.cfg.sticker_learning_enabled:
             asyncio.create_task(self.entertainment.learn_sticker_from_event(event))
 
-        # 被动插嘴：关键词/@触发
-        if self.cfg.engagement_new_system_enabled:
-            await self.eavesdropping.process_passive_engagement(event)
-        else:
-            async for result in self.eavesdropping.handle_message(event):
-                yield result
+        # 被动插嘴：新版社交参与引擎
+        await self.eavesdropping.process_passive_engagement(event)
 
     @filter.on_decorating_result()
     async def on_decorating_result(self, event: AstrMessageEvent):

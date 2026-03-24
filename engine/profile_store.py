@@ -15,17 +15,17 @@ PROFILE_DIR = "data/self_evolution/profiles"
 class ProfileStore:
     def __init__(self, plugin):
         self.plugin = plugin
+        self.profile_dir = getattr(plugin, "data_dir", Path(".")) / "self_evolution" / "profiles"
         self._ensure_profile_dir()
 
     def _ensure_profile_dir(self):
-        profile_path = Path(PROFILE_DIR)
-        profile_path.mkdir(parents=True, exist_ok=True)
+        self.profile_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_profile_path(self, scope_id: str, user_id: str) -> Path:
         safe_user_id = re.sub(r'[\\/:*?"<>|]', "_", str(user_id))
         safe_scope_id = re.sub(r'[\\/:*?"<>|]', "_", str(scope_id))
         filename = f"{safe_scope_id}__{safe_user_id}.txt"
-        return Path(PROFILE_DIR) / filename
+        return self.profile_dir / filename
 
     async def load_profile(self, scope_id: str, user_id: str) -> Optional[str]:
         """加载用户画像文件内容"""
@@ -115,11 +115,10 @@ class ProfileStore:
     async def list_profiles(self) -> list[dict]:
         """列出所有画像"""
         try:
-            profile_dir = Path(PROFILE_DIR)
-            if not profile_dir.exists():
+            if not self.profile_dir.exists():
                 return []
             profiles = []
-            for f in profile_dir.glob("*.txt"):
+            for f in self.profile_dir.glob("*.txt"):
                 name = f.stem
                 if "__" in name:
                     scope_id, user_id = name.split("__", 1)
@@ -135,3 +134,23 @@ class ProfileStore:
         except Exception as e:
             logger.warning(f"[Profile] list_profiles failed: {e}")
             return []
+
+    async def cleanup_expired_profiles(self, days: int = 90) -> int:
+        """清理过期画像文件"""
+        try:
+            if not self.profile_dir.exists():
+                return 0
+            cutoff_time = time.time() - (days * 86400)
+            deleted_count = 0
+            for f in self.profile_dir.glob("*.txt"):
+                try:
+                    if f.stat().st_mtime < cutoff_time:
+                        f.unlink()
+                        deleted_count += 1
+                except Exception:
+                    pass
+            logger.debug(f"[ProfileStore] cleanup: deleted {deleted_count} expired profiles")
+            return deleted_count
+        except Exception as e:
+            logger.warning(f"[ProfileStore] cleanup_expired_profiles failed: {e}")
+            return 0
