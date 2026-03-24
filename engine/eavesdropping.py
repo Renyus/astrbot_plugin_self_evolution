@@ -60,8 +60,8 @@ class EavesdroppingEngine:
             if state_dict:
                 state = GroupSocialState(
                     scope_id=group_id,
-                    last_message_time=state_dict.get("last_message_time", 0.0) or (now - 60),
-                    last_bot_message_time=state_dict.get("last_bot_engagement_at", 0.0) or 0.0,
+                    last_message_time=state_dict.get("last_message_time") or (now - 60),
+                    last_bot_message_time=float(state_dict.get("last_bot_engagement_at") or 0),
                     last_seen_message_seq=state_dict.get("last_seen_message_seq"),
                     scene=SceneType(state_dict.get("scene_type", "casual"))
                     if state_dict.get("scene_type")
@@ -117,8 +117,8 @@ class EavesdroppingEngine:
             if state_dict:
                 state = GroupSocialState(
                     scope_id=group_id,
-                    last_message_time=state_dict.get("last_message_time", 0.0) or (now - 60),
-                    last_bot_message_time=state_dict.get("last_bot_engagement_at", 0.0) or 0.0,
+                    last_message_time=state_dict.get("last_message_time") or (now - 60),
+                    last_bot_message_time=float(state_dict.get("last_bot_engagement_at") or 0),
                     last_seen_message_seq=state_dict.get("last_seen_message_seq"),
                     scene=SceneType(state_dict.get("scene_type", "casual"))
                     if state_dict.get("scene_type")
@@ -131,10 +131,11 @@ class EavesdroppingEngine:
             else:
                 state = GroupSocialState(scope_id=group_id, last_message_time=now)
 
-            state.last_message_time = now
-            state.message_count_window = 1
+            msg_text = event.message_str or ""
+            if not msg_text.strip():
+                msg_text = "[图片]"
 
-            messages_for_scene = [{"text": event.message_str or "", "message": []}]
+            messages_for_scene = [{"text": msg_text, "message": []}]
             planner = EngagementPlanner(self.plugin)
             executor = EngagementExecutor(self.plugin, planner)
 
@@ -154,7 +155,7 @@ class EavesdroppingEngine:
             )
             if not eligibility.allowed:
                 logger.debug(
-                    f"[PassiveEngagement] 群 {group_id}: {eligibility.reason_code} - {eligibility.reason_text}"
+                    f"[PassiveEngagement] scope={group_id} eligible=no reason={eligibility.reason_code} {eligibility.reason_text}"
                 )
                 return
 
@@ -162,18 +163,19 @@ class EavesdroppingEngine:
             if plan.level == EngagementLevel.IGNORE:
                 return
 
-            logger.debug(f"[PassiveEngagement] 群 {group_id}: level={plan.level.value}, scene={plan.scene.value}")
+            logger.debug(f"[PassiveEngagement] scope={group_id} level={plan.level.value} scene={plan.scene.value}")
 
             result = await executor.execute(plan, state)
 
             new_state = {
+                "last_message_time": now,
                 "last_bot_engagement_at": time.time() if result.executed else state.last_bot_message_time,
                 "last_bot_engagement_level": result.level.value
                 if result.executed
                 else (state_dict.get("last_bot_engagement_level") if state_dict else None),
                 "last_seen_message_seq": state_dict.get("last_seen_message_seq") if state_dict else None,
                 "scene_type": plan.scene.value,
-                "message_count_window": state.message_count_window,
+                "message_count_window": 1,
                 "question_count_window": state.question_count_window,
                 "emotion_count_window": state.emotion_count_window,
                 "consecutive_bot_replies": (state.consecutive_bot_replies + 1) if result.executed else 0,
@@ -181,7 +183,7 @@ class EavesdroppingEngine:
             await self.plugin.dao.save_engagement_state(group_id, new_state)
 
             if result.executed:
-                logger.info(f"[PassiveEngagement] 群 {group_id}: executed {result.action} ({result.level.value})")
+                logger.info(f"[PassiveEngagement] scope={group_id} executed {result.action} ({result.level.value})")
 
         except Exception as e:
             logger.warning(f"[PassiveEngagement] 群 {group_id} 处理失败: {e}", exc_info=True)

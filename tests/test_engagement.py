@@ -192,3 +192,123 @@ class EngagementDAOPersistenceTests(IsolatedAsyncioTestCase):
     async def test_get_nonexistent_returns_none(self):
         saved = await self.dao.get_engagement_state("nonexistent")
         self.assertIsNone(saved)
+
+
+class PassiveEngagementTests(IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.temp_dir = make_workspace_temp_dir("passive_engagement")
+        self.dao = SelfEvolutionDAO(str(Path(self.temp_dir) / "passive_engagement_test.db"))
+        await self.dao.init_db()
+        eavesdropping_module = load_engine_module("eavesdropping")
+        EavesdroppingEngine = eavesdropping_module.EavesdroppingEngine
+        self.plugin = SimpleNamespace(
+            dao=self.dao,
+            cfg=SimpleNamespace(
+                interject_cooldown=30,
+                engagement_react_probability=1.0,
+            ),
+            _get_bot_id=lambda: "bot123",
+        )
+        self.engine = EavesdroppingEngine(self.plugin)
+
+    async def asyncTearDown(self):
+        await self.dao.close()
+        cleanup_workspace_temp_dir(self.temp_dir)
+
+    def _make_event(self, message_str="hello", group_id="5001"):
+        event = SimpleNamespace()
+        event.get_group_id = lambda: group_id
+        event.get_user_id = lambda: "user123"
+        event.message_str = message_str
+        event.is_at_or_wake_command = False
+        event.get_extra = lambda key, default=None: default
+        event.message_obj = SimpleNamespace(message=[])
+        return event
+
+    async def test_last_message_time_written_to_dao(self):
+        now = time.time()
+        old_state = {
+            "scope_id": "5001",
+            "last_message_time": now - 30,
+            "last_bot_engagement_at": 0.0,
+            "scene_type": "casual",
+            "message_count_window": 5,
+            "question_count_window": 0,
+            "emotion_count_window": 0,
+            "consecutive_bot_replies": 0,
+        }
+        await self.dao.save_engagement_state("5001", old_state)
+
+        saved_states = []
+        original_save = self.dao.save_engagement_state
+
+        async def capture_save(scope_id, state):
+            saved_states.append(state)
+            return await original_save(scope_id, state)
+
+        self.dao.save_engagement_state = capture_save
+        event = self._make_event("hello world")
+        await self.engine.process_passive_engagement(event)
+
+        self.assertTrue(len(saved_states) > 0, f"save_engagement_state was never called (eligibility likely failed)")
+        latest = saved_states[-1]
+        self.assertIn("last_message_time", latest)
+        self.assertGreaterEqual(latest["last_message_time"], now - 1)
+        self.assertLessEqual(latest["last_message_time"], now + 1)
+
+    async def test_eligibility_not_zero_despite_new_message(self):
+        now = time.time()
+        old_state = {
+            "scope_id": "5001",
+            "last_message_time": now - 15,
+            "last_bot_engagement_at": 0.0,
+            "scene_type": "casual",
+            "message_count_window": 5,
+            "question_count_window": 0,
+            "emotion_count_window": 0,
+            "consecutive_bot_replies": 0,
+        }
+        await self.dao.save_engagement_state("5001", old_state)
+
+        captured_state = []
+        original_save = self.dao.save_engagement_state
+
+        async def capture_save(scope_id, state):
+            captured_state.append(state)
+            return await original_save(scope_id, state)
+
+        self.dao.save_engagement_state = capture_save
+        event = self._make_event("hello world")
+        await self.engine.process_passive_engagement(event)
+
+        self.assertTrue(len(captured_state) > 0, "save_engagement_state was never called")
+        saved = captured_state[-1]
+        self.assertGreater(saved["last_message_time"], now - 2)
+
+    async def test_image_message_uses_placeholder(self):
+        now = time.time()
+        old_state = {
+            "scope_id": "5001",
+            "last_message_time": now - 60,
+            "last_bot_engagement_at": 0.0,
+            "scene_type": "casual",
+            "message_count_window": 3,
+            "question_count_window": 0,
+            "emotion_count_window": 0,
+            "consecutive_bot_replies": 0,
+        }
+        await self.dao.save_engagement_state("5001", old_state)
+
+        saved_states = []
+        original_save = self.dao.save_engagement_state
+
+        async def capture_save(scope_id, state):
+            saved_states.append(state)
+            return await original_save(scope_id, state)
+
+        self.dao.save_engagement_state = capture_save
+        event = self._make_event(message_str="", group_id="5001")
+        await self.engine.process_passive_engagement(event)
+
+        self.assertTrue(len(saved_states) > 0, "image message caused crash or no save")
+        self.assertIn("scene_type", saved_states[-1])

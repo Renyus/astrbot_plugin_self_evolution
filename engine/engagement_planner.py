@@ -150,7 +150,7 @@ class EngagementPlanner:
             bot_silence = now - state.last_bot_message_time
             if bot_silence < cooldown_seconds:
                 self._debug(
-                    f"[Engagement] eligible=no group={getattr(state, 'group_id', '?')} reason=cooldown remaining={int(cooldown_seconds - bot_silence)}s"
+                    f"[Engagement] eligible=no scope={getattr(state, 'scope_id', '?')} reason=cooldown remaining={int(cooldown_seconds - bot_silence)}s"
                 )
                 return EngagementEligibility(
                     allowed=False,
@@ -161,7 +161,7 @@ class EngagementPlanner:
 
         if silence_seconds < 5:
             self._debug(
-                f"[Engagement] eligible=no group={getattr(state, 'group_id', '?')} reason=silence_too_short {int(silence_seconds)}s"
+                f"[Engagement] eligible=no scope={getattr(state, 'scope_id', '?')} reason=silence_too_short {int(silence_seconds)}s"
             )
             return EngagementEligibility(
                 allowed=False,
@@ -172,7 +172,7 @@ class EngagementPlanner:
 
         if state.consecutive_bot_replies >= 2:
             self._debug(
-                f"[Engagement] eligible=no group={getattr(state, 'group_id', '?')} reason=bot_flood count={state.consecutive_bot_replies}"
+                f"[Engagement] eligible=no scope={getattr(state, 'scope_id', '?')} reason=bot_flood count={state.consecutive_bot_replies}"
             )
             return EngagementEligibility(
                 allowed=False,
@@ -183,7 +183,7 @@ class EngagementPlanner:
 
         if state.message_count_window < min_new_messages:
             self._debug(
-                f"[Engagement] eligible=no group={getattr(state, 'group_id', '?')} reason=msg_count {state.message_count_window}/{min_new_messages}"
+                f"[Engagement] eligible=no scope={getattr(state, 'scope_id', '?')} reason=msg_count {state.message_count_window}/{min_new_messages}"
             )
             return EngagementEligibility(
                 allowed=False,
@@ -194,7 +194,7 @@ class EngagementPlanner:
             )
 
         self._debug(
-            f"[Engagement] eligible=yes group={getattr(state, 'group_id', '?')} msgs={state.message_count_window} silence={int(silence_seconds)}s"
+            f"[Engagement] eligible=yes scope={getattr(state, 'scope_id', '?')} msgs={state.message_count_window} silence={int(silence_seconds)}s"
         )
         return EngagementEligibility(
             allowed=True,
