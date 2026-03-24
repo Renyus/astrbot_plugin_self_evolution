@@ -329,3 +329,38 @@ class PassiveEngagementTests(IsolatedAsyncioTestCase):
 
         self.assertTrue(len(saved_states) > 0, "image message caused crash or no save")
         self.assertIn("scene_type", saved_states[-1])
+
+
+class EngagementExecutorTests(IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        executor_module = load_engine_module("engagement_executor")
+        EngagementExecutor = executor_module.EngagementExecutor
+        planner_module = load_engine_module("engagement_planner")
+        EngagementPlanner = planner_module.EngagementPlanner
+
+        self.mock_bot = AsyncMock()
+        mock_platform = MagicMock()
+        mock_platform.bot = self.mock_bot
+        mock_ctx = MagicMock()
+        mock_ctx.platform_manager.platform_insts = [mock_platform]
+
+        self.plugin = SimpleNamespace(
+            cfg=SimpleNamespace(
+                engagement_debug_enabled=False,
+                interject_cooldown=30,
+                engagement_react_probability=1.0,
+                persona_name="黑塔",
+            ),
+            context=mock_ctx,
+            dao=MagicMock(),
+        )
+        planner = EngagementPlanner(self.plugin)
+        self.executor = EngagementExecutor(self.plugin, planner)
+
+    async def test_send_message_segment_type_is_text(self):
+        await self.executor._send_message("5001", "hello")
+        self.mock_bot.send_group_msg.assert_called_once()
+        call_kwargs = self.mock_bot.send_group_msg.call_args
+        msg_segments = call_kwargs[1]["message"] if "message" in call_kwargs[1] else call_kwargs[0][1]
+        self.assertEqual(msg_segments[0]["type"], "text")
+        self.assertEqual(msg_segments[0]["data"]["text"], "hello")

@@ -333,6 +333,13 @@ class SelfEvolutionPlugin(Star):
         if self.cfg.disable_framework_contexts:
             req.contexts = []
 
+        if group_id and group_id in self._shut_until_by_group:
+            if time.time() < self._shut_until_by_group[group_id]:
+                remaining = int(self._shut_until_by_group[group_id] - time.time())
+                logger.debug(f"[CognitionCore] 群 {group_id} 闭嘴中，LLM 请求已拦截，剩余 {remaining} 秒")
+                req.system_prompt = "当前群已开启闭嘴模式，请仅回复'闭嘴模式中，暂不响应。'"
+                return None
+
         if self.san_enabled and not self.san_system.update():
             logger.warning(f"[SAN] 精力耗尽，拒绝服务: {user_id}")
             req.system_prompt = "我现在很累，脑容量超载了。让我安静一会。"

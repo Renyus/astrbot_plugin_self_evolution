@@ -49,7 +49,7 @@ class EngagementExecutor:
     async def execute(self, plan: EngagementPlan, state: GroupSocialState) -> EngagementExecutionResult:
         if plan.level == EngagementLevel.IGNORE:
             self._debug(
-                f"[Engagement] execute=yes group={getattr(state, 'group_id', '?')} level=IGNORE action=none reason={plan.reason}"
+                f"[Engagement] execute=yes scope={getattr(state, 'scope_id', '?')} level=IGNORE action=none reason={plan.reason}"
             )
             return EngagementExecutionResult(
                 executed=False,
@@ -61,21 +61,21 @@ class EngagementExecutor:
         if plan.level == EngagementLevel.REACT:
             result = await self._execute_react(plan, state)
             self._debug(
-                f"[Engagement] execute=yes group={getattr(state, 'group_id', '?')} level=REACT action={result.action}"
+                f"[Engagement] execute=yes scope={getattr(state, 'scope_id', '?')} level=REACT action={result.action}"
             )
             return result
 
         if plan.level == EngagementLevel.BRIEF:
             result = await self._execute_brief(plan, state)
             self._debug(
-                f"[Engagement] execute=yes group={getattr(state, 'group_id', '?')} level=BRIEF action={result.action}"
+                f"[Engagement] execute=yes scope={getattr(state, 'scope_id', '?')} level=BRIEF action={result.action}"
             )
             return result
 
         if plan.level == EngagementLevel.FULL:
             result = await self._execute_full(plan, state)
             self._debug(
-                f"[Engagement] execute=yes group={getattr(state, 'group_id', '?')} level=FULL action={result.action}"
+                f"[Engagement] execute=yes scope={getattr(state, 'scope_id', '?')} level=FULL action={result.action}"
             )
             return result
 
@@ -237,7 +237,7 @@ class EngagementExecutor:
             platform = self.plugin.context.platform_manager.platform_insts[0]
             bot = platform.bot
 
-            await bot.send_group_msg(group_id=int(group_id), message=[{"type": "plain", "data": {"text": text}}])
+            await bot.send_group_msg(group_id=int(group_id), message=[{"type": "text", "data": {"text": text}}])
             return True
         except Exception as e:
             logger.warning(f"[EngagementExecutor] 发送消息失败: {e}")

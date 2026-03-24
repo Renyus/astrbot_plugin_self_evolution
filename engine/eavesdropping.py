@@ -54,6 +54,9 @@ class EavesdroppingEngine:
 
     async def check_engagement(self, group_id: str) -> bool:
         """主动参与入口 - 定时任务调度用"""
+        if group_id in self.plugin._shut_until_by_group:
+            if time.time() < self.plugin._shut_until_by_group[group_id]:
+                return False
         try:
             state_dict = await self.plugin.dao.get_engagement_state(group_id)
             now = time.time()
