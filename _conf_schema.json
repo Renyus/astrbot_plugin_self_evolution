@@ -233,7 +233,7 @@
     "reflection_schedule": {
         "title": "反思 / 批处理计划",
         "description": "每日反思计划",
-        "hint": "执行前一自然日反思、日报、画像刷新和好感度恢复。关闭反思模块会连带停止每日好感度恢复。",
+        "hint": "执行前一自然日反思、日报、画像刷新。好感度恢复已独立为 `affinity_recovery_enabled` 配置。",
         "type": "string",
         "default": "0 2 * * *"
     },
@@ -334,6 +334,13 @@
         "hint": "被动互动阈值的最大值。",
         "type": "int",
         "default": 50
+    },
+    "affinity_recovery_enabled": {
+        "title": "关系 / 每日恢复",
+        "description": "启用每日好感度恢复",
+        "type": "bool",
+        "default": true,
+        "hint": "每日自动恢复低于50的用户好感度，每天最多+2。独立于反思模块运行。"
     },
     "san_enabled": {
         "title": "行为 / SAN 模块",

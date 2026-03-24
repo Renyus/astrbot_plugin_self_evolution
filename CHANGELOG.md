@@ -50,6 +50,7 @@
 | `affinity_friendly_daily_limit` | 礼貌词每日上限 |
 | `affinity_hostile_cooldown_minutes` | 攻击冷却（分钟） |
 | `affinity_returning_user_daily_limit` | 回访每日上限 |
+| `affinity_recovery_enabled` | 每日好感度恢复开关 |
 
 ### Tests
 

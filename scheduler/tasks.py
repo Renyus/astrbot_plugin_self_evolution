@@ -182,11 +182,15 @@ async def scheduled_reflection(plugin) -> ScheduledTaskResult:
 
 
 async def scheduled_affinity_recovery(plugin) -> ScheduledTaskResult:
-    """每日好感度恢复任务 - 独立于批处理运行"""
-    if not getattr(getattr(plugin, "cfg", None), "reflection_enabled", True):
-        logger.info("[Scheduler] AffinityRecovery 跳过: reflection_enabled=False")
+    """每日好感度恢复任务 - 独立于反思模块运行"""
+    if not getattr(getattr(plugin, "cfg", None), "affinity_recovery_enabled", True):
+        logger.info("[Scheduler] AffinityRecovery 跳过: affinity_recovery_enabled=False")
         return ScheduledTaskResult(
-            task_name="AffinityRecovery", scope_id=None, success=True, skipped=True, reason="reflection_enabled=False"
+            task_name="AffinityRecovery",
+            scope_id=None,
+            success=True,
+            skipped=True,
+            reason="affinity_recovery_enabled=False",
         )
     return await _run_task(
         "AffinityRecovery",

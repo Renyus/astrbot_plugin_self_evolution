@@ -404,8 +404,12 @@ class PluginConfig:
         return int(self._config.get("affinity_hostile_cooldown_minutes", 60))
 
     @property
-    def affinity_returning_user_daily_limit(self):
+    def affinity_returning_user_daily_limit(self) -> int:
         return int(self._config.get("affinity_returning_user_daily_limit", 1))
+
+    @property
+    def affinity_recovery_enabled(self) -> bool:
+        return self._parse_bool(self._config.get("affinity_recovery_enabled"), True)
 
     # Misc
     @property
