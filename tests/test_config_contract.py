@@ -9,15 +9,28 @@ from unittest import TestCase
 from tests._helpers import ROOT
 
 
+def _flatten_schema(schema):
+    """Flatten nested object schema into dict of {key: meta}."""
+    result = {}
+    for group_key, group_meta in schema.items():
+        if "items" in group_meta and isinstance(group_meta["items"], dict):
+            for key, meta in group_meta["items"].items():
+                result[key] = meta
+        else:
+            result[group_key] = group_meta
+    return result
+
+
 class ConfigContractTests(TestCase):
     def test_config_properties_match_schema_keys(self):
         config_text = (ROOT / "config.py").read_text(encoding="utf-8")
         schema = json.loads((ROOT / "_conf_schema.json").read_text(encoding="utf-8"))
+        flat_schema = _flatten_schema(schema)
 
         properties = set(re.findall(r"@property\n\s+def\s+(\w+)\(", config_text))
         properties -= {"_config", "_parse_bool"}
 
-        self.assertEqual(properties, set(schema.keys()))
+        self.assertEqual(properties, set(flat_schema.keys()))
 
     def test_removed_redundant_configs_are_absent(self):
         config_text = (ROOT / "config.py").read_text(encoding="utf-8")
@@ -54,9 +67,11 @@ class ConfigContractTests(TestCase):
             "interject_dry_run",
         }
 
+        flat_schema = _flatten_schema(json.loads(schema_text))
+
         for key in removed_keys:
             self.assertNotIn(f"def {key}(", config_text)
-            self.assertNotIn(f'"{key}"', schema_text)
+            self.assertNotIn(key, flat_schema, f"'{key}' should not appear in flattened schema")
             self.assertNotIn(f"`{key}`", readme_text)
 
         self.assertNotIn("boredom_sarcastic_reply", eavesdropping_text)
@@ -75,6 +90,7 @@ class ConfigContractTests(TestCase):
 
     def test_schema_contains_newly_exposed_runtime_configs(self):
         schema = json.loads((ROOT / "_conf_schema.json").read_text(encoding="utf-8"))
+        flat_schema = _flatten_schema(schema)
 
         expected_types = {
             "prompt_meltdown_message": "string",
@@ -92,8 +108,8 @@ class ConfigContractTests(TestCase):
         }
 
         for key, expected_type in expected_types.items():
-            self.assertIn(key, schema)
-            self.assertEqual(schema[key]["type"], expected_type)
+            self.assertIn(key, flat_schema)
+            self.assertEqual(flat_schema[key]["type"], expected_type, key)
 
     def test_zzz_all_cfg_references_exist_in_plugin_config(self):
         import os, re, ast
@@ -140,9 +156,8 @@ class ConfigContractTests(TestCase):
         self.assertEqual(missing, [], f"cfg.xxx referenced in code but not in PluginConfig: {missing}")
 
     def test_schema_defaults_match_runtime_defaults(self):
-        import importlib.util
-
         schema = json.loads((ROOT / "_conf_schema.json").read_text(encoding="utf-8"))
+        flat_schema = _flatten_schema(schema)
         spec = importlib.util.spec_from_file_location("config_contract_module", ROOT / "config.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
@@ -160,9 +175,76 @@ class ConfigContractTests(TestCase):
 
         cfg = module.PluginConfig(_Plugin())
 
-        for key, meta in schema.items():
+        for key, meta in flat_schema.items():
             runtime_default = getattr(cfg, key)
             schema_default = meta["default"]
             if isinstance(runtime_default, (list, dict)) and isinstance(schema_default, str):
                 schema_default = json.loads(schema_default)
             self.assertEqual(runtime_default, schema_default, key)
+
+    def test_nested_object_config_read_prefers_new_path(self):
+        spec = importlib.util.spec_from_file_location("config_nested_read_module", ROOT / "config.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        class _Plugin:
+            config = {
+                "base": {"review_mode": False},
+                "review_mode": True,
+            }
+
+            @staticmethod
+            def _parse_bool(val, default):
+                if isinstance(val, bool):
+                    return val
+                if isinstance(val, str):
+                    return val.lower() in ("true", "1", "yes", "on")
+                return default
+
+        cfg = module.PluginConfig(_Plugin())
+        self.assertFalse(cfg.review_mode)
+
+    def test_old_flat_config_still_reads(self):
+        spec = importlib.util.spec_from_file_location("config_flat_read_module", ROOT / "config.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        class _Plugin:
+            config = {
+                "engagement": {"interject_enabled": True},
+                "interject_enabled": False,
+            }
+
+            @staticmethod
+            def _parse_bool(val, default):
+                if isinstance(val, bool):
+                    return val
+                if isinstance(val, str):
+                    return val.lower() in ("true", "1", "yes", "on")
+                return default
+
+        cfg = module.PluginConfig(_Plugin())
+        self.assertTrue(cfg.interject_enabled)
+
+    def test_no_config_at_all_uses_defaults(self):
+        spec = importlib.util.spec_from_file_location("config_default_module", ROOT / "config.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        class _Plugin:
+            config = {}
+
+            @staticmethod
+            def _parse_bool(val, default):
+                if isinstance(val, bool):
+                    return val
+                if isinstance(val, str):
+                    return val.lower() in ("true", "1", "yes", "on")
+                return default
+
+        cfg = module.PluginConfig(_Plugin())
+        self.assertTrue(cfg.review_mode)
+        self.assertEqual(cfg.persona_name, "黑塔")
+        self.assertFalse(cfg.interject_enabled)
+        self.assertEqual(cfg.engagement_react_probability, 0.15)
+        self.assertEqual(cfg.san_max, 100)
