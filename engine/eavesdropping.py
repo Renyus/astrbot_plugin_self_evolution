@@ -129,7 +129,7 @@ class EavesdroppingEngine:
                     consecutive_bot_replies=state_dict.get("consecutive_bot_replies", 0),
                 )
             else:
-                state = GroupSocialState(scope_id=group_id, last_message_time=now)
+                state = GroupSocialState(scope_id=group_id, last_message_time=0, message_count_window=1)
 
             msg_text = event.message_str or ""
             if not msg_text.strip():

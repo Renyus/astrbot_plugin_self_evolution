@@ -225,6 +225,23 @@ class PassiveEngagementTests(IsolatedAsyncioTestCase):
         event.message_obj = SimpleNamespace(message=[])
         return event
 
+    async def test_cold_start_no_historical_state_not_rejected_as_silence(self):
+        saved_states = []
+        original_save = self.dao.save_engagement_state
+
+        async def capture_save(scope_id, state):
+            saved_states.append(state)
+            return await original_save(scope_id, state)
+
+        self.dao.save_engagement_state = capture_save
+        event = self._make_event("first message ever", group_id="fresh_scope")
+        await self.engine.process_passive_engagement(event)
+
+        self.assertTrue(len(saved_states) > 0, "cold start should reach eligibility and save state")
+        saved = saved_states[-1]
+        self.assertIn("last_message_time", saved)
+        self.assertGreater(saved["last_message_time"], 0)
+
     async def test_last_message_time_written_to_dao(self):
         now = time.time()
         old_state = {
