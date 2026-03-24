@@ -73,6 +73,36 @@ class SessionMemoryStore:
             logger.warning(f"[Memory] _ensure_scope_kb 出错: {e}")
             return None
 
+    async def _resolve_active_kb_names_for_umo(self, umo: str):
+        """解析当前会话正在使用的知识库列表与检索参数"""
+        from astrbot.core import sp
+
+        kb_manager = getattr(self.plugin.context, "kb_manager", None)
+        if not kb_manager:
+            return [], 5, {}, "none"
+
+        config = self.plugin.context.get_config(umo=umo) if hasattr(self.plugin.context, "get_config") else {}
+        global_kb_names = list(config.get("kb_names", []) or [])
+        global_top_k = config.get("kb_final_top_k", 5)
+        session_config = await sp.session_get(umo, "kb_config", default={}) or {}
+
+        if session_config.get("_self_evolution_scope_binding"):
+            return global_kb_names, global_top_k, session_config, "plugin_bound"
+
+        if "kb_ids" in session_config:
+            kb_ids = session_config.get("kb_ids", []) or []
+            if not kb_ids:
+                return [], session_config.get("top_k", global_top_k), session_config, "session_disabled"
+
+            kb_names = []
+            for kb_id in kb_ids:
+                kb_helper = await kb_manager.get_kb(kb_id)
+                if kb_helper:
+                    kb_names.append(kb_helper.kb.kb_name)
+            return kb_names, session_config.get("top_k", global_top_k), session_config, "session_custom"
+
+        return global_kb_names, global_top_k, session_config, "global"
+
     async def sync_scope_kb_binding(self, scope_id: str, umo: str | None):
         """同步 scope 与知识库的绑定关系"""
         try:

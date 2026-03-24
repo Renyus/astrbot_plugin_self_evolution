@@ -311,7 +311,7 @@ class MemoryManager:
         return global_kb_names, global_top_k, session_config, "global"
 
     async def sync_scope_kb_binding(self, scope_id: str, umo: str | None):
-        """将当前会话的知识库配置绑定到对应 scope 的隔离知识库。"""
+        """将当前会话的知识库配置绑定到对应 scope 的隔离知识库"""
         if not scope_id or not umo:
             return
 
@@ -703,62 +703,15 @@ class MemoryManager:
         except Exception as e:
             logger.warning(f"[Memory] 保存总结失败: {e}")
 
-    async def save_session_event(
-        self,
-        scope_id: str,
-        session_event: dict,
-    ) -> bool:
-        """
-        保存 session_event 到知识库
-
-        session_event 格式:
-        {
-            "type": "session_event",
-            "scope_id": str,
-            "content": str,
-            "user_id": str,
-            "date": str,
-            "source": str,
-        }
-        """
+    async def save_session_event(self, scope_id: str, session_event: dict) -> bool:
+        """保存 session_event（兼容门面，转发到 SessionMemoryStore）"""
         try:
-            kb_helper = await asyncio.wait_for(self._ensure_scope_kb(scope_id), timeout=10.0)
-            if not kb_helper:
-                logger.warning(f"[Memory] 会话 {scope_id} 的隔离知识库不可用")
-                return False
-
-            date = session_event.get("date", datetime.now().strftime("%Y-%m-%d"))
-            file_prefix = f"event_{scope_id}_{date}_"
-
-            scope_label = (
-                f"用户ID: {self._get_private_scope_user_id(scope_id)}"
-                if self._is_private_scope(scope_id)
-                else f"群号: {scope_id}"
-            )
-
-            content = session_event.get("content", "")
-            chunks = [
-                f"【会话事件】\n"
-                f"类型: session_event\n"
-                f"范围ID: {scope_id}\n"
-                f"{scope_label}\n"
-                f"日期: {date}\n"
-                f"来源: {session_event.get('source', 'unknown')}\n"
-                f"内容: {content}",
-            ]
-
-            await kb_helper.upload_document(
-                file_name=f"{file_prefix}{int(time.time() * 1000)}.txt",
-                file_content=b"",
-                file_type="txt",
-                pre_chunked_text=chunks,
-            )
-
-            logger.debug(f"[Memory] session_event 已保存: {content[:50]}...")
-            return True
-
+            store = getattr(self.plugin, "session_memory_store", None)
+            if store:
+                return await store.save_session_event(scope_id, session_event)
+            return False
         except Exception as e:
-            logger.warning(f"[Memory] 保存 session_event 失败: {e}")
+            logger.warning(f"[Memory] save_session_event 转发失败: {e}")
             return False
 
     async def view_summary(self, group_id: str = None) -> str:
@@ -807,14 +760,13 @@ class MemoryManager:
             return f"查看总结失败: {e}"
 
     async def get_summary_by_date(self, scope_id: str, summary_date: str) -> str:
-        """
-        按日期精确获取某天的会话总结，不依赖语义检索。
+        """按日期精确获取某天的会话总结，不依赖语义检索。
 
         Args:
             scope_id: 会话范围ID
-            summary_date: 日期字符串，支持：
-                - yesterday
+            summary_date: 目标日期，支持:
                 - today
+                - yesterday
                 - YYYY-MM-DD 格式
 
         Returns:
