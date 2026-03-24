@@ -308,6 +308,7 @@
 - `affinity_friendly_daily_limit`
 - `affinity_hostile_cooldown_minutes`
 - `affinity_returning_user_daily_limit`
+- `affinity_recovery_enabled`
 
 ### 互动
 
