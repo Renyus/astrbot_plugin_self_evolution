@@ -65,7 +65,7 @@ class AffinityEngineTests(IsolatedAsyncioTestCase):
         cleanup_workspace_temp_dir(self.temp_dir)
 
     async def test_at_bot_triggers_direct_engagement(self):
-        event = FakeEvent("/hello", sender_id="1001", group_id="5001", has_at=True)
+        event = FakeEvent("你好呀", sender_id="1001", group_id="5001", has_at=True)
         signals = await self.engine.process_message(event)
         self.assertEqual(len(signals), 1)
         self.assertEqual(signals[0].signal_type, "direct_engagement")

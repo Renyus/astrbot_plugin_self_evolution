@@ -70,15 +70,19 @@ class AffinityEngine:
     def returning_user_daily_limit(self) -> int:
         return self._get_param("affinity_returning_user_daily_limit", 1)
 
-    def _has_command_prefix_only(self, msg_text: str, is_at: bool) -> bool:
+    def _is_command_message(self, msg_text: str) -> bool:
+        import re
+
         command_prefixes = {"/", "！", "!", "。", ".", "?", "？"}
         stripped = msg_text.strip()
         if not stripped:
             return True
         for prefix in command_prefixes:
             if stripped.startswith(prefix):
-                rest = stripped[len(prefix) :].strip()
+                rest = stripped[len(prefix) :]
                 if not rest:
+                    return True
+                if re.match(r"^[\w\u4e00-\u9fff]", rest):
                     return True
                 return False
         return False
@@ -105,7 +109,7 @@ class AffinityEngine:
         is_at = event.get_extra("is_at", False)
         has_reply = event.get_extra("has_reply", False)
 
-        is_command_only = self._has_command_prefix_only(msg_text, is_at)
+        is_command_only = self._is_command_message(msg_text)
 
         if is_command_only:
             return []
