@@ -507,11 +507,6 @@ class SelfEvolutionPlugin(Star):
         if reply_format:
             parts.append(reply_format)
 
-        if self.cfg.inner_monologue_enabled:
-            inner = getattr(ctx.event, "_inner_monologue", None) if ctx.event else None
-            if inner:
-                parts.append(f"【内心独白】{inner}")
-
         return "\n\n" + "\n\n".join(parts) + "\n" if parts else ""
 
     def _should_inject_preference_hints(self, ctx: PromptContext) -> bool:

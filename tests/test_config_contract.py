@@ -91,11 +91,55 @@ class ConfigContractTests(TestCase):
             self.assertIn(key, schema)
             self.assertEqual(schema[key]["type"], expected_type)
 
+    def test_zzz_all_cfg_references_exist_in_plugin_config(self):
+        import os, re, ast
+
+        config_text = (ROOT / "config.py").read_text(encoding="utf-8")
+        spec = importlib.util.spec_from_file_location("cfg_ref_check_module", ROOT / "config.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        class _FakeConfig:
+            pass
+
+        fake = _FakeConfig()
+        cfg_obj = module.PluginConfig(fake)
+
+        plugin_props = set()
+        tree = ast.parse(config_text)
+        for n in ast.walk(tree):
+            if isinstance(n, ast.ClassDef) and n.name == "PluginConfig":
+                for item in n.body:
+                    if isinstance(item, ast.FunctionDef) and len(item.args.args) == 1:
+                        plugin_props.add(item.name)
+
+        code_refs = set()
+        skip_dirs = {".git", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".venv", "tests"}
+        skip_files = {"config.py", "_conf_schema.json"}
+        for root, dirs, files in os.walk(ROOT):
+            dirs[:] = [d for d in dirs if d not in skip_dirs]
+            for fname in files:
+                if fname in skip_files:
+                    continue
+                if not fname.endswith(".py"):
+                    continue
+                fpath = os.path.join(root, fname)
+                try:
+                    with open(fpath, "r", encoding="utf-8", errors="ignore") as fh:
+                        content = fh.read()
+                except Exception:
+                    continue
+                for m in re.finditer(r"(?:self|plugin)\.cfg\.(\w+)", content):
+                    code_refs.add(m.group(1))
+
+        missing = sorted(code_refs - plugin_props)
+        self.assertEqual(missing, [], f"cfg.xxx referenced in code but not in PluginConfig: {missing}")
+
     def test_schema_defaults_match_runtime_defaults(self):
+        import importlib.util
+
         schema = json.loads((ROOT / "_conf_schema.json").read_text(encoding="utf-8"))
         spec = importlib.util.spec_from_file_location("config_contract_module", ROOT / "config.py")
-        self.assertIsNotNone(spec)
-        self.assertIsNotNone(spec.loader)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
 

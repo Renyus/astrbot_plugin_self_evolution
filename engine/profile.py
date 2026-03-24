@@ -56,11 +56,6 @@ class ProfileManager:
     def dropout_edge_rate(self):
         return self.plugin.cfg.dropout_edge_rate
 
-    @property
-    def core_info_keywords(self):
-        keywords = self.plugin.cfg.core_info_keywords
-        return [k.strip() for k in keywords.split(",")]
-
     def _get_profile_path(self, group_id: str, user_id: str, nickname: str = "") -> Path:
         return self.profile_dir / f"{group_id}_{user_id}.yaml"
 
@@ -105,11 +100,7 @@ class ProfileManager:
         return str(sender_id or "")
 
     def _is_core_info(self, line: str) -> bool:
-        """判断是否为核心信息（永不丢失）"""
-        line_lower = line.lower()
-        for keyword in self.core_info_keywords:
-            if keyword.lower() in line_lower:
-                return True
+        """判断是否为核心信息（永不丢失）- 已废弃，始终返回 False"""
         return False
 
     def _cleanup_expired_cache(self):
