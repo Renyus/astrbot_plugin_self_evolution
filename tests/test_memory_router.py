@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 from tests._helpers import load_module_from_path
 from pathlib import Path
 
+load_module_from_path("memory_types", Path(__file__).resolve().parents[1] / "engine" / "memory_types.py")
+
 router_module = load_module_from_path(
     "memory_router", Path(__file__).resolve().parents[1] / "engine" / "memory_router.py"
 )

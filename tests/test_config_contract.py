@@ -58,7 +58,6 @@ class ConfigContractTests(TestCase):
         schema = json.loads((ROOT / "_conf_schema.json").read_text(encoding="utf-8"))
 
         expected_types = {
-            "core_info_keywords": "string",
             "prompt_meltdown_message": "string",
             "san_auto_analyze_enabled": "bool",
             "san_analyze_interval": "int",
@@ -67,6 +66,10 @@ class ConfigContractTests(TestCase):
             "san_low_activity_drain": "int",
             "san_positive_vibe_bonus": "int",
             "san_negative_vibe_penalty": "int",
+            "memory_debug_enabled": "bool",
+            "engagement_debug_enabled": "bool",
+            "affinity_debug_enabled": "bool",
+            "memory_query_fallback_enabled": "bool",
         }
 
         for key, expected_type in expected_types.items():

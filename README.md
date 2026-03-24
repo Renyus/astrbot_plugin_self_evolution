@@ -2,12 +2,14 @@
 
 `astrbot_plugin_self_evolution` 是一个给 AstrBot 使用的认知增强插件。
 
-它的重点不是多几个命令，而是给机器人补上几层长期能力：
+它的重点不是单独多几个命令，而是给机器人补上几层长期能力：
+
 - 结构化人物记忆
-- 长期会话记忆
+- 会话事件与每日总结
 - 会话反思与自我校准
 - 群聊/私聊上下文注入
-- 主动/被动互动策略
+- 主动/被动社交参与
+- 情感积分、SAN、表情包等行为增强
 
 当前版本同时支持群聊和私聊，并已适配 NapCat 消息结构。
 
@@ -21,16 +23,16 @@
 ### 核心模块
 
 - Prompt 注入
-- 人物画像
-- 长期记忆
+- 记忆系统
 - 会话反思
 - 调度任务
 - 基础命令
 
 ### 可选模块
 
-- 主动插嘴
+- 主动社交参与
 - SAN 精力系统
+- 情感积分底盘
 - 管理辅助能力
 
 ### 实验模块
@@ -39,22 +41,41 @@
 - 元编程
 - 人格进化
 
-## 先看总开关
+## 配置分组（5 层）
 
-如果你觉得配置多，建议先只看这几个模块总开关：
+配置分为 5 组，按需查看：
 
-- `memory_enabled`：是否启用长期记忆模块
-- `reflection_enabled`：是否启用反思与日报模块
-- `entertainment_enabled`：是否启用娱乐与表情包模块
-- `meta_enabled`：是否启用元编程相关模块
-- `interject_enabled`：是否启用主动插嘴
-- `san_enabled`：是否启用 SAN 精力系统
+| 分组 | 说明 | 典型配置 |
+|------|------|----------|
+| 基础 | 最常用，影响整体行为 | `persona_name`、`target_scopes`、`review_mode` |
+| 记忆 | 记忆读写、画像、反思 | `memory_enabled`、`enable_profile_injection`、`reflection_enabled` |
+| 行为 | 机器人表现，不影响数据 | `interject_enabled`、`affinity_auto_enabled`、`san_enabled` |
+| 实验 | 不稳定功能，默认可关 | `meta_enabled`、`allow_meta_programming` |
+| 调试 | 按模块开关日志，不用全局大开 | `memory_debug_enabled`、`engagement_debug_enabled`、`affinity_debug_enabled` |
 
-推荐的使用顺序是：
+## 推荐先看的配置
 
-1. 先决定哪些模块要开
-2. 再调对应模块的细参数
-3. 没用到的模块先关掉，不要一开始全调
+如果觉得配置多，按这个顺序看：
+
+1. 先决定哪些**分组**要开（基础/记忆/行为/实验各有总开关）
+2. 再调对应分组的细参数
+3. 排障时先开对应**调试**分组开关，不要全局开 `debug_log_enabled`
+
+## 日志前缀速查
+
+排障时看这些前缀定位模块：
+
+| 前缀 | 模块 |
+|------|------|
+| `[MemoryWrite]` | 记忆写入路由决策 |
+| `[MemoryQuery]` | 记忆查询分派与命中 |
+| `[MemorySummary]` | 每日总结任务 |
+| `[MemoryStore]` | 知识库存取 |
+| `[MemoryInject]` | Prompt 注入命中 |
+| `[Engagement]` | 场景判断、eligibility、plan |
+| `[Affinity]` | 信号命中、积分变更 |
+
+正常跳过（如 profile 未命中、summary 无消息）只打 `debug`，不打 `warning`。
 
 ## 核心能力
 
@@ -64,7 +85,7 @@
 
 - 发送者和会话来源
 - 引用、`@`、回复关系
-- 群聊短期历史
+- 群聊短期上下文
 - 用户画像摘要
 - 会话反思结果
 - 长期知识库记忆
@@ -72,9 +93,34 @@
 
 主入口在 [main.py](/D:/skills/GD/astrbot_plugin_self_evolution/main.py)。
 
-### 2. 结构化人物记忆
+### 2. 记忆系统
 
-插件会为用户维护结构化画像，记录：
+当前记忆系统已经重构成统一架构：
+
+- `MemoryRouter`
+  统一处理所有记忆写入
+- `MemoryQueryService`
+  统一处理所有记忆查询
+- `MemoryTools`
+  作为 LLM 工具与主链的适配层
+- `SessionMemoryStore / SessionMemorySummarizer`
+  负责会话事件、每日总结和知识库存取
+- `ProfileStore / ProfileBuilder / ProfileSummaryService`
+  负责人物画像存取、构建和摘要
+
+这一版的核心原则是：
+
+- 所有写入先路由，再落库
+- 所有读取先判断意图，再选策略
+- 人物记忆、会话事件、每日总结和反思边界分开
+
+## 记忆系统架构
+
+### 1. 人物记忆
+
+人物记忆只负责“这个人是谁、喜欢什么、长期特征是什么”。
+
+它记录的内容包括：
 
 - 身份信息
 - 偏好
@@ -82,48 +128,158 @@
 - 最近变化
 - 长期备注
 
-支持群聊和私聊两种 `scope`。
-
 相关文件：
-- [engine/profile.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/profile.py)
-- [commands/profile.py](/D:/skills/GD/astrbot_plugin_self_evolution/commands/profile.py)
 
-### 3. 长期会话记忆
+- [engine/profile_store.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/profile_store.py)
+- [engine/profile_builder.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/profile_builder.py)
+- [engine/profile_summary_service.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/profile_summary_service.py)
 
-插件会按前一自然日汇总会话消息，写入 AstrBot 知识库，供后续召回。
+### 2. 会话事件
 
-现在的总结不是混写到一个库里，而是按 `scope` 隔离：
+会话事件只负责“这个群/私聊里发生过什么重要事件、约定、决定”。
+
+适合记录：
+
+- 约定
+- 决定
+- 群规
+- 安排
+- 重要结论
+
+它不负责记录“这个人是什么样的人”。
+
+### 3. 每日总结
+
+每日总结只负责“某一天这个会话整体聊了什么”。
+
+它适合回答：
+
+- 昨天群里聊了什么
+- 某天这个会话主要话题是什么
+
+总结按 `scope` 隔离写入 AstrBot 知识库：
 
 - 群聊：`<memory_kb_name>__scope__g_<group_id>`
 - 私聊：`<memory_kb_name>__scope__p_<user_id>`
 
-这样可以避免群聊和私聊互相污染。
+相关文件：
+
+- [engine/session_memory_store.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/session_memory_store.py)
+- [engine/session_memory_summarizer.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/session_memory_summarizer.py)
+
+### 4. 反思记忆
+
+反思只负责“机器人之后应该怎么调整回答方式”，不直接承担长期人物画像职责。
+
+它主要产出：
+
+- 自我校准提示
+- 明确事实
+- 会话日报
 
 相关文件：
-- [engine/memory.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/memory.py)
-- [scheduler/tasks.py](/D:/skills/GD/astrbot_plugin_self_evolution/scheduler/tasks.py)
 
-### 4. 会话反思
-
-插件支持会话反思和每日批处理，主要负责：
-
-- 自我校准
-- 提取明确事实
-- 刷新活跃用户画像
-- 生成会话日报
-
-相关文件：
 - [engine/reflection.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/reflection.py)
 
-### 5. 主动与被动互动
+## 记忆写入流程
 
-插件支持两类互动：
+现在所有新的记忆写入都会先进入 [engine/memory_router.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/memory_router.py)。
 
-- 被动互动：监听消息，根据关键词、引用、`@`、意愿积分决定是否接话
-- 主动插嘴：定时检查群消息，在满足条件时主动参与
+`MemoryRouter` 会先判断内容属于哪类：
+
+- 人物事实 -> 写入画像
+- 会话事件 -> 写入会话事件记忆
+- 反思提示 -> 不持久化
+- 失败态/元话语 -> 直接丢弃
+
+写入例子：
+
+- “用户喜欢 Galgame” -> 人物画像
+- “群里约好周日联机” -> session_event
+- “昨天群里主要在讨论插件 bug” -> 每日总结
+
+## 记忆读取流程
+
+现在所有新的记忆读取都会先进入 [engine/memory_query_service.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/memory_query_service.py)。
+
+系统会先识别查询意图，再选择正确的读取策略：
+
+- `recent_context`
+  - 回答“刚刚/最近在聊什么”
+- `daily_summary`
+  - 回答“昨天/某天群里聊了什么”
+- `session_event`
+  - 回答“有没有约定过什么”
+- `user_profile`
+  - 回答“这个人是什么样”
+- `user_message_history`
+  - 回答“这个人以前说过什么”
+- `fallback_kb`
+  - 兜底语义检索
+
+这意味着：
+
+- 工具层和 Prompt 注入现在共用同一套读取规则
+- 不再是每个功能自己决定查哪里
+
+## 典型问题如何命中
+
+- “刚刚你们在聊什么？”
+  - 命中 `recent_context`
+- “昨天这个群聊了什么？”
+  - 命中 `daily_summary`
+- “我们之前是不是约定过什么？”
+  - 命中 `session_event`
+- “你觉得这个用户是什么样的人？”
+  - 命中 `user_profile`
+- “他以前说过什么？”
+  - 命中 `user_message_history`
+
+## 主动与被动社交参与
+
+互动系统现在已经重构成分层社交参与模型。
+
+它不再只有“插嘴 / 不插嘴”两种状态，而是会根据群态和上下文规划参与等级：
+
+- `IGNORE`
+- `REACT`
+- `BRIEF`
+- `FULL`
+
+同时会识别群态：
+
+- `IDLE`
+- `CASUAL`
+- `HELP`
+- `DEBATE`
 
 相关文件：
+
 - [engine/eavesdropping.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/eavesdropping.py)
+- [engine/social_state.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/social_state.py)
+- [engine/engagement_planner.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/engagement_planner.py)
+- [engine/engagement_executor.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/engagement_executor.py)
+
+## 情感积分
+
+情感积分现在不再只依赖 LLM 主动调用工具。
+
+它已经变成“自动底盘 + LLM 强信号修正”：
+
+- 自动规则层负责日常弱信号
+  - @bot
+  - 回复 bot
+  - 私聊发起
+  - 礼貌词
+  - 攻击词
+  - 回访用户
+- LLM 负责强信号修正
+- 每日恢复由独立调度任务控制
+
+相关文件：
+
+- [engine/affinity.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/affinity.py)
+- [dao.py](/D:/skills/GD/astrbot_plugin_self_evolution/dao.py)
 
 ## 可选与实验能力
 
@@ -131,22 +287,26 @@
 
 用于模拟精力和疲劳感，会影响回复风格和活跃程度。
 
-文件：
+相关文件：
+
 - [cognition/san.py](/D:/skills/GD/astrbot_plugin_self_evolution/cognition/san.py)
 
 ### 表情包与娱乐
 
-提供表情包学习、发送和轻量娱乐功能。
+表情包现在完全由本地资产目录管理，不再依赖数据库。
 
-文件：
+相关文件：
+
+- [engine/sticker_store.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/sticker_store.py)
 - [engine/entertainment.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/entertainment.py)
 - [commands/sticker.py](/D:/skills/GD/astrbot_plugin_self_evolution/commands/sticker.py)
 
 ### 元编程与人格进化
 
-这部分更偏实验性，适合管理员在测试环境中使用。
+这部分更偏实验性，适合管理者在测试环境中使用。
 
-文件：
+相关文件：
+
 - [engine/meta_infra.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/meta_infra.py)
 - [engine/persona.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/persona.py)
 
@@ -169,7 +329,7 @@
 
 建议保留这个基础库，不要删除。
 
-### AstrBot 怎么用到这些总结
+### AstrBot 怎么使用这些总结
 
 如果当前会话已经启用知识库召回，插件会把当前 `scope` 自动绑定到对应的隔离知识库，让 AstrBot 优先召回当前群或当前私聊自己的总结。
 
@@ -180,7 +340,7 @@
 - `/system help`
 - `/system version`
 - `/reflect`
-- `/affinity`
+- `/affinity show`
 - `/san show`
 - `/今日老婆`
 - `/profile view [用户ID]`
@@ -189,12 +349,14 @@
 - `/shut [分钟]`
 
 说明：
+
 - `/profile view` 现在是只读操作，不会隐式刷新画像
 - 普通用户在私聊里只能操作自己
 - 普通用户在群聊里也只能操作自己的画像
 
 ### 管理员命令
 
+- `/affinity debug <用户ID>`
 - `/set_affinity <用户ID> <分数>`
 - `/san set [值]`
 - `/profile delete <用户ID>`
@@ -215,18 +377,13 @@
 - `/sticker migrate`
 - `/db <操作>`
 
-说明：
-- `/san show` 所有人可用，用于查看当前 SAN 状态
-- `/san set` 仅管理员可用；不带参数时显示当前精力值和状态，带参数时设置为指定值
-- `/sticker list [页码]` 支持分页查看
-- **表情包现已完全由本地资产目录管理**（`data/self_evolution/stickers/`），不再使用数据库存储
-- **删除数据库不会影响表情包**，表情包文件独立存储在本地目录
-
 ## LLM 工具
 
 - `get_user_profile`
 - `upsert_cognitive_memory`
 - `get_user_messages`
+- `get_group_recent_context`
+- `get_group_memory_summary`
 - `update_affinity`
 - `evolve_persona`
 - `list_tools`
@@ -236,15 +393,22 @@
 - `list_stickers`
 - `send_sticker`
 
-其中 `get_user_messages` 现在会尽量按目标用户消息条数返回结果，而不是只从最近一小段群消息里做浅筛。
+## 数据存储位置
+
+- `用户画像`
+  - 本地文件
+- `会话总结 / 会话事件`
+  - AstrBot 知识库（按 scope 隔离）
+- `反思 / 日报 / 情感积分 / SAN 等运行数据`
+  - SQLite
+- `表情包`
+  - 本地目录资产库
 
 ## 配置分层
 
 下面按配置面板的分组来说明。
 
 ### 基础
-
-这一组是最先该看的配置。
 
 - `review_mode`
 - `persona_name`
@@ -255,8 +419,6 @@
 
 ### 核心开关
 
-先决定模块要不要开，再去调细参数。
-
 - `memory_enabled`
 - `reflection_enabled`
 - `interject_enabled`
@@ -266,8 +428,6 @@
 
 ### 记忆
 
-负责长期会话记忆和知识库召回。
-
 - `memory_kb_name`
 - `memory_fetch_page_size`
 - `memory_summary_chunk_size`
@@ -275,8 +435,6 @@
 - `enable_kb_memory_recall`
 
 ### 画像
-
-负责人物记忆和自动建档。
 
 - `profile_msg_count`
 - `profile_cooldown_minutes`
@@ -290,36 +448,34 @@
 
 ### 反思
 
-负责每日反思、日报和画像刷新。
-
 - `reflection_schedule`
 
-### 互动
+### 关系
 
-这组控制主动插嘴和被动互动判定。
+- `affinity_auto_enabled`
+- `affinity_direct_engagement_delta`
+- `affinity_friendly_language_delta`
+- `affinity_hostile_language_delta`
+- `affinity_returning_user_delta`
+- `affinity_direct_engagement_cooldown_minutes`
+- `affinity_friendly_daily_limit`
+- `affinity_hostile_cooldown_minutes`
+- `affinity_returning_user_daily_limit`
+- `affinity_recovery_enabled`
+
+### 互动
 
 - `interject_interval`
 - `interject_cooldown`
 - `interject_min_msg_count`
 - `interject_silence_timeout`
-- `interject_local_filter_enabled`
-- `interject_require_at`
-- `interject_urgency_threshold`
-- `interject_dry_run`
-- `interject_trigger_probability`
 - `interject_analyze_count`
-- `eavesdrop_message_threshold`
-- `eavesdrop_threshold_min`
-- `eavesdrop_threshold_max`
+- `interject_urgency_threshold`
+- `engagement_new_system_enabled`
+- `engagement_react_probability`
 
 ### 行为
 
-这组控制 SAN、漏斗积分和行为倾向。
-
-- `san_max`
-- `san_cost_per_message`
-- `san_recovery_per_hour`
-- `san_low_threshold`
 - `san_auto_analyze_enabled`
 - `san_analyze_interval`
 - `san_msg_count_per_group`
@@ -327,120 +483,83 @@
 - `san_low_activity_drain`
 - `san_positive_vibe_bonus`
 - `san_negative_vibe_penalty`
-- `leaky_integrator_enabled`
-- `leaky_decay_factor`
-- `leaky_trigger_threshold`
-- `interest_boost`
-- `daily_chat_boost`
-- `desire_cooldown_messages`
-- `desire_cooldown_seconds`
-- `dropout_enabled`
-- `dropout_edge_rate`
-
-## 数据库维护
-
-管理员现在可以使用下面这组命令维护插件数据库：
-
-- `/db show`
-- `/db reset`
-- `/db rebuild`
-- `/db confirm`
-
-说明：
-
-- `/db reset` 是清空数据库中的业务数据，数据库文件仍然保留。
-- `/db rebuild` 是删除插件数据库文件后重新建库，这不是清空表，而是直接重建数据库文件。
-- `/db confirm` 会确认最近一次 `reset` 或 `rebuild` 请求，确认窗口为 30 秒。
-- 这组命令仅管理员可用。
-
-推荐使用场景：
-
-- 数据脏了，但结构正常：优先用 `/db reset`
-- 数据库表结构异常、文件损坏、升级后出现持续性 sqlite 报错：再用 `/db rebuild`
-
-## 重装插件注意事项
-
-如果你准备卸载后重新安装，建议先确认你想保留哪些数据。
-
-会保留或需要你特别注意的内容：
-
-- 插件数据库文件：里面有好感度、会话反思、日报、表情包等数据
-- 用户画像文件：这是独立于数据库之外的本地画像数据
-- AstrBot 知识库：长期会话总结写在知识库里，不会因为重装插件自动消失
-- 配置项：重装后请重新核对是否和当前版本字段一致
-
-建议的重装顺序：
-
-1. 先决定是否保留旧数据库和旧画像
-2. 如果只想清业务数据但保留插件本体，优先使用 `/db reset`
-3. 如果怀疑数据库文件本身损坏，再使用 `/db rebuild`
-4. 如果你希望彻底重新开始，除了执行 `/db rebuild`，还要手动清理画像目录和对应知识库内容
-5. 重装后确认 `memory_kb_name` 仍然指向你想使用的基础知识库
-6. 重装后建议手动测试一次：
-   - `/system version`
-   - `/san show`
-   - `/db show`
-   - `/profile view`
-
-额外提醒：
-
-- 当前版本的长期总结是按 scope 写入知识库的，所以“重装插件”和“删除知识库总结”不是同一件事。
-- 如果你只删了数据库文件，没有清知识库，AstrBot 仍可能召回旧的会话总结。
-- 如果你只重装插件但保留画像文件，机器人依然会沿用旧画像。
-- `surprise_enabled`
-- `surprise_boost_keywords`
-- `inner_monologue_enabled`
-- `boredom_enabled`
-- `boredom_consecutive_count`
 
 ### 实验
 
-这组建议按需开启，不建议一开始全开。
-
-- `debate_enabled`
-- `debate_rounds`
-- `debate_system_prompt`
-- `debate_criteria`
+- `meta_enabled`
 - `debate_agents`
-- `allow_meta_programming`
 
 ### 娱乐
 
-这组负责表情包和轻量娱乐能力。
-
+- `entertainment_enabled`
 - `sticker_learning_enabled`
-- `sticker_target_qq`
-- `sticker_daily_limit`
-- `sticker_total_limit`
-- `sticker_send_cooldown`
 - `sticker_freq_threshold`
+- `sticker_total_limit`
+- `sticker_daily_limit`
 
 ### 提示
 
-这组直接影响 prompt 注入行为。
-
-- `disable_framework_contexts`
-- `inject_group_history`
-- `group_history_count`
-- `max_prompt_injection_length`
 - `prompt_meltdown_message`
 
-## 数据存储
+## 重装与迁移注意事项
 
-- 用户画像：本地文件
-- 关系、反思、日报、好感度、表情包：SQLite
-- 长期会话总结：AstrBot 知识库
+- 重装插件不会自动清空 AstrBot 知识库
+- 重建数据库不会删除画像文件
+- 重建数据库不会删除表情包目录
+- scope 知识库会按群聊/私聊自动隔离，不需要手工逐个配置
 
-## 环境要求
+如果你需要彻底清理不同层的数据，需要分别处理：
 
-- AstrBot
-- NapCat
-- 至少一个可用模型 Provider
-- 一个与 `memory_kb_name` 对应的基础知识库
+- 数据库：`/db reset` 或 `/db rebuild`
+- 表情包：`/sticker clear` 或删除本地表情包目录
+- 画像：删除画像文件
+- 知识库总结：使用知识库清理或对应管理能力
 
-## 适合什么场景
+## 开发者模块地图
 
-- 想让机器人记住用户长期偏好和身份信息
-- 想让机器人对群聊和私聊有跨天记忆
-- 想把短期上下文、结构化画像和长期知识库记忆组合起来使用
-- 想让机器人在群里更像一个持续参与的角色，而不是纯问答接口
+### 写入主链
+
+- [engine/memory_router.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/memory_router.py)
+  - 统一记忆写入路由
+
+### 查询主链
+
+- [engine/memory_query_service.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/memory_query_service.py)
+  - 统一记忆查询意图与分发
+- [engine/memory_tools.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/memory_tools.py)
+  - LLM 工具与主链适配层
+
+### 会话记忆
+
+- [engine/session_memory_store.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/session_memory_store.py)
+  - 会话总结 / 事件的知识库存取
+- [engine/session_memory_summarizer.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/session_memory_summarizer.py)
+  - 前一自然日消息抓取与每日总结
+
+### 人物记忆
+
+- [engine/profile_store.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/profile_store.py)
+  - 画像存取与结构化变更
+- [engine/profile_builder.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/profile_builder.py)
+  - 手动/自动画像构建
+- [engine/profile_summary_service.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/profile_summary_service.py)
+  - 画像摘要生成
+
+### 入口与编排
+
+- [main.py](/D:/skills/GD/astrbot_plugin_self_evolution/main.py)
+  - 工具注册、Prompt 注入编排、消息入口
+
+## 当前完成度
+
+如果只评价记忆系统本身，现在可以把它理解成：
+
+- `架构完成度：8.5/10`
+- `运行完成度：9/10`
+- `产品完成度：7.5/10`
+
+也就是说：
+
+- 写入总线、查询中枢、分层存储已经落地
+- 主链已经切到新架构
+- 但后续仍然值得继续打磨 query intent、注入策略和文档表达

@@ -12,6 +12,9 @@ from astrbot.api import logger
 from astrbot.api.all import AstrMessageEvent
 
 from .context_injection import build_identity_context, get_group_history, parse_message_chain
+from .engagement_planner import EngagementPlanner
+from .engagement_executor import EngagementExecutor
+from .social_state import EngagementLevel, GroupSocialState
 
 
 @dataclass
@@ -1475,3 +1478,196 @@ class EavesdroppingEngine:
 
         except Exception as e:
             logger.warning(f"[Interject] 群 {group_id} 插嘴失败: {e}")
+
+    async def check_engagement(self, group_id: str) -> bool:
+        """使用新的社交行为引擎检查是否需要参与群聊
+
+        Returns:
+            True if engagement was executed, False otherwise
+        """
+        if not hasattr(self.plugin, "cfg") or not self.plugin.cfg.interject_enabled:
+            return False
+
+        try:
+            if not self.plugin.context.platform_manager.platform_insts:
+                return False
+
+            platform = self.plugin.context.platform_manager.platform_insts[0]
+            if not hasattr(platform, "get_client") or not platform.get_client():
+                return False
+
+            whitelist = self.plugin.cfg.target_scopes
+            if whitelist and group_id not in [str(g) for g in whitelist]:
+                return False
+
+            if group_id in getattr(self.plugin, "_shut_until_by_group", {}):
+                if time.time() < self.plugin._shut_until_by_group[group_id]:
+                    return False
+
+            msg_count = getattr(self.plugin.cfg, "group_history_count", 20)
+            messages, latest_seq, latest_time, msg_total, bot_id = await self._fetch_scope_messages(group_id, msg_count)
+            if not messages:
+                return False
+
+            planner = EngagementPlanner(self.plugin)
+            executor = EngagementExecutor(self.plugin, planner)
+
+            now = time.time()
+            state_dict = await self.plugin.dao.get_engagement_state(group_id)
+            if state_dict:
+                state = GroupSocialState(
+                    scope_id=group_id,
+                    last_message_time=state_dict.get("last_message_time", 0.0) or (now - 60),
+                    last_bot_message_time=state_dict.get("last_bot_engagement_at", 0.0) or 0.0,
+                    last_seen_message_seq=state_dict.get("last_seen_message_seq"),
+                    scene=SceneType(state_dict.get("scene_type", "casual"))
+                    if state_dict.get("scene_type")
+                    else SceneType.CASUAL,
+                    message_count_window=state_dict.get("message_count_window", 0),
+                    question_count_window=state_dict.get("question_count_window", 0),
+                    emotion_count_window=state_dict.get("emotion_count_window", 0),
+                    consecutive_bot_replies=state_dict.get("consecutive_bot_replies", 0),
+                )
+            else:
+                state = GroupSocialState(scope_id=group_id, last_message_time=now - 60)
+
+            state.last_message_time = latest_time
+            state.message_count_window = len(messages)
+
+            computed = planner.compute_scene_windows(messages, state)
+            state.question_count_window = computed["question_count_window"]
+            state.emotion_count_window = computed["emotion_count_window"]
+            state.mention_bot_recently = computed["mention_bot_recently"]
+            state.scene = planner.classify_scene(messages, state)
+
+            has_mention = self._latest_message_mentions_bot(messages[0], bot_id)
+
+            eligibility = planner.check_eligibility(
+                state,
+                cooldown_seconds=self.plugin.cfg.interject_cooldown,
+                min_new_messages=self.plugin.cfg.interject_min_msg_count,
+            )
+
+            if not eligibility.allowed:
+                logger.debug(f"[Engagement] 群 {group_id}: {eligibility.reason_code} - {eligibility.reason_text}")
+                return False
+
+            plan = planner.plan_engagement(state, eligibility, has_mention=has_mention)
+
+            logger.debug(
+                f"[Engagement] 群 {group_id}: plan={plan.level.value}, scene={plan.scene.value}, reason={plan.reason}"
+            )
+
+            result = await executor.execute(plan, state)
+
+            new_state = {
+                "last_bot_engagement_at": time.time() if result.executed else state.last_bot_message_time,
+                "last_bot_engagement_level": result.level.value
+                if result.executed
+                else (state_dict.get("last_bot_engagement_level") if state_dict else None),
+                "last_seen_message_seq": latest_seq,
+                "scene_type": plan.scene.value,
+                "message_count_window": state.message_count_window,
+                "question_count_window": state.question_count_window,
+                "emotion_count_window": state.emotion_count_window,
+                "consecutive_bot_replies": (state.consecutive_bot_replies + 1) if result.executed else 0,
+            }
+            await self.plugin.dao.save_engagement_state(group_id, new_state)
+
+            if result.executed:
+                logger.info(f"[Engagement] 群 {group_id}: executed {result.action} ({result.level.value})")
+                return True
+
+            return False
+
+        except Exception as e:
+            logger.warning(f"[Engagement] 群 {group_id} 检查失败: {e}", exc_info=True)
+            return False
+
+    async def process_passive_engagement(self, event: AstrMessageEvent):
+        """使用新版社交行为引擎处理被动消息响应
+
+        适用于每条收到的消息的实时响应判断（非定时批量）。
+        """
+        group_id = event.get_group_id()
+        if not group_id:
+            return
+
+        try:
+            now = time.time()
+            bot_id = str(self.plugin._get_bot_id()) if hasattr(self.plugin, "_get_bot_id") else ""
+
+            state_dict = await self.plugin.dao.get_engagement_state(group_id)
+            if state_dict:
+                state = GroupSocialState(
+                    scope_id=group_id,
+                    last_message_time=state_dict.get("last_message_time", 0.0) or (now - 60),
+                    last_bot_message_time=state_dict.get("last_bot_engagement_at", 0.0) or 0.0,
+                    last_seen_message_seq=state_dict.get("last_seen_message_seq"),
+                    scene=SceneType(state_dict.get("scene_type", "casual"))
+                    if state_dict.get("scene_type")
+                    else SceneType.CASUAL,
+                    message_count_window=state_dict.get("message_count_window", 0),
+                    question_count_window=state_dict.get("question_count_window", 0),
+                    emotion_count_window=state_dict.get("emotion_count_window", 0),
+                    consecutive_bot_replies=state_dict.get("consecutive_bot_replies", 0),
+                )
+            else:
+                state = GroupSocialState(scope_id=group_id, last_message_time=now)
+
+            state.last_message_time = now
+            state.message_count_window = 1
+
+            messages_for_scene = [{"text": event.message_str or "", "message": []}]
+            planner = EngagementPlanner(self.plugin)
+            executor = EngagementExecutor(self.plugin, planner)
+
+            computed = planner.compute_scene_windows(messages_for_scene, state)
+            state.question_count_window = computed["question_count_window"]
+            state.emotion_count_window = computed["emotion_count_window"]
+            state.mention_bot_recently = computed["mention_bot_recently"]
+
+            is_at = event.is_at_or_wake_command
+            has_reply = event.get_extra("has_reply", False)
+            has_mention = is_at or has_reply
+
+            eligibility = planner.check_eligibility(
+                state,
+                cooldown_seconds=self.plugin.cfg.interject_cooldown,
+                min_new_messages=1,
+            )
+
+            if not eligibility.allowed:
+                logger.debug(
+                    f"[PassiveEngagement] 群 {group_id}: {eligibility.reason_code} - {eligibility.reason_text}"
+                )
+                return
+
+            plan = planner.plan_engagement(state, eligibility, has_mention=has_mention, has_reply_to_bot=has_reply)
+
+            if plan.level == EngagementLevel.IGNORE:
+                return
+
+            logger.debug(f"[PassiveEngagement] 群 {group_id}: level={plan.level.value}, scene={plan.scene.value}")
+
+            result = await executor.execute(plan, state)
+
+            new_state = {
+                "last_bot_engagement_at": time.time() if result.executed else state.last_bot_message_time,
+                "last_bot_engagement_level": result.level.value
+                if result.executed
+                else (state_dict.get("last_bot_engagement_level") if state_dict else None),
+                "last_seen_message_seq": state_dict.get("last_seen_message_seq") if state_dict else None,
+                "scene_type": plan.scene.value,
+                "message_count_window": state.message_count_window,
+                "question_count_window": state.question_count_window,
+                "emotion_count_window": state.emotion_count_window,
+                "consecutive_bot_replies": (state.consecutive_bot_replies + 1) if result.executed else 0,
+            }
+            await self.plugin.dao.save_engagement_state(group_id, new_state)
+
+            if result.executed:
+                logger.info(f"[PassiveEngagement] 群 {group_id}: executed {result.action} ({result.level.value})")
+
+        except Exception as e:
+            logger.warning(f"[PassiveEngagement] 群 {group_id} 处理失败: {e}", exc_info=True)

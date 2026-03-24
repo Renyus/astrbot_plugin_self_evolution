@@ -5,9 +5,10 @@ from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock
 
 from tests._helpers import load_commands_module
-from astrbot_plugin_self_evolution.commands.common import parse_target_user
 
 profile_commands = load_commands_module("profile")
+common_module = load_commands_module("common")
+parse_target_user = common_module.parse_target_user
 
 
 class _FakeEvent:

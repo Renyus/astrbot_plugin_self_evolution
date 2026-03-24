@@ -182,11 +182,15 @@ async def scheduled_reflection(plugin) -> ScheduledTaskResult:
 
 
 async def scheduled_affinity_recovery(plugin) -> ScheduledTaskResult:
-    """每日好感度恢复任务 - 独立于批处理运行"""
-    if not getattr(getattr(plugin, "cfg", None), "reflection_enabled", True):
-        logger.info("[Scheduler] AffinityRecovery 跳过: reflection_enabled=False")
+    """每日好感度恢复任务 - 独立于反思模块运行"""
+    if not getattr(getattr(plugin, "cfg", None), "affinity_recovery_enabled", True):
+        logger.info("[Scheduler] AffinityRecovery 跳过: affinity_recovery_enabled=False")
         return ScheduledTaskResult(
-            task_name="AffinityRecovery", scope_id=None, success=True, skipped=True, reason="reflection_enabled=False"
+            task_name="AffinityRecovery",
+            scope_id=None,
+            success=True,
+            skipped=True,
+            reason="affinity_recovery_enabled=False",
         )
     return await _run_task(
         "AffinityRecovery",
@@ -285,8 +289,12 @@ async def scheduled_interject(plugin) -> ScheduledTaskResult:
 
 async def _interject_impl(plugin):
     scopes, _ = await _resolve_target_scopes(plugin, "Interject", include_private=False, include_groups=True)
+    new_system = getattr(plugin.cfg, "engagement_new_system_enabled", False)
     for group_id in scopes:
-        await plugin.eavesdropping.interject_check_group(group_id)
+        if new_system:
+            await plugin.eavesdropping.check_engagement(group_id)
+        else:
+            await plugin.eavesdropping.interject_check_group(group_id)
 
 
 async def scheduled_profile_cleanup(plugin) -> ScheduledTaskResult:

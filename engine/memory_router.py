@@ -12,6 +12,11 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 
+try:
+    from .memory_types import MemoryWriteDecision, MemoryWriteRequest, MemoryWriteTarget
+except ImportError:
+    from memory_types import MemoryWriteDecision, MemoryWriteRequest, MemoryWriteTarget
+
 logger = logging.getLogger("astrbot")
 
 
@@ -84,6 +89,10 @@ class MemoryRouter:
 
     def __init__(self, plugin):
         self.plugin = plugin
+
+    def _debug(self, msg: str):
+        if getattr(self.plugin, "cfg", None) and self.plugin.cfg.memory_debug_enabled:
+            logger.debug(msg)
 
     def classify(
         self,
@@ -246,6 +255,31 @@ class MemoryRouter:
 
         return "recent_update"
 
+    def route_write(self, request: MemoryWriteRequest) -> MemoryWriteDecision:
+        """路由写入请求，返回 MemoryWriteDecision
+
+        统一入口，不再直接决策。
+        """
+        decision = self.classify(
+            content=request.content,
+            category=request.category,
+            fact_type=request.fact_type,
+        )
+
+        target_map = {
+            MemoryTarget.PROFILE: MemoryWriteTarget.PROFILE,
+            MemoryTarget.KNOWLEDGE_BASE: MemoryWriteTarget.SESSION_EVENT,
+            MemoryTarget.REFLECTION_HINT: MemoryWriteTarget.REFLECTION_HINT,
+            MemoryTarget.DROP: MemoryWriteTarget.DROP,
+        }
+
+        return MemoryWriteDecision(
+            target=target_map.get(decision.target, MemoryWriteTarget.DROP),
+            fact_type=decision.fact_type,
+            reason=decision.reason,
+            confidence=decision.confidence,
+        )
+
     async def write(
         self,
         content: str,
@@ -281,9 +315,9 @@ class MemoryRouter:
 
         decision = self.classify(content, category, fact_type)
 
-        logger.debug(
-            f"[MemoryRouter] 路由决策: content={content[:50]}... → {decision.target.value}, "
-            f"fact_type={decision.fact_type}, confidence={decision.confidence}, reason={decision.reason}"
+        self._debug(
+            f"[MemoryWrite] scope={scope_id} user={user_id} target={decision.target.value} "
+            f"fact_type={decision.fact_type or 'N/A'} reason={decision.reason[:30] if decision.reason else 'N/A'}"
         )
 
         if decision.target == MemoryTarget.DROP:
@@ -318,8 +352,14 @@ class MemoryRouter:
                 nickname=nickname,
             )
             if success:
+                self._debug(
+                    f"[MemoryWrite] scope={scope_id} user={user_id} target=profile fact_type={fact_type} result=written"
+                )
                 return f"已写入画像（类型：{fact_type}）"
             else:
+                self._debug(
+                    f"[MemoryWrite] scope={scope_id} user={user_id} target=profile fact_type={fact_type} result=duplicate"
+                )
                 return "内容已存在，无需重复写入"
 
         return "未知目标"
@@ -384,7 +424,7 @@ class MemoryRouter:
     ) -> str:
         """写入知识库 - session_event"""
         if self._should_reject_session_event(content):
-            logger.debug(f"[MemoryRouter] 拒绝写入失败态内容: {content[:50]}...")
+            self._debug(f"[MemoryWrite] scope={scope_id} dropped=session_event reason=meta_content")
             return "内容为失败态/元话语，已拒绝写入"
 
         try:
@@ -409,8 +449,10 @@ class MemoryRouter:
             )
 
             if success:
+                self._debug(f"[MemoryWrite] scope={scope_id} user={user_id} target=kb result=written")
                 return "已写入知识库（session_event）"
             else:
+                self._debug(f"[MemoryWrite] scope={scope_id} user={user_id} target=kb result=failed")
                 return "写入知识库失败"
         except Exception as e:
             logger.warning(f"[MemoryRouter] 写入 KB 失败: {e}")

@@ -131,10 +131,42 @@ class SelfEvolutionDAO:
             )
         """)
         await db.execute("""
+            CREATE TABLE IF NOT EXISTS affinity_signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                scope_id TEXT NOT NULL,
+                signal_type TEXT NOT NULL,
+                delta INTEGER NOT NULL,
+                triggered_at TEXT NOT NULL,
+                triggered_date TEXT NOT NULL
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS user_interactions (
+                user_id TEXT PRIMARY KEY,
+                last_interaction_date TEXT NOT NULL,
+                consecutive_days INTEGER NOT NULL DEFAULT 1
+            )
+        """)
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS known_scopes (
                 scope_id TEXT PRIMARY KEY,
                 scope_type TEXT NOT NULL,
                 last_seen_at TEXT NOT NULL
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS engagement_state (
+                scope_id TEXT PRIMARY KEY,
+                last_bot_engagement_at TEXT,
+                last_bot_engagement_level TEXT,
+                last_seen_message_seq INTEGER,
+                scene_type TEXT DEFAULT 'casual',
+                message_count_window INTEGER DEFAULT 0,
+                question_count_window INTEGER DEFAULT 0,
+                emotion_count_window INTEGER DEFAULT 0,
+                consecutive_bot_replies INTEGER DEFAULT 0,
+                updated_at TEXT NOT NULL
             )
         """)
         await db.execute("""
@@ -459,6 +491,139 @@ class SelfEvolutionDAO:
             await self._set_cached_affinity(user_id, score)
 
     @with_db_retry()
+    async def can_apply_affinity_signal(
+        self, user_id: str, signal_type: str, cooldown_minutes: int = 60, daily_limit: int = 0
+    ) -> tuple[bool, str]:
+        user_id = str(user_id)
+        db = await self.get_conn()
+        today = datetime.now().strftime("%Y-%m-%d")
+        now = datetime.now()
+        triggered_at = now.isoformat()
+
+        async with self._write_lock:
+            cursor = await db.execute(
+                "SELECT triggered_at, triggered_date, delta FROM affinity_signals WHERE user_id = ? AND signal_type = ? ORDER BY id DESC LIMIT 1",
+                (user_id, signal_type),
+            )
+            row = await cursor.fetchone()
+
+            if row:
+                last_date = row["triggered_date"]
+                last_time = datetime.fromisoformat(row["triggered_at"])
+                delta_minutes = (now - last_time).total_seconds() / 60
+
+                if last_date == today and daily_limit > 0:
+                    daily_count_cursor = await db.execute(
+                        "SELECT COUNT(*) as cnt FROM affinity_signals WHERE user_id = ? AND signal_type = ? AND triggered_date = ?",
+                        (user_id, signal_type, today),
+                    )
+                    daily_row = await daily_count_cursor.fetchone()
+                    if daily_row and daily_row["cnt"] >= daily_limit:
+                        return False, f"daily_limit_reached ({daily_limit}/day)"
+
+                if delta_minutes < cooldown_minutes:
+                    remaining = int(cooldown_minutes - delta_minutes)
+                    return False, f"cooldown_active ({remaining}min remaining)"
+
+            return True, "ok"
+
+    @with_db_retry()
+    async def record_affinity_signal(self, user_id: str, scope_id: str, signal_type: str, delta: int):
+        user_id = str(user_id)
+        db = await self.get_conn()
+        today = datetime.now().strftime("%Y-%m-%d")
+        now = datetime.now()
+
+        async with self._write_lock:
+            await db.execute(
+                "INSERT INTO affinity_signals (user_id, scope_id, signal_type, delta, triggered_at, triggered_date) VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, scope_id, signal_type, delta, now.isoformat(), today),
+            )
+            await db.commit()
+
+    @with_db_retry()
+    async def check_returning_user(self, user_id: str) -> bool:
+        user_id = str(user_id)
+        db = await self.get_conn()
+        today = datetime.now().strftime("%Y-%m-%d")
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+        async with self._write_lock:
+            cursor = await db.execute(
+                "SELECT last_interaction_date, consecutive_days FROM user_interactions WHERE user_id = ?",
+                (user_id,),
+            )
+            row = await cursor.fetchone()
+
+            if row:
+                last_date = row["last_interaction_date"]
+                if last_date == today:
+                    return False
+                if last_date == yesterday:
+                    await db.execute(
+                        "UPDATE user_interactions SET last_interaction_date = ?, consecutive_days = consecutive_days + 1 WHERE user_id = ?",
+                        (today, user_id),
+                    )
+                else:
+                    await db.execute(
+                        "UPDATE user_interactions SET last_interaction_date = ?, consecutive_days = 1 WHERE user_id = ?",
+                        (today, user_id),
+                    )
+            else:
+                await db.execute(
+                    "INSERT INTO user_interactions (user_id, last_interaction_date, consecutive_days) VALUES (?, ?, 1)",
+                    (user_id, today),
+                )
+            await db.commit()
+            return row is not None and row["last_interaction_date"] == yesterday
+
+    @with_db_retry()
+    async def get_affinity_debug_info(self, user_id: str) -> dict:
+        user_id = str(user_id)
+        db = await self.get_conn()
+
+        cursor = await db.execute(
+            "SELECT affinity_score, last_interaction FROM user_relationships WHERE user_id = ?",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+        affinity_score = row["affinity_score"] if row else 50
+        last_interaction = row["last_interaction"] if row else None
+
+        cursor = await db.execute(
+            "SELECT signal_type, delta, triggered_at, triggered_date FROM affinity_signals WHERE user_id = ? ORDER BY id DESC LIMIT 20",
+            (user_id,),
+        )
+        signals = await cursor.fetchall()
+
+        cursor = await db.execute(
+            "SELECT last_interaction_date, consecutive_days FROM user_interactions WHERE user_id = ?",
+            (user_id,),
+        )
+        interaction_row = await cursor.fetchone()
+
+        return {
+            "user_id": user_id,
+            "affinity_score": affinity_score,
+            "last_interaction": last_interaction,
+            "recent_signals": [
+                {
+                    "signal_type": s["signal_type"],
+                    "delta": s["delta"],
+                    "triggered_at": s["triggered_at"],
+                    "triggered_date": s["triggered_date"],
+                }
+                for s in signals
+            ],
+            "returning_user": {
+                "last_date": interaction_row["last_interaction_date"] if interaction_row else None,
+                "consecutive_days": interaction_row["consecutive_days"] if interaction_row else 0,
+            }
+            if interaction_row
+            else None,
+        }
+
+    @with_db_retry()
     async def get_pending_evolutions(self, limit: int, offset: int):
         db = await self.get_conn()
         async with db.execute(
@@ -582,3 +747,42 @@ class SelfEvolutionDAO:
             "rebuilt": True,
             "db_path": str(db_file),
         }
+
+    @with_db_retry()
+    async def get_engagement_state(self, scope_id: str) -> Optional[dict]:
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute(
+                "SELECT * FROM engagement_state WHERE scope_id = ?",
+                (scope_id,),
+            )
+            row = await cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+
+    @with_db_retry()
+    async def save_engagement_state(self, scope_id: str, state: dict):
+        db = await self.get_conn()
+        now = datetime.now().isoformat()
+        async with self._write_lock:
+            await db.execute(
+                """INSERT OR REPLACE INTO engagement_state 
+                   (scope_id, last_bot_engagement_at, last_bot_engagement_level, 
+                    last_seen_message_seq, scene_type, message_count_window,
+                    question_count_window, emotion_count_window, consecutive_bot_replies, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    scope_id,
+                    state.get("last_bot_engagement_at"),
+                    state.get("last_bot_engagement_level"),
+                    state.get("last_seen_message_seq"),
+                    state.get("scene_type", "casual"),
+                    state.get("message_count_window", 0),
+                    state.get("question_count_window", 0),
+                    state.get("emotion_count_window", 0),
+                    state.get("consecutive_bot_replies", 0),
+                    now,
+                ),
+            )
+            await db.commit()

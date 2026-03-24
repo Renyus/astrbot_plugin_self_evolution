@@ -22,11 +22,14 @@ from .config import PluginConfig
 from .dao import SelfEvolutionDAO
 from .engine.context_injection import build_identity_context, get_group_history, parse_message_chain
 from .engine.eavesdropping import EavesdroppingEngine
+from .engine.affinity import AffinityEngine
 from .engine.entertainment import EntertainmentEngine
 from .engine.event_context import extract_interaction_context
 from .engine.message_normalization import ensure_event_message_text
 from .engine.memory import MemoryManager
 from .engine.memory_router import MemoryRouter
+from .engine.memory_tools import MemoryTools
+from .engine.memory_types import MemoryQueryIntent, MemoryQueryRequest
 from .engine.meta_infra import MetaInfra
 from .engine.persona import PersonaManager
 from .engine.profile import ProfileManager
@@ -73,7 +76,7 @@ class PromptContext:
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "CognitionCore 7.0 数字生命。",
-    "Ver 3.1.2",
+    "Ver 3.1.4",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
@@ -130,6 +133,8 @@ class SelfEvolutionPlugin(Star):
             self.profile = ProfileManager(self)
             # 娱乐功能模块
             self.entertainment = EntertainmentEngine(self)
+            # 关系温度引擎
+            self.affinity = AffinityEngine(self)
             # 认知系统模块
             self.san_system = SANSystem(self)
             # 反思模块
@@ -138,6 +143,7 @@ class SelfEvolutionPlugin(Star):
             self.session_reflection = SessionReflection(self)
             self.daily_batch = DailyBatchProcessor(self)
             self.memory_router = MemoryRouter(self)
+            self.memory_tools = MemoryTools(self)
             logger.info(
                 "[SelfEvolution] 核心组件 (DAO, Eavesdropping, Entertainment, ImageCache, MetaInfra, Memory, Persona, Profile, SAN, Reflection) 初始化完成。"
             )
@@ -284,6 +290,18 @@ class SelfEvolutionPlugin(Star):
 
         self._apply_prompt_injections(req, parts)
 
+        if self.cfg.memory_debug_enabled:
+            profile_hit = self._should_inject_profile(ctx)
+            kb_hit = self._should_inject_kb_memory(ctx)
+            history_hit = self._should_inject_group_history(ctx)
+            total_len = sum(len(p) for p in parts if isinstance(p, str))
+            truncated = "yes" if total_len > self.cfg.max_prompt_injection_length else "no"
+            logger.debug(
+                f"[MemoryInject] profile={'hit' if profile_hit else 'miss'} "
+                f"kb={'hit' if kb_hit else 'miss'} history={'hit' if history_hit else 'miss'} "
+                f"reflection={'hit' if reflection_hint else 'miss'} truncated={truncated}"
+            )
+
     async def _prepare_request_context(self, event: AstrMessageEvent, req: ProviderRequest) -> PromptContext | None:
         """收集基础运行时上下文，返回 None 表示拦截请求"""
         user_id = event.get_sender_id()
@@ -384,18 +402,34 @@ class SelfEvolutionPlugin(Star):
         return f"\n\n【群消息历史】\n{hist_str}\n"
 
     async def _build_profile_injection(self, ctx: PromptContext) -> str:
-        profile_summary = await self.profile.get_structured_summary(ctx.profile_scope_id, ctx.user_id, max_items=8)
-        if not profile_summary:
+        result = await self.memory_tools.query_service.query(
+            MemoryQueryRequest(
+                scope_id=ctx.profile_scope_id,
+                user_id=ctx.user_id,
+                query="",
+                intent=MemoryQueryIntent.USER_PROFILE,
+                limit=8,
+            )
+        )
+        if not result.text:
             return ""
-        return f"\n\n[用户印象]\n{profile_summary}\n"
+        return f"\n\n[用户印象]\n{result.text}\n"
 
     async def _build_kb_memory_injection(self, ctx: PromptContext) -> str:
         if not getattr(self.cfg, "memory_enabled", True):
             return ""
-        kb_memory = await self.memory.smart_retrieve(scope_id=ctx.scope_id, query=ctx.msg_text, max_results=3)
-        if not kb_memory:
+        result = await self.memory_tools.query_service.query(
+            MemoryQueryRequest(
+                scope_id=ctx.scope_id,
+                user_id="",
+                query=ctx.msg_text,
+                intent=MemoryQueryIntent.FALLBACK_KB,
+                limit=3,
+            )
+        )
+        if not result.text:
             return ""
-        return f"\n\n{kb_memory}\n"
+        return f"\n\n{result.text}\n"
 
     async def _build_reflection_injection(self, ctx: PromptContext) -> tuple[str, list[str]]:
         if not getattr(self.cfg, "reflection_enabled", True):
@@ -571,13 +605,19 @@ class SelfEvolutionPlugin(Star):
         group_id = event.get_group_id()
         msg_text = await ensure_event_message_text(event, self.dao)
 
+        # 关系温度自动积累（弱信号）
+        asyncio.create_task(self.affinity.process_message(event))
+
         # 表情包学习：检测指定人的图片
         if group_id and self.cfg.sticker_learning_enabled:
             asyncio.create_task(self.entertainment.learn_sticker_from_event(event))
 
         # 被动插嘴：关键词/@触发
-        async for result in self.eavesdropping.handle_message(event):
-            yield result
+        if self.cfg.engagement_new_system_enabled:
+            await self.eavesdropping.process_passive_engagement(event)
+        else:
+            async for result in self.eavesdropping.handle_message(event):
+                yield result
 
     @filter.on_decorating_result()
     async def on_decorating_result(self, event: AstrMessageEvent):
@@ -682,7 +722,11 @@ class SelfEvolutionPlugin(Star):
         """
         return await self.persona.evolve_persona(event, new_system_prompt, reason)
 
-    @filter.command("affinity")
+    @filter.command_group("affinity")
+    def affinity_group(self):
+        """好感度管理"""
+
+    @affinity_group.command("show")
     async def check_affinity(self, event: AstrMessageEvent):
         """查询机器人对你的当前好感度。"""
         user_id = event.get_sender_id()
@@ -693,6 +737,33 @@ class SelfEvolutionPlugin(Star):
             status = "【已熔断/彻底拉黑】"
 
         yield event.plain_result(f"UID: {user_id}\n{self.persona_name} 的情感矩阵评分: {score}/100\n分类状态: {status}")
+
+    @affinity_group.command("debug")
+    async def affinity_debug(self, event: AstrMessageEvent, user_id: str = ""):
+        """[管理员] 查看指定用户的详细好感度状态。"""
+        if not event.is_admin():
+            yield event.plain_result("错误：权限不足。")
+            return
+
+        target_user = user_id if user_id else event.get_sender_id()
+        info = await self.dao.get_affinity_debug_info(target_user)
+
+        signals_lines = []
+        for s in info["recent_signals"]:
+            signals_lines.append(f"  - {s['signal_type']}: {s['delta']:+d} @ {s['triggered_at'][:19]}")
+
+        returning_info = ""
+        if info["returning_user"]:
+            r = info["returning_user"]
+            returning_info = f"\n连续活跃: {r['consecutive_days']} 天（上次: {r['last_date']}）"
+
+        result = f"""=== UID {target_user} 好感度详情 ===
+当前评分: {info["affinity_score"]}/100
+最近互动: {info["last_interaction"] or "无记录"}
+最近信号:
+{chr(10).join(signals_lines) if signals_lines else "  (无)"}{returning_info}
+"""
+        yield event.plain_result(result)
 
     @filter.command("set_affinity")
     async def set_affinity(self, event: AstrMessageEvent, user_id: str, score: int):
@@ -872,6 +943,91 @@ class SelfEvolutionPlugin(Star):
             new_code, description, target_file, umo=event.unified_msg_origin
         )
 
+    async def get_user_messages_for_tool(
+        self,
+        user_id: str,
+        group_id: str,
+        fetch_limit: int = 30,
+    ) -> list[dict]:
+        """内部方法：供 MemoryQueryService 调用，获取用户消息返回 [{text: str}, ...]"""
+        from .engine.context_injection import parse_message_chain
+
+        try:
+            platform_insts = self.context.platform_manager.platform_insts
+            if not platform_insts:
+                return []
+            platform = platform_insts[0]
+            if not hasattr(platform, "get_client"):
+                return []
+            bot = platform.get_client()
+            if not bot:
+                return []
+
+            if not group_id or group_id.startswith("private_"):
+                result = await bot.call_action("get_friend_msg_history", user_id=int(user_id), count=fetch_limit)
+                messages = result.get("messages", [])
+                user_messages = []
+                for msg in reversed(messages):
+                    sender = msg.get("sender", {})
+                    if str(sender.get("user_id", "")) == str(user_id):
+                        msg_text = await parse_message_chain(msg, self)
+                        if msg_text:
+                            user_messages.append({"text": msg_text})
+                        if len(user_messages) >= fetch_limit:
+                            break
+                return user_messages
+
+            seen_keys = set()
+            page_size = 100
+            max_pages = 20
+            user_messages = []
+            end_seq = None
+
+            for _ in range(max_pages):
+                if end_seq is not None:
+                    result = await bot.call_action(
+                        "get_group_msg_history", group_id=int(group_id), count=page_size, end_seq=end_seq
+                    )
+                else:
+                    result = await bot.call_action("get_group_msg_history", group_id=int(group_id), count=page_size)
+                page_msgs = result.get("messages", [])
+                if not page_msgs:
+                    break
+
+                for msg in reversed(page_msgs):
+                    sender = msg.get("sender", {})
+                    sender_id = str(sender.get("user_id", ""))
+                    if sender_id == str(user_id):
+                        msg_key = f"{msg.get('message_id', '')}:{msg.get('seq', '')}:{msg.get('time', '')}"
+                        if msg_key in seen_keys:
+                            continue
+                        seen_keys.add(msg_key)
+                        msg_text = await parse_message_chain(msg, self)
+                        if msg_text:
+                            user_messages.append({"text": msg_text})
+                        if len(user_messages) >= fetch_limit:
+                            break
+
+                if len(user_messages) >= fetch_limit:
+                    break
+                if len(page_msgs) < page_size:
+                    break
+
+                oldest_msg = page_msgs[0]
+                for field in ("message_seq", "message_id"):
+                    if field in oldest_msg and oldest_msg[field] not in (None, ""):
+                        try:
+                            end_seq = int(oldest_msg[field])
+                        except (TypeError, ValueError):
+                            end_seq = None
+                        break
+                else:
+                    end_seq = None
+
+            return user_messages
+        except Exception:
+            return []
+
     @filter.llm_tool(name="get_user_profile")
     async def get_user_profile(self, event: AstrMessageEvent) -> str:
         """获取当前用户的画像信息，了解用户的兴趣和性格特征。
@@ -885,12 +1041,8 @@ class SelfEvolutionPlugin(Star):
         """
         group_id = event.get_group_id()
         user_id = event.get_sender_id()
-        profile_scope_id = self._resolve_profile_scope_id(group_id, user_id)
-        profile = await self.profile.load_profile(profile_scope_id, user_id)
-
-        if not profile:
-            return "该用户暂无画像记录。"
-        return profile
+        scope_id = self._resolve_profile_scope_id(group_id, user_id)
+        return await self.memory_tools.get_user_profile(scope_id, str(user_id))
 
     @filter.llm_tool(name="upsert_cognitive_memory")
     async def upsert_cognitive_memory(
@@ -943,7 +1095,7 @@ class SelfEvolutionPlugin(Star):
         }
         fact_type = fact_type_map.get(category)
 
-        result = await self.memory_router.write(
+        return await self.memory_tools.upsert_cognitive_memory(
             content=content,
             scope_id=scope_id,
             user_id=target_user_id,
@@ -952,7 +1104,6 @@ class SelfEvolutionPlugin(Star):
             nickname=event.get_sender_name() if target_user_id == sender_id else "",
             source="manual",
         )
-        return result
 
     @filter.llm_tool(name="get_user_messages")
     async def get_user_messages(
@@ -988,112 +1139,14 @@ class SelfEvolutionPlugin(Star):
         """
         target = str(target_user_id or event.get_sender_id()).strip()
         limit = min(max(1, limit), 500)
-        page_size = min(max(10, page_size), 500)
-        max_pages = min(max(1, max_pages), 100)
+        group_id = event.get_group_id()
+        scope_id = self._resolve_profile_scope_id(group_id, str(event.get_sender_id()))
 
-        logger.debug(
-            f"[Tool] get_user_messages: target={target}, limit={limit}, page_size={page_size}, max_pages={max_pages}"
-        )
+        sender_id = str(event.get_sender_id())
+        if not group_id and target != sender_id:
+            return "私聊场景仅支持查询当前会话用户的历史消息。"
 
-        try:
-            platform_insts = self.context.platform_manager.platform_insts
-            if not platform_insts:
-                logger.warning("[Tool] get_user_messages: 无法获取平台实例")
-                return "无法获取平台实例"
-
-            platform = platform_insts[0]
-            if not hasattr(platform, "get_client"):
-                logger.warning("[Tool] get_user_messages: 平台不支持获取 bot")
-                return "平台不支持获取 bot"
-
-            bot = platform.get_client()
-            if not bot:
-                logger.warning("[Tool] get_user_messages: 无法获取 bot 实例")
-                return "无法获取 bot 实例"
-
-            from .engine.context_injection import parse_message_chain
-
-            group_id = event.get_group_id()
-
-            if not group_id:
-                sender_id = str(event.get_sender_id())
-                if target != sender_id:
-                    logger.debug("[Tool] get_user_messages: 私聊目标用户不匹配当前会话")
-                    return "私聊场景仅支持查询当前会话用户的历史消息。"
-                logger.debug(f"[Tool] get_user_messages: 私聊={sender_id}, 获取{limit}条消息")
-                result = await bot.call_action("get_friend_msg_history", user_id=int(sender_id), count=limit)
-                messages = result.get("messages", [])
-                user_messages = []
-                for msg in reversed(messages):
-                    sender = msg.get("sender", {})
-                    if str(sender.get("user_id", "")) == str(target):
-                        msg_text = await parse_message_chain(msg, self)
-                        if msg_text:
-                            user_messages.append(msg_text)
-                        if len(user_messages) >= limit:
-                            break
-            else:
-                logger.debug(
-                    f"[Tool] get_user_messages: 群={group_id}, limit={limit}, page_size={page_size}, max_pages={max_pages}"
-                )
-                user_messages = []
-                seen_keys = set()
-                end_seq = None
-
-                for _ in range(max_pages):
-                    if end_seq is not None:
-                        result = await bot.call_action(
-                            "get_group_msg_history", group_id=int(group_id), count=page_size, end_seq=end_seq
-                        )
-                    else:
-                        result = await bot.call_action("get_group_msg_history", group_id=int(group_id), count=page_size)
-                    page_msgs = result.get("messages", [])
-                    if not page_msgs:
-                        break
-
-                    for msg in reversed(page_msgs):
-                        sender = msg.get("sender", {})
-                        sender_id = str(sender.get("user_id", ""))
-                        if sender_id == str(target):
-                            msg_key = f"{msg.get('message_id', '')}:{msg.get('seq', '')}:{msg.get('time', '')}"
-                            if msg_key in seen_keys:
-                                continue
-                            seen_keys.add(msg_key)
-                            msg_text = await parse_message_chain(msg, self)
-                            if msg_text:
-                                user_messages.append(msg_text)
-                            if len(user_messages) >= limit:
-                                break
-
-                    if len(user_messages) >= limit:
-                        break
-                    if len(page_msgs) < page_size:
-                        break
-
-                    oldest_msg = page_msgs[0]
-                    for field in ("message_seq", "message_id"):
-                        if field in oldest_msg and oldest_msg[field] not in (None, ""):
-                            try:
-                                end_seq = int(oldest_msg[field])
-                            except (TypeError, ValueError):
-                                end_seq = None
-                            break
-                    else:
-                        end_seq = None
-
-                user_messages.reverse()
-
-            if not user_messages:
-                if group_id:
-                    return f"用户 {target} 在群 {group_id} 中无消息记录"
-                return f"用户 {target} 在私聊中无消息记录"
-
-            location = f"群 {group_id}" if group_id else "私聊"
-            return f"用户 {target} 在{location}的历史消息（共 {len(user_messages)} 条）：\n" + "\n".join(user_messages)
-
-        except Exception as e:
-            logger.warning(f"[SelfEvolution] 获取用户消息失败: {e}")
-            return f"获取历史消息失败: {e!s}"
+        return await self.memory_tools.get_user_messages(target, scope_id, limit)
 
     @filter.llm_tool(name="get_group_recent_context")
     async def get_group_recent_context(
@@ -1127,54 +1180,7 @@ class SelfEvolutionPlugin(Star):
             return "此工具仅限群聊使用"
 
         limit = min(max(1, limit), 200)
-
-        logger.debug(f"[Tool] get_group_recent_context: group={group_id}, limit={limit}")
-
-        try:
-            platform_insts = self.context.platform_manager.platform_insts
-            if not platform_insts:
-                logger.warning("[Tool] get_group_recent_context: 无法获取平台实例")
-                return "无法获取平台实例"
-
-            platform = platform_insts[0]
-            if not hasattr(platform, "get_client"):
-                logger.warning("[Tool] get_group_recent_context: 平台不支持获取 bot")
-                return "平台不支持获取 bot"
-
-            bot = platform.get_client()
-            if not bot:
-                logger.warning("[Tool] get_group_recent_context: 无法获取 bot 实例")
-                return "无法获取 bot 实例"
-
-            from .engine.context_injection import parse_message_chain
-
-            result = await bot.call_action("get_group_msg_history", group_id=int(group_id), count=limit)
-            messages = result.get("messages", [])
-            if not messages:
-                return f"群 {group_id} 暂无消息记录"
-
-            seen_keys = set()
-            formatted_messages = []
-            for msg in reversed(messages):
-                msg_key = f"{msg.get('message_id', '')}:{msg.get('seq', '')}:{msg.get('time', '')}"
-                if msg_key in seen_keys:
-                    continue
-                seen_keys.add(msg_key)
-
-                sender = msg.get("sender", {})
-                sender_nickname = sender.get("nickname", "未知")
-                msg_text = await parse_message_chain(msg, self)
-                if msg_text:
-                    formatted_messages.append(f"{sender_nickname}: {msg_text}")
-
-            if not formatted_messages:
-                return f"群 {group_id} 暂无可显示的消息"
-
-            return f"群 {group_id} 最近消息（共 {len(formatted_messages)} 条）：\n" + "\n".join(formatted_messages)
-
-        except Exception as e:
-            logger.warning(f"[SelfEvolution] 获取群上下文失败: {e}")
-            return f"获取群上下文失败: {e!s}"
+        return await self.memory_tools.get_group_recent_context(str(group_id), limit)
 
     @filter.llm_tool(name="get_group_memory_summary")
     async def get_group_memory_summary(
@@ -1210,11 +1216,7 @@ class SelfEvolutionPlugin(Star):
         if not date or not date.strip():
             return "请提供有效的日期参数"
 
-        result = await self.memory.get_summary_by_date(target_group_id, date)
-        if not result:
-            return f"群 {target_group_id} 在 {date} 暂无总结记录"
-
-        return result
+        return await self.memory_tools.get_group_memory_summary(str(target_group_id), date)
 
     @filter.command_group("profile")
     def profile_group(self):
