@@ -582,8 +582,11 @@ class SelfEvolutionPlugin(Star):
             asyncio.create_task(self.entertainment.learn_sticker_from_event(event))
 
         # 被动插嘴：关键词/@触发
-        async for result in self.eavesdropping.handle_message(event):
-            yield result
+        if self.cfg.engagement_new_system_enabled:
+            await self.eavesdropping.process_passive_engagement(event)
+        else:
+            async for result in self.eavesdropping.handle_message(event):
+                yield result
 
     @filter.on_decorating_result()
     async def on_decorating_result(self, event: AstrMessageEvent):
