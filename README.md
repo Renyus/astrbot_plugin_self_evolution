@@ -180,7 +180,7 @@
 - `/system help`
 - `/system version`
 - `/reflect`
-- `/affinity`
+- `/affinity show`
 - `/san show`
 - `/今日老婆`
 - `/profile view [用户ID]`
@@ -195,6 +195,7 @@
 
 ### 管理员命令
 
+- `/affinity debug <用户ID>`
 - `/set_affinity <用户ID> <分数>`
 - `/san set [值]`
 - `/profile delete <用户ID>`
@@ -293,6 +294,20 @@
 负责每日反思、日报和画像刷新。
 
 - `reflection_schedule`
+
+### 关系
+
+负责关系温度底盘和自动好感度调整。
+
+- `affinity_auto_enabled`
+- `affinity_direct_engagement_delta`
+- `affinity_friendly_language_delta`
+- `affinity_hostile_language_delta`
+- `affinity_returning_user_delta`
+- `affinity_direct_engagement_cooldown_minutes`
+- `affinity_friendly_daily_limit`
+- `affinity_hostile_cooldown_minutes`
+- `affinity_returning_user_daily_limit`
 
 ### 互动
 

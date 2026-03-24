@@ -14,14 +14,48 @@
 ### Added
 
 - `/set_san [值]` 管理员命令：查看或手动设置当前精力值
+- `engine/affinity.py` — 关系温度底盘：自动弱信号积分引擎
+  - `direct_engagement`：@bot/回复bot/私聊 → +1，6小时冷却
+  - `friendly_language`：礼貌词(谢谢/厉害/牛等) → +1，每天2次
+  - `hostile_language`：攻击词(滚/傻/废物等) → -2，1小时冷却
+  - `returning_user`：连续回访 → +1，每天1次
+- `/affinity show` — 用户命令：查看当前好感度
+- `/affinity debug <用户ID>` — 管理员命令：查看详细好感度状态与信号记录
 
 ### Changed
 
 - `/view` 命令改为纯只读，不再隐式触发 LLM 刷新画像（副作用移至 `/update`）
 - `get_user_messages` 工具改为真正的 `fetch_limit` 语义：群聊按目标用户消息条数精确翻页，不再硬截 20 条上限
 - `scheduled_reflection` 与好感度恢复拆分为独立任务 `scheduled_affinity_recovery`，批处理失败不再偷偷恢复好感度
+- `build_profile()` 和 `analyze_and_build_profiles()` 的 prompt 统一改为输出 `## identity / preferences / traits / recent_updates / long_term_notes` 结构化 Markdown
+- `parse_target_user()` 改为识别 `/profile <subcommand> [user_id]` 命令组格式，不再错误把子命令当用户 ID
 
 ### Fixed
+
+- `identity_keywords` 移除 `"是"`, `"有"`, `"养"`, `"要"` 等过于通用的单字，避免普通句子误判为身份信息
+- `process_message()` 新增 bot 自消息过滤，防止平台回环时给自己刷分
+- `_is_command_message`（原 `_is_command_only`）真正识别命令型消息（前缀+命令词/中文），而非仅识别"只有前缀没有内容"的消息
+- `avatar_url` 头像尺寸从 `s=256` 改为 `s=40`，避免图片传输失败
+
+### Config
+
+| 配置 | 说明 |
+|------|------|
+| `affinity_auto_enabled` | 总开关 |
+| `affinity_direct_engagement_delta` | 主动互动加分 |
+| `affinity_friendly_language_delta` | 礼貌语言加分 |
+| `affinity_hostile_language_delta` | 攻击语言扣分 |
+| `affinity_returning_user_delta` | 回访用户加分 |
+| `affinity_direct_engagement_cooldown_minutes` | 互动冷却（分钟） |
+| `affinity_friendly_daily_limit` | 礼貌词每日上限 |
+| `affinity_hostile_cooldown_minutes` | 攻击冷却（分钟） |
+| `affinity_returning_user_daily_limit` | 回访每日上限 |
+
+### Tests
+
+- 新增 `tests/test_affinity.py`（14 tests）
+- 新增 `ParseTargetUserTests`（7 tests）
+- **总计：214 tests**
 
 ### 2026-03-23 补充记录
 
