@@ -165,7 +165,6 @@ class SelfEvolutionPlugin(Star):
         # CognitionCore 7.0: 状态容器
         self._lock = None  # 用于元编程写锁
         self._pending_db_reset = {}  # 待确认的数据库操作 {user_id: {"action": str, "expires_at": timestamp}}
-        self._shut_until = None  # 闭嘴截止时间 (timestamp)
         self._shut_until_by_group = {}  # 群级别闭嘴 {群号: 截止时间}
         self._group_umo_cache = {}  # 最近见过的群会话来源 {group_id: unified_msg_origin}
         self._private_umo_cache = {}  # 最近见过的私聊会话来源 {private_user_id: unified_msg_origin}
@@ -604,13 +603,6 @@ class SelfEvolutionPlugin(Star):
                 del self._shut_until_by_group[group_id]
 
         logger.debug(f"[SelfEvolution] 收到消息: {event.message_str[:30] if event.message_str else '(空)'}")
-
-        # 检查全局闭嘴状态
-        if self._shut_until and time.time() < self._shut_until:
-            remaining = int(self._shut_until - time.time())
-            logger.debug(f"[SelfEvolution] 全局闭嘴中，剩余 {remaining} 秒")
-            event.stop_event()
-            return
 
         # 检查用户好感度熔断
         user_id = event.get_sender_id()
