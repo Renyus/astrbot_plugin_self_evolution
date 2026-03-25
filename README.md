@@ -494,10 +494,6 @@
 - `sticker_total_limit`
 - `sticker_daily_limit`
 
-### 提示
-
-- `prompt_meltdown_message`
-
 ## 重装与迁移注意事项
 
 - 重装插件不会自动清空 AstrBot 知识库

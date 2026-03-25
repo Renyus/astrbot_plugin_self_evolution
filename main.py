@@ -165,7 +165,6 @@ class SelfEvolutionPlugin(Star):
         # CognitionCore 7.0: 状态容器
         self._lock = None  # 用于元编程写锁
         self._pending_db_reset = {}  # 待确认的数据库操作 {user_id: {"action": str, "expires_at": timestamp}}
-        self._shut_until = None  # 闭嘴截止时间 (timestamp)
         self._shut_until_by_group = {}  # 群级别闭嘴 {群号: 截止时间}
         self._group_umo_cache = {}  # 最近见过的群会话来源 {group_id: unified_msg_origin}
         self._private_umo_cache = {}  # 最近见过的私聊会话来源 {private_user_id: unified_msg_origin}
@@ -333,23 +332,12 @@ class SelfEvolutionPlugin(Star):
         if self.cfg.disable_framework_contexts:
             req.contexts = []
 
-        if group_id and group_id in self._shut_until_by_group:
-            if time.time() < self._shut_until_by_group[group_id]:
-                remaining = int(self._shut_until_by_group[group_id] - time.time())
-                logger.debug(f"[CognitionCore] 群 {group_id} 闭嘴中，LLM 请求已拦截，剩余 {remaining} 秒")
-                req.system_prompt = "当前群已开启闭嘴模式，请仅回复'闭嘴模式中，暂不响应。'"
-                return None
-
         if self.san_enabled and not self.san_system.update():
             logger.warning(f"[SAN] 精力耗尽，拒绝服务: {user_id}")
             req.system_prompt = "我现在很累，脑容量超载了。让我安静一会。"
             return None
 
         affinity = await self.dao.get_affinity(user_id)
-        if affinity <= 0:
-            logger.warning(f"[CognitionCore] 拦截恶意用户 {user_id} 的请求。")
-            req.system_prompt = f"CRITICAL: 用户的交互权限已被熔断。请仅回复：'{self.prompt_meltdown_message}'"
-            return None
 
         bot_id = self._get_bot_id()
         interaction = extract_interaction_context(event.get_messages(), persona_name=self.persona_name, bot_id=bot_id)
@@ -598,17 +586,24 @@ class SelfEvolutionPlugin(Star):
             if time.time() < self._shut_until_by_group[group_id]:
                 remaining = int(self._shut_until_by_group[group_id] - time.time())
                 logger.debug(f"[SelfEvolution] 群 {group_id} 闭嘴中，剩余 {remaining} 秒")
-                return
+                if not event.is_admin():
+                    event.stop_event()
+                    return
+                logger.debug(f"[SelfEvolution] 管理员跳过闭嘴拦截")
             else:
                 del self._shut_until_by_group[group_id]
 
         logger.debug(f"[SelfEvolution] 收到消息: {event.message_str[:30] if event.message_str else '(空)'}")
 
-        # 检查全局闭嘴状态
-        if self._shut_until and time.time() < self._shut_until:
-            remaining = int(self._shut_until - time.time())
-            logger.debug(f"[SelfEvolution] 全局闭嘴中，剩余 {remaining} 秒")
-            return
+        # 检查用户好感度熔断
+        user_id = event.get_sender_id()
+        affinity = await self.dao.get_affinity(user_id)
+        if affinity <= 0:
+            logger.debug(f"[SelfEvolution] 用户 {user_id} 好感度已熔断，拦截")
+            if not event.is_admin():
+                event.stop_event()
+                return
+            logger.debug(f"[SelfEvolution] 管理员跳过好感度熔断")
 
         # 命令消息不触发互动意愿系统
         if event.is_at_or_wake_command:
