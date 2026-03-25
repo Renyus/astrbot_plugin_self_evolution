@@ -2,9 +2,22 @@
 上下文注入模块 - 共享的身份隔离与认知指令
 """
 
+import asyncio
 import re
+import time
 
 from astrbot.api import logger
+
+
+# get_msg 缓存: msg_id -> (timestamp, result_dict)
+_msg_cache: dict[str, tuple[float, dict]] = {}
+_MSG_CACHE_TTL = 300
+_MSG_CACHE_MAX = 500
+
+# get_group_history 缓存: (group_id, count) -> (timestamp, messages_list)
+_group_history_cache: dict[tuple[str, int], tuple[float, list[dict]]] = {}
+_GROUP_HISTORY_CACHE_TTL = 30
+_GROUP_HISTORY_CACHE_MAX = 20
 
 
 async def parse_message_chain(msg: dict, plugin=None) -> str:
@@ -46,33 +59,51 @@ async def parse_message_chain(msg: dict, plugin=None) -> str:
         elif seg_type == "reply":
             msg_id = data.get("id", "")
             if msg_id and plugin:
-                try:
-                    platform_insts = plugin.context.platform_manager.platform_insts
-                    if platform_insts:
-                        platform = platform_insts[0]
-                        if hasattr(platform, "get_client"):
-                            bot = platform.get_client()
-                            if bot:
-                                result = await bot.call_action("get_msg", message_id=int(msg_id))
-                                orig_msg = result.get("message", [])
-                                sender_info = result.get("sender", {})
-                                orig_sender = (
-                                    sender_info.get("nickname")
-                                    or sender_info.get("card")
-                                    or str(sender_info.get("user_id", "未知"))
-                                )
-                                # 解析原文内容，去掉 @ 开头的部分
-                                orig_content_list = []
-                                for seg in orig_msg:
-                                    if seg.get("type") == "text":
-                                        text = seg.get("data", {}).get("text", "")
-                                        # 去掉开头的 @xxx
-                                        text = re.sub(r"^@\S+\s*", "", text)
-                                        if text:
-                                            orig_content_list.append(text)
-                                orig_content = "".join(orig_content_list) if orig_content_list else "消息内容"
-                                parts.append(f"[回复了 {orig_sender}: {orig_content}]")
-                except Exception:
+                cached = None
+                now = time.time()
+                if msg_id in _msg_cache:
+                    ts, cached = _msg_cache[msg_id]
+                    if now - ts < _MSG_CACHE_TTL:
+                        pass  # use cached
+                    else:
+                        cached = None
+                        del _msg_cache[msg_id]
+
+                if cached is None:
+                    try:
+                        platform_insts = plugin.context.platform_manager.platform_insts
+                        if platform_insts:
+                            platform = platform_insts[0]
+                            if hasattr(platform, "get_client"):
+                                bot = platform.get_client()
+                                if bot:
+                                    if len(_msg_cache) < _MSG_CACHE_MAX:
+                                        result = await bot.call_action("get_msg", message_id=int(msg_id))
+                                        _msg_cache[msg_id] = (now, result)
+                                        cached = result
+                                    else:
+                                        cached = await bot.call_action("get_msg", message_id=int(msg_id))
+                    except Exception:
+                        cached = None
+
+                if cached:
+                    orig_msg = cached.get("message", [])
+                    sender_info = cached.get("sender", {})
+                    orig_sender = (
+                        sender_info.get("nickname")
+                        or sender_info.get("card")
+                        or str(sender_info.get("user_id", "未知"))
+                    )
+                    orig_content_list = []
+                    for seg in orig_msg:
+                        if seg.get("type") == "text":
+                            text = seg.get("data", {}).get("text", "")
+                            text = re.sub(r"^@\S+\s*", "", text)
+                            if text:
+                                orig_content_list.append(text)
+                    orig_content = "".join(orig_content_list) if orig_content_list else "消息内容"
+                    parts.append(f"[回复了 {orig_sender}: {orig_content}]")
+                else:
                     parts.append(f"[回复消息ID:{msg_id}]")
             else:
                 parts.append(f"[回复消息ID:{msg_id}]")
@@ -114,18 +145,33 @@ async def get_group_history(plugin, group_id: str, count: int = 10) -> str:
         if not bot:
             return ""
 
-        result = await bot.call_action(
-            "get_group_msg_history",
-            group_id=int(group_id),
-            message_seq=0,
-            count=count,
-        )
+        cache_key = (group_id, count)
+        now = time.time()
+        messages = None
 
-        messages = result.get("messages", [])
+        if cache_key in _group_history_cache:
+            ts, cached = _group_history_cache[cache_key]
+            if now - ts < _GROUP_HISTORY_CACHE_TTL:
+                messages = cached
+            else:
+                del _group_history_cache[cache_key]
+
+        if messages is None:
+            result = await bot.call_action(
+                "get_group_msg_history",
+                group_id=int(group_id),
+                message_seq=0,
+                count=count,
+            )
+            messages = result.get("messages", [])
+
+            if len(_group_history_cache) >= _GROUP_HISTORY_CACHE_MAX:
+                oldest_key = min(_group_history_cache, key=lambda k: _group_history_cache[k][0])
+                del _group_history_cache[oldest_key]
+            _group_history_cache[cache_key] = (now, messages)
+
         if not messages:
             return ""
-
-        import asyncio
 
         results = await asyncio.gather(*[parse_message_chain(msg, plugin) for msg in messages])
         return "\n".join(results)
@@ -156,7 +202,6 @@ def build_identity_context(
     """
     chat_type = "群聊" if is_group else "私聊"
 
-    # 好感度状态描述
     if affinity >= 80:
         affinity_status = "友好"
     elif affinity >= 60:
