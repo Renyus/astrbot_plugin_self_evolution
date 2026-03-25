@@ -432,12 +432,6 @@
                 "default": 2000,
                 "hint": "所有注入内容合并后的最大长度。"
             },
-            "prompt_meltdown_message": {
-                "description": "熔断提示文案",
-                "type": "string",
-                "default": "远程人偶自动应答模式：你好，你好，大家好，祝你拥有愉快的一天，再见。",
-                "hint": "当提示注入熔断时返回的提示文本。"
-            },
             "surprise_enabled": {
                 "description": "启用惊奇检测",
                 "type": "bool",

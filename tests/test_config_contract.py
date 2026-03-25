@@ -93,7 +93,6 @@ class ConfigContractTests(TestCase):
         flat_schema = _flatten_schema(schema)
 
         expected_types = {
-            "prompt_meltdown_message": "string",
             "san_auto_analyze_enabled": "bool",
             "san_analyze_interval": "int",
             "san_msg_count_per_group": "int",

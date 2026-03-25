@@ -367,14 +367,6 @@ class PluginConfig:
     def max_prompt_injection_length(self):
         return int(self._get_nested("prompt", "max_prompt_injection_length", 2000))
 
-    @property
-    def prompt_meltdown_message(self):
-        return self._get_nested(
-            "prompt",
-            "prompt_meltdown_message",
-            "远程人偶自动应答模式：你好，你好，大家好，祝你拥有愉快的一天，再见。",
-        )
-
     # debug
     @property
     def debug_log_enabled(self):
