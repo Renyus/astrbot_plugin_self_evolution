@@ -598,6 +598,7 @@ class SelfEvolutionPlugin(Star):
             if time.time() < self._shut_until_by_group[group_id]:
                 remaining = int(self._shut_until_by_group[group_id] - time.time())
                 logger.debug(f"[SelfEvolution] 群 {group_id} 闭嘴中，剩余 {remaining} 秒")
+                event.stop_event()
                 return
             else:
                 del self._shut_until_by_group[group_id]
@@ -608,6 +609,15 @@ class SelfEvolutionPlugin(Star):
         if self._shut_until and time.time() < self._shut_until:
             remaining = int(self._shut_until - time.time())
             logger.debug(f"[SelfEvolution] 全局闭嘴中，剩余 {remaining} 秒")
+            event.stop_event()
+            return
+
+        # 检查用户好感度熔断
+        user_id = event.get_sender_id()
+        affinity = await self.dao.get_affinity(user_id)
+        if affinity <= 0:
+            logger.debug(f"[SelfEvolution] 用户 {user_id} 好感度已熔断，拦截")
+            event.stop_event()
             return
 
         # 命令消息不触发互动意愿系统
