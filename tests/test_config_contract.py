@@ -65,6 +65,10 @@ class ConfigContractTests(TestCase):
             "interject_require_at",
             "interject_urgency_threshold",
             "interject_dry_run",
+            "interject_min_msg_count",
+            "interject_silence_timeout",
+            "interject_analyze_count",
+            "sticker_daily_limit",
         }
 
         flat_schema = _flatten_schema(json.loads(schema_text))
