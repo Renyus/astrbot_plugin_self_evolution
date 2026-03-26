@@ -27,7 +27,7 @@ class EventContextTests(TestCase):
         )
 
         self.assertEqual(result["quoted_info"], "回复了你")
-        self.assertTrue(result["ai_context_info"])
+        self.assertEqual(result["ai_context_info"], "")
         self.assertEqual(result["at_targets"], [])
 
     def test_extract_interaction_context_detects_reply_to_ai_by_id(self):

@@ -229,19 +229,3 @@ def build_identity_context(
 6. 在回复引用内容时，请确保逻辑闭环，并明确回复对象
 """
     return context
-
-
-def build_core_cognition_instructions(affinity: int = 50) -> str:
-    """
-    构建核心认知指令（精简版，用于插嘴场景）
-
-    Args:
-        affinity: 好感度
-
-    Returns:
-        核心认知指令字符串
-    """
-    return f"""
-[当前用户] ID:xxx | 好感度:{affinity}/100
-请严格区分当前用户与群里其他人的发言。
-"""

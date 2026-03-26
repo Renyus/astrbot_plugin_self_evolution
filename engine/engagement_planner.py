@@ -1,6 +1,4 @@
-import re
 import time
-from typing import Optional
 
 from astrbot.api import logger
 

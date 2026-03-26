@@ -143,20 +143,8 @@ class PluginConfig:
         return int(self._get_nested("engagement", "interject_cooldown", 30))
 
     @property
-    def interject_min_msg_count(self):
-        return int(self._get_nested("engagement", "interject_min_msg_count", 10))
-
-    @property
-    def interject_silence_timeout(self):
-        return int(self._get_nested("engagement", "interject_silence_timeout", 15))
-
-    @property
     def interject_trigger_probability(self):
         return float(self._get_nested("engagement", "interject_trigger_probability", 0.5))
-
-    @property
-    def interject_analyze_count(self):
-        return int(self._get_nested("engagement", "interject_analyze_count", 15))
 
     @property
     def engagement_react_probability(self) -> float:
@@ -333,10 +321,6 @@ class PluginConfig:
     @property
     def sticker_target_qq(self):
         return self._get_nested("sticker", "sticker_target_qq", "")
-
-    @property
-    def sticker_daily_limit(self):
-        return int(self._get_nested("sticker", "sticker_daily_limit", 50))
 
     @property
     def sticker_total_limit(self):

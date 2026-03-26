@@ -466,9 +466,7 @@
 
 - `interject_interval`
 - `interject_cooldown`
-- `interject_min_msg_count`
-- `interject_silence_timeout`
-- `interject_analyze_count`
+- `interject_trigger_probability`
 - `engagement_react_probability`
 
 ### 行为
@@ -492,7 +490,6 @@
 - `sticker_learning_enabled`
 - `sticker_freq_threshold`
 - `sticker_total_limit`
-- `sticker_daily_limit`
 
 ## 重装与迁移注意事项
 

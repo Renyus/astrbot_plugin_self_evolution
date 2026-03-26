@@ -176,29 +176,11 @@
                 "default": 30,
                 "hint": "同一群两次主动发言之间的最短间隔。"
             },
-            "interject_min_msg_count": {
-                "description": "最少新增消息",
-                "type": "int",
-                "default": 10,
-                "hint": "新增消息不足该数量时，不触发插嘴分析。"
-            },
-            "interject_silence_timeout": {
-                "description": "最短留白秒数",
-                "type": "int",
-                "default": 15,
-                "hint": "距离上一条消息未达到留白时间时，不插嘴。"
-            },
             "interject_trigger_probability": {
                 "description": "最终发送概率",
                 "type": "float",
                 "default": 0.5,
                 "hint": "通过判断后，真正执行插嘴的概率阈值。"
-            },
-            "interject_analyze_count": {
-                "description": "分析消息条数",
-                "type": "int",
-                "default": 15,
-                "hint": "主动插嘴时送入分析的历史消息数量。"
             },
             "engagement_react_probability": {
                 "description": "casual场景下随机轻反应概率",
@@ -376,12 +358,6 @@
                 "type": "string",
                 "default": "",
                 "hint": "指定优先学习表情包的 QQ 号。"
-            },
-            "sticker_daily_limit": {
-                "description": "每日学习上限",
-                "type": "int",
-                "default": 50,
-                "hint": "每天最多学习的表情包数量。"
             },
             "sticker_total_limit": {
                 "description": "表情包总上限",
