@@ -163,7 +163,6 @@ class SelfEvolutionPlugin(Star):
             raise e
 
         # CognitionCore 7.0: 状态容器
-        self._lock = None  # 用于元编程写锁
         self._pending_db_reset = {}  # 待确认的数据库操作 {user_id: {"action": str, "expires_at": timestamp}}
         self._shut_until_by_group = {}  # 群级别闭嘴 {群号: 截止时间}
         self._group_umo_cache = {}  # 最近见过的群会话来源 {group_id: unified_msg_origin}

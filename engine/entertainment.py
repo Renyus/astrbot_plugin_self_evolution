@@ -4,7 +4,6 @@
 
 import hashlib
 import mimetypes
-import os
 import random
 import time
 from pathlib import Path

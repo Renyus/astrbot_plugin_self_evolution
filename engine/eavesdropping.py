@@ -1,6 +1,5 @@
 import time
 from dataclasses import dataclass
-from typing import Optional
 
 from astrbot.api import logger
 from astrbot.api.all import AstrMessageEvent
