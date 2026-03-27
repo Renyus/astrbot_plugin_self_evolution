@@ -1,6 +1,6 @@
 # 自我进化
 
-`astrbot_plugin_self_evolution` 是一个给 AstrBot 使用的认知增强插件。
+`astrbot_plugin_self_evolution` 是一个给 AstrBot 使用的认知增强插件，同时支持群聊和私聊，并已适配 NapCat 消息结构。
 
 它的重点不是单独多几个命令，而是给机器人补上几层长期能力：
 
@@ -10,8 +10,6 @@
 - 群聊/私聊上下文注入
 - 主动/被动社交参与
 - 情感积分、SAN、表情包等行为增强
-
-当前版本同时支持群聊和私聊，并已适配 NapCat 消息结构。
 
 ## 交流
 
@@ -91,7 +89,7 @@
 - 长期知识库记忆
 - SAN 和行为提示
 
-主入口在 [main.py](/D:/skills/GD/astrbot_plugin_self_evolution/main.py)。
+主入口在 [main.py](main.py)。
 
 ### 2. 记忆系统
 
@@ -130,8 +128,8 @@
 
 相关文件：
 
-- [engine/profile.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/profile.py)
-- [engine/profile_summary_service.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/profile_summary_service.py)
+- [engine/profile.py](engine/profile.py)
+- [engine/profile_summary_service.py](engine/profile_summary_service.py)
 
 ### 2. 会话事件
 
@@ -163,8 +161,8 @@
 
 相关文件：
 
-- [engine/session_memory_store.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/session_memory_store.py)
-- [engine/session_memory_summarizer.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/session_memory_summarizer.py)
+- [engine/session_memory_store.py](engine/session_memory_store.py)
+- [engine/session_memory_summarizer.py](engine/session_memory_summarizer.py)
 
 ### 4. 反思记忆
 
@@ -178,11 +176,11 @@
 
 相关文件：
 
-- [engine/reflection.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/reflection.py)
+- [engine/reflection.py](engine/reflection.py)
 
 ## 记忆写入流程
 
-现在所有新的记忆写入都会先进入 [engine/memory_router.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/memory_router.py)。
+现在所有新的记忆写入都会先进入 [engine/memory_router.py](engine/memory_router.py)。
 
 `MemoryRouter` 会先判断内容属于哪类：
 
@@ -199,7 +197,7 @@
 
 ## 记忆读取流程
 
-现在所有新的记忆读取都会先进入 [engine/memory_query_service.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/memory_query_service.py)。
+现在所有新的记忆读取都会先进入 [engine/memory_query_service.py](engine/memory_query_service.py)。
 
 系统会先识别查询意图，再选择正确的读取策略：
 
@@ -254,10 +252,10 @@
 
 相关文件：
 
-- [engine/eavesdropping.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/eavesdropping.py)
-- [engine/social_state.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/social_state.py)
-- [engine/engagement_planner.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/engagement_planner.py)
-- [engine/engagement_executor.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/engagement_executor.py)
+- [engine/eavesdropping.py](engine/eavesdropping.py)
+- [engine/social_state.py](engine/social_state.py)
+- [engine/engagement_planner.py](engine/engagement_planner.py)
+- [engine/engagement_executor.py](engine/engagement_executor.py)
 
 ## 情感积分
 
@@ -277,8 +275,8 @@
 
 相关文件：
 
-- [engine/affinity.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/affinity.py)
-- [dao.py](/D:/skills/GD/astrbot_plugin_self_evolution/dao.py)
+- [engine/affinity.py](engine/affinity.py)
+- [dao.py](dao.py)
 
 ## 可选与实验能力
 
@@ -288,7 +286,7 @@
 
 相关文件：
 
-- [cognition/san.py](/D:/skills/GD/astrbot_plugin_self_evolution/cognition/san.py)
+- [cognition/san.py](cognition/san.py)
 
 ### 表情包与娱乐
 
@@ -296,9 +294,9 @@
 
 相关文件：
 
-- [engine/sticker_store.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/sticker_store.py)
-- [engine/entertainment.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/entertainment.py)
-- [commands/sticker.py](/D:/skills/GD/astrbot_plugin_self_evolution/commands/sticker.py)
+- [engine/sticker_store.py](engine/sticker_store.py)
+- [engine/entertainment.py](engine/entertainment.py)
+- [commands/sticker.py](commands/sticker.py)
 
 ### 元编程与人格进化
 
@@ -306,8 +304,8 @@
 
 相关文件：
 
-- [engine/meta_infra.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/meta_infra.py)
-- [engine/persona.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/persona.py)
+- [engine/meta_infra.py](engine/meta_infra.py)
+- [engine/persona.py](engine/persona.py)
 
 ## 最小安装步骤
 
@@ -508,33 +506,33 @@
 
 ### 写入主链
 
-- [engine/memory_router.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/memory_router.py)
+- [engine/memory_router.py](engine/memory_router.py)
   - 统一记忆写入路由
 
 ### 查询主链
 
-- [engine/memory_query_service.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/memory_query_service.py)
+- [engine/memory_query_service.py](engine/memory_query_service.py)
   - 统一记忆查询意图与分发
-- [engine/memory_tools.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/memory_tools.py)
+- [engine/memory_tools.py](engine/memory_tools.py)
   - LLM 工具与主链适配层
 
 ### 会话记忆
 
-- [engine/session_memory_store.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/session_memory_store.py)
+- [engine/session_memory_store.py](engine/session_memory_store.py)
   - 会话总结 / 事件的知识库存取
-- [engine/session_memory_summarizer.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/session_memory_summarizer.py)
+- [engine/session_memory_summarizer.py](engine/session_memory_summarizer.py)
   - 前一自然日消息抓取与每日总结
 
 ### 人物记忆
 
-- [engine/profile.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/profile.py)
+- [engine/profile.py](engine/profile.py)
   - 画像存取、构建（拉消息、选人、调 LLM、落盘）
-- [engine/profile_summary_service.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/profile_summary_service.py)
+- [engine/profile_summary_service.py](engine/profile_summary_service.py)
   - 画像摘要生成
 
 ### 入口与编排
 
-- [main.py](/D:/skills/GD/astrbot_plugin_self_evolution/main.py)
+- [main.py](main.py)
   - 工具注册、Prompt 注入编排、消息入口
 
 ## 当前完成度

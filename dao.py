@@ -658,10 +658,6 @@ class SelfEvolutionDAO:
             await db.execute("UPDATE pending_evolutions SET status = 'cleared' WHERE status = 'pending_approval'")
             await db.commit()
 
-    # ========== 表情包相关方法（已废弃，统一使用 StickerStore） ==========
-
-    # @deprecated: 请使用 StickerStore
-
     # ========== 内心独白相关方法 ==========
 
     @with_db_retry()
