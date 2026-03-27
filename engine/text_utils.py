@@ -17,3 +17,17 @@ def clean_result_text(text: str) -> str:
     text = re.sub(r"^，+|，+$", "", text)
     text = re.sub(r"，+", "，", text)
     return text
+
+
+def should_clean_result(event) -> bool:
+    """判断 on_decorating_result 是否应对该事件执行文本清洗。
+
+    条件（需同时满足）：
+    1. 群聊消息（get_group_id 有返回值）
+    2. 未被标记为命令回复（self_evolution_command_reply 未设置）
+    """
+    if not event.get_group_id():
+        return False
+    if event.get_extra("self_evolution_command_reply"):
+        return False
+    return True

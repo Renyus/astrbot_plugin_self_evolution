@@ -39,7 +39,7 @@ from .engine.profile_summary_service import ProfileSummaryService
 from .engine.session_memory_store import SessionMemoryStore
 from .engine.session_memory_summarizer import SessionMemorySummarizer
 from .engine.sticker_store import StickerStore
-from .engine.text_utils import clean_result_text
+from .engine.text_utils import clean_result_text, should_clean_result
 from .scheduler.register import register_tasks
 
 PROTECTED_TOOLS = frozenset(
@@ -624,9 +624,7 @@ class SelfEvolutionPlugin(Star):
 
     @filter.on_decorating_result()
     async def on_decorating_result(self, event: AstrMessageEvent):
-        if not event.get_group_id():
-            return
-        if event.get_extra("self_evolution_command_reply"):
+        if not should_clean_result(event):
             return
         result = event.get_result()
         if not result or not result.chain:
@@ -674,6 +672,7 @@ class SelfEvolutionPlugin(Star):
 
         result = await self.entertainment.today_waifu(event)
         if isinstance(result, list) and len(result) == 2:
+            event.set_extra("self_evolution_command_reply", True)
             yield event.chain_result([Image.fromURL(result[1]), Plain(result[0])])
 
     @filter.command("reflect")
