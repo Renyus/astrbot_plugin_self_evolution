@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import os
-import re
 import time
 from dataclasses import dataclass, field
 
@@ -40,6 +39,7 @@ from .engine.profile_summary_service import ProfileSummaryService
 from .engine.session_memory_store import SessionMemoryStore
 from .engine.session_memory_summarizer import SessionMemorySummarizer
 from .engine.sticker_store import StickerStore
+from .engine.text_utils import clean_result_text
 from .scheduler.register import register_tasks
 
 PROTECTED_TOOLS = frozenset(
@@ -52,18 +52,6 @@ PROTECTED_TOOLS = frozenset(
     }
 )
 PRIVATE_SCOPE_PREFIX = "private_"
-
-
-def _clean_result_text(text: str) -> str:
-    """清洗 LLM 输出中的换行符，替换为中文逗号，统一留白。"""
-    if not text:
-        return text
-    text = re.sub(r"\r\n?", "\n", text)
-    text = re.sub(r"\n+", "，", text)
-    text = text.strip()
-    text = re.sub(r"^，+|，+$", "", text)
-    text = re.sub(r"，+", "，", text)
-    return text
 
 
 @dataclass
@@ -636,13 +624,15 @@ class SelfEvolutionPlugin(Star):
 
     @filter.on_decorating_result()
     async def on_decorating_result(self, event: AstrMessageEvent):
+        if not event.get_group_id():
+            return
         result = event.get_result()
         if not result or not result.chain:
             return
 
         for comp in result.chain:
             if isinstance(comp, Plain) and comp.text:
-                comp.text = _clean_result_text(comp.text)
+                comp.text = clean_result_text(comp.text)
 
     @filter.on_plugin_loaded()
     async def on_loaded(self, metadata):
