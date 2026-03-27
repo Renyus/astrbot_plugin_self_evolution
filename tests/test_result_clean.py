@@ -3,9 +3,12 @@ from __future__ import annotations
 from unittest import TestCase
 from unittest.mock import MagicMock
 
-from astrbot.core.message.components import Plain
-
 from engine.text_utils import clean_result_text, should_clean_result
+
+
+class Plain:
+    def __init__(self, text: str = ""):
+        self.text = text
 
 
 class ResultTextCleanTests(TestCase):
