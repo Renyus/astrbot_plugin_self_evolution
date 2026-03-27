@@ -250,23 +250,7 @@ class SchedulerTasksTests(IsolatedAsyncioTestCase):
         self.assertIn("3001", call_args)
         self.assertIn("private_7001", call_args)
 
-    async def test_scheduled_profile_build_passes_cached_group_umo(self):
-        plugin = SimpleNamespace(
-            cfg=SimpleNamespace(
-                auto_profile_enabled=True,
-                target_scopes=["3001"],
-                auto_profile_batch_size=1,
-                auto_profile_batch_interval=0,
-            ),
-            get_group_umo=lambda group_id: "qq:group:3001",
-            profile_builder=SimpleNamespace(analyze_and_build_profiles=AsyncMock()),
-        )
-
-        await tasks.scheduled_profile_build(plugin)
-
-        plugin.profile_builder.analyze_and_build_profiles.assert_awaited_once_with("3001", umo="qq:group:3001")
-
-    async def test_scheduled_profile_build_prefers_profile_manager_when_available(self):
+    async def test_scheduled_profile_build_calls_profile_with_umo(self):
         plugin = SimpleNamespace(
             cfg=SimpleNamespace(
                 auto_profile_enabled=True,
@@ -276,10 +260,39 @@ class SchedulerTasksTests(IsolatedAsyncioTestCase):
             ),
             get_group_umo=lambda group_id: "qq:group:3001",
             profile=SimpleNamespace(analyze_and_build_profiles=AsyncMock()),
-            profile_builder=SimpleNamespace(analyze_and_build_profiles=AsyncMock()),
         )
 
         await tasks.scheduled_profile_build(plugin)
 
         plugin.profile.analyze_and_build_profiles.assert_awaited_once_with("3001", umo="qq:group:3001")
+
+    async def test_scheduled_profile_build_does_not_call_profile_builder(self):
+        """验证 _profile_build_impl 不再尝试调用 profile_builder。"""
+        plugin = SimpleNamespace(
+            cfg=SimpleNamespace(
+                auto_profile_enabled=True,
+                target_scopes=["3001"],
+                auto_profile_batch_size=1,
+                auto_profile_batch_interval=0,
+            ),
+            get_group_umo=lambda group_id: "qq:group:3001",
+            profile=SimpleNamespace(analyze_and_build_profiles=AsyncMock()),
+        )
+        plugin.profile_builder = SimpleNamespace(analyze_and_build_profiles=AsyncMock())
+
+        await tasks.scheduled_profile_build(plugin)
+
+        plugin.profile.analyze_and_build_profiles.assert_awaited_once()
         plugin.profile_builder.analyze_and_build_profiles.assert_not_awaited()
+
+    async def test_profile_cleanup_calls_profile_manager_not_profile_store(self):
+        """验证 _profile_cleanup_impl 调用 plugin.profile 而非 plugin.profile_store。"""
+        plugin = SimpleNamespace(
+            profile=SimpleNamespace(cleanup_expired_profiles=AsyncMock()),
+            profile_store=SimpleNamespace(cleanup_expired_profiles=AsyncMock()),
+        )
+
+        await tasks._profile_cleanup_impl(plugin)
+
+        plugin.profile.cleanup_expired_profiles.assert_awaited_once()
+        plugin.profile_store.cleanup_expired_profiles.assert_not_awaited()

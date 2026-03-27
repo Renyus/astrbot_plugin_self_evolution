@@ -888,14 +888,23 @@ class ProfileManager:
         return result
 
     async def cleanup_expired_profiles(self, days: int = 90):
-        """清理过期画像（兼容门面，转发到 ProfileStore）"""
+        """清理过期画像文件（直接清理自身 YAML 文件，不转发）"""
         try:
-            store = getattr(self.plugin, "profile_store", None)
-            if store:
-                return await store.cleanup_expired_profiles(days)
-            return 0
+            if not self.profile_dir.exists():
+                return 0
+            cutoff_time = time.time() - (days * 86400)
+            deleted_count = 0
+            for f in self.profile_dir.glob("*.yaml"):
+                try:
+                    if f.stat().st_mtime < cutoff_time:
+                        f.unlink()
+                        deleted_count += 1
+                except Exception:
+                    pass
+            logger.debug(f"[Profile] cleanup_expired_profiles: deleted {deleted_count} expired profiles")
+            return deleted_count
         except Exception as e:
-            logger.warning(f"[Profile] cleanup_expired_profiles 转发失败: {e}")
+            logger.warning(f"[Profile] cleanup_expired_profiles failed: {e}")
             return 0
 
     async def view_profile(self, group_id: str, user_id: str) -> str:

@@ -3,20 +3,26 @@ import re
 
 from astrbot.api import logger
 
-from .profile_store import ProfileStore
-
 logger = logging.getLogger("astrbot")
 
 
 class ProfileSummaryService:
-    def __init__(self, plugin):
+    def __init__(self, plugin, profile_manager=None):
         self.plugin = plugin
-        self.store = ProfileStore(plugin)
+        self._profile_manager = profile_manager
+
+    def _get_profile_manager(self):
+        if self._profile_manager is None:
+            self._profile_manager = getattr(self.plugin, "profile", None)
+        return self._profile_manager
 
     async def get_profile_summary(self, group_id: str, user_id: str) -> str:
         """获取用户画像摘要"""
         try:
-            profile = await self.store.load_profile(group_id, user_id)
+            manager = self._get_profile_manager()
+            if not manager:
+                return ""
+            profile = await manager.load_profile(group_id, user_id)
             if not profile:
                 return ""
             return profile
@@ -39,7 +45,10 @@ class ProfileSummaryService:
         ...
         """
         try:
-            profile = await self.store.load_profile(scope_id, user_id)
+            manager = self._get_profile_manager()
+            if not manager:
+                return ""
+            profile = await manager.load_profile(scope_id, user_id)
             if not profile:
                 return ""
 

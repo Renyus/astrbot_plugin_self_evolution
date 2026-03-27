@@ -29,7 +29,7 @@ def _calc_recovery_cron(reflection_cron: str) -> str:
 
 async def register_tasks(plugin):
     """Register all cron jobs for the plugin."""
-    logger.info("[SelfEvolution] Starting scheduler registration")
+    logger.info("[SelfEvolution] 调度任务注册开始")
 
     try:
         cron_mgr = plugin.context.cron_manager
@@ -40,11 +40,11 @@ async def register_tasks(plugin):
                 if job.name.startswith("SelfEvolution_"):
                     try:
                         await cron_mgr.delete_job(job.job_id)
-                        logger.info(f"[SelfEvolution] Removed old job: {job.name}")
+                        logger.info(f"[SelfEvolution] 已移除旧任务: {job.name}")
                     except Exception as e:
-                        logger.warning(f"[SelfEvolution] Failed to remove old job {job.name}: {e}")
+                        logger.warning(f"[SelfEvolution] 移除旧任务失败 {job.name}: {e}")
         except Exception as e:
-            logger.warning(f"[SelfEvolution] Failed to list old jobs: {e}")
+            logger.warning(f"[SelfEvolution] 列举旧任务失败: {e}")
 
         await cron_mgr.add_basic_job(
             name="SelfEvolution_ProfileCleanup",
@@ -53,7 +53,7 @@ async def register_tasks(plugin):
             description="SelfEvolution: cleanup expired profiles",
             persistent=True,
         )
-        logger.info("[SelfEvolution] Registered ProfileCleanup: 0 4 * * *")
+        logger.info("[SelfEvolution] 已注册 ProfileCleanup: 0 4 * * *")
 
         if plugin.cfg.auto_profile_enabled:
             profile_cron = plugin.cfg.auto_profile_schedule
@@ -64,7 +64,7 @@ async def register_tasks(plugin):
                 description="SelfEvolution: build user profiles",
                 persistent=True,
             )
-            logger.info(f"[SelfEvolution] Registered ProfileBuild: {profile_cron}")
+            logger.info(f"[SelfEvolution] 已注册 ProfileBuild: {profile_cron}")
 
         if plugin.cfg.reflection_enabled:
             await cron_mgr.add_basic_job(
@@ -74,7 +74,7 @@ async def register_tasks(plugin):
                 description="SelfEvolution: daily reflection batch",
                 persistent=True,
             )
-            logger.info(f"[SelfEvolution] Registered DailyReflection: {plugin.reflection_schedule}")
+            logger.info(f"[SelfEvolution] 已注册 DailyReflection: {plugin.reflection_schedule}")
 
         if plugin.cfg.affinity_recovery_enabled:
             recovery_cron = _calc_recovery_cron(plugin.reflection_schedule)
@@ -85,7 +85,7 @@ async def register_tasks(plugin):
                 description="SelfEvolution: affinity recovery",
                 persistent=True,
             )
-            logger.info(f"[SelfEvolution] Registered AffinityRecovery: {recovery_cron}")
+            logger.info(f"[SelfEvolution] 已注册 AffinityRecovery: {recovery_cron}")
 
         if plugin.cfg.san_enabled and plugin.cfg.san_auto_analyze_enabled:
             san_interval = plugin.cfg.san_analyze_interval
@@ -97,7 +97,7 @@ async def register_tasks(plugin):
                 description="SelfEvolution: SAN analysis",
                 persistent=True,
             )
-            logger.info(f"[SelfEvolution] Registered SANAnalyze: {san_cron}")
+            logger.info(f"[SelfEvolution] 已注册 SANAnalyze: {san_cron}")
 
         if plugin.cfg.memory_enabled:
             summary_cron = plugin.cfg.memory_summary_schedule
@@ -108,7 +108,7 @@ async def register_tasks(plugin):
                 description="SelfEvolution: daily memory summary",
                 persistent=True,
             )
-            logger.info(f"[SelfEvolution] Registered MemorySummary: {summary_cron}")
+            logger.info(f"[SelfEvolution] 已注册 MemorySummary: {summary_cron}")
 
         if plugin.cfg.interject_enabled:
             interject_interval = plugin.cfg.interject_interval
@@ -120,9 +120,9 @@ async def register_tasks(plugin):
                 description="SelfEvolution: proactive interject check",
                 persistent=True,
             )
-            logger.info(f"[SelfEvolution] Registered Interject: {interject_cron}")
+            logger.info(f"[SelfEvolution] 已注册 Interject: {interject_cron}")
 
-        logger.info("[SelfEvolution] Scheduler registration complete")
+        logger.info("[SelfEvolution] 调度任务注册完成")
 
     except Exception as e:
-        logger.error(f"[SelfEvolution] Failed to register scheduled jobs: {e}", exc_info=True)
+        logger.error(f"[SelfEvolution] 调度任务注册失败: {e}", exc_info=True)

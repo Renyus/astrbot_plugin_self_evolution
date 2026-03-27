@@ -105,7 +105,7 @@
   作为 LLM 工具与主链的适配层
 - `SessionMemoryStore / SessionMemorySummarizer`
   负责会话事件、每日总结和知识库存取
-- `ProfileStore / ProfileBuilder / ProfileSummaryService`
+- `ProfileManager / ProfileSummaryService`
   负责人物画像存取、构建和摘要
 
 这一版的核心原则是：
@@ -130,8 +130,7 @@
 
 相关文件：
 
-- [engine/profile_store.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/profile_store.py)
-- [engine/profile_builder.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/profile_builder.py)
+- [engine/profile.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/profile.py)
 - [engine/profile_summary_service.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/profile_summary_service.py)
 
 ### 2. 会话事件
@@ -528,10 +527,8 @@
 
 ### 人物记忆
 
-- [engine/profile_store.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/profile_store.py)
-  - 画像存取与结构化变更
-- [engine/profile_builder.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/profile_builder.py)
-  - 手动/自动画像构建
+- [engine/profile.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/profile.py)
+  - 画像存取、构建（拉消息、选人、调 LLM、落盘）
 - [engine/profile_summary_service.py](/D:/skills/GD/astrbot_plugin_self_evolution/engine/profile_summary_service.py)
   - 画像摘要生成
 

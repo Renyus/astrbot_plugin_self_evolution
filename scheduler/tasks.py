@@ -201,7 +201,7 @@ async def scheduled_affinity_recovery(plugin) -> ScheduledTaskResult:
 
 async def _affinity_recovery_impl(plugin):
     await plugin.dao.recover_all_affinity(recovery_amount=2)
-    logger.debug('[Scheduler] 已执行每日"大赦天下"：所有负面评分用户好感度已小幅回升。')
+    logger.debug("[Scheduler] 已执行每日好感度恢复：所有负面评分用户好感度已小幅回升。")
 
 
 async def _reflection_impl(plugin):
@@ -305,9 +305,9 @@ async def scheduled_profile_cleanup(plugin) -> ScheduledTaskResult:
 
 
 async def _profile_cleanup_impl(plugin):
-    store = getattr(plugin, "profile_store", None)
-    if store:
-        await store.cleanup_expired_profiles()
+    manager = getattr(plugin, "profile", None)
+    if manager:
+        await manager.cleanup_expired_profiles()
 
 
 async def scheduled_profile_build(plugin) -> ScheduledTaskResult:
@@ -349,10 +349,6 @@ async def _profile_build_impl(plugin):
                 profile_manager = getattr(plugin, "profile", None)
                 if profile_manager and hasattr(profile_manager, "analyze_and_build_profiles"):
                     await profile_manager.analyze_and_build_profiles(str(group_id), umo=group_umo)
-                    continue
-                builder = getattr(plugin, "profile_builder", None)
-                if builder and hasattr(builder, "analyze_and_build_profiles"):
-                    await builder.analyze_and_build_profiles(str(group_id), umo=group_umo)
             except Exception as e:
                 logger.warning(f"[Scheduler] ProfileBuild 群 {group_id} 失败: {e}")
 

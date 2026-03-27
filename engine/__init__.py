@@ -20,8 +20,6 @@ from .memory_types import (
 from .meta_infra import MetaInfra
 from .persona import PersonaManager
 from .profile import ProfileManager
-from .profile_builder import ProfileBuilder
-from .profile_store import ProfileStore
 from .profile_summary_service import ProfileSummaryService
 from .session_memory_store import SessionMemoryStore
 from .session_memory_summarizer import SessionMemorySummarizer
@@ -51,8 +49,6 @@ __all__ = [
     "MetaInfra",
     "PersonaManager",
     "ProfileManager",
-    "ProfileBuilder",
-    "ProfileStore",
     "ProfileSummaryService",
     "SessionMemoryStore",
     "SessionMemorySummarizer",
