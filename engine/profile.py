@@ -100,7 +100,7 @@ class ProfileManager:
         return str(sender_id or "")
 
     def _is_core_info(self, line: str) -> bool:
-        """判断是否为核心信息（永不丢失）- 已废弃，始终返回 False"""
+        """判断是否为核心信息（永不丢失）- 目前始终返回 False"""
         return False
 
     def _cleanup_expired_cache(self):
