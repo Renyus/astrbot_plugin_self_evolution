@@ -426,11 +426,15 @@ class SessionMemorySummarizer:
                     if bot:
                         try:
                             group_list_result = await bot.call_action("get_group_list")
-                            if group_list_result and isinstance(group_list_result, list):
-                                for group in group_list_result:
-                                    group_id = str(group.get("group_id", ""))
-                                    if group_id:
-                                        all_scopes.append(group_id)
+                            groups_data = []
+                            if isinstance(group_list_result, list):
+                                groups_data = group_list_result
+                            elif isinstance(group_list_result, dict):
+                                groups_data = group_list_result.get("data", []) or []
+                            for group in groups_data:
+                                group_id = str(group.get("group_id", ""))
+                                if group_id:
+                                    all_scopes.append(group_id)
                         except Exception:
                             pass
         except Exception:
