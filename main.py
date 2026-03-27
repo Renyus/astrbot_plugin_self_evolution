@@ -39,6 +39,7 @@ from .engine.profile_summary_service import ProfileSummaryService
 from .engine.session_memory_store import SessionMemoryStore
 from .engine.session_memory_summarizer import SessionMemorySummarizer
 from .engine.sticker_store import StickerStore
+from .engine.text_utils import clean_result_text, should_clean_result
 from .scheduler.register import register_tasks
 
 PROTECTED_TOOLS = frozenset(
@@ -623,8 +624,15 @@ class SelfEvolutionPlugin(Star):
 
     @filter.on_decorating_result()
     async def on_decorating_result(self, event: AstrMessageEvent):
-        """已弃用：中间消息过滤器（保留为空实现以兼容框架）"""
-        pass
+        if not should_clean_result(event):
+            return
+        result = event.get_result()
+        if not result or not result.chain:
+            return
+
+        for comp in result.chain:
+            if isinstance(comp, Plain) and comp.text:
+                comp.text = clean_result_text(comp.text)
 
     @filter.on_plugin_loaded()
     async def on_loaded(self, metadata):
@@ -642,12 +650,14 @@ class SelfEvolutionPlugin(Star):
     async def show_help(self, event: AstrMessageEvent):
         """查看插件帮助"""
         result = await commands.handle_help(event, self)
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
     @system_group.command("version")
     async def show_version(self, event: AstrMessageEvent):
         """查看插件版本"""
         result = await commands.handle_version(event, self)
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
     @filter.command("今日老婆")
@@ -656,11 +666,13 @@ class SelfEvolutionPlugin(Star):
         from astrbot.core.message.components import Image
 
         if not getattr(self.cfg, "entertainment_enabled", True):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("娱乐模块当前已关闭。")
             return
 
         result = await self.entertainment.today_waifu(event)
         if isinstance(result, list) and len(result) == 2:
+            event.set_extra("self_evolution_command_reply", True)
             yield event.chain_result([Image.fromURL(result[1]), Plain(result[0])])
 
     @filter.command("reflect")
@@ -670,6 +682,7 @@ class SelfEvolutionPlugin(Star):
         反思结果会在下次对话时注入到AI的思考中。
         """
         if not getattr(self.cfg, "reflection_enabled", True):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("反思模块当前已关闭。")
             return
 
@@ -707,11 +720,14 @@ class SelfEvolutionPlugin(Star):
                 result_msg = f"认知蒸馏已完成。自我校准：{note[:50]}..."
                 if facts:
                     result_msg += f"\n已提炼 {len(facts)} 条事实将记入画像。"
+                event.set_extra("self_evolution_command_reply", True)
                 yield event.plain_result(result_msg)
             else:
+                event.set_extra("self_evolution_command_reply", True)
                 yield event.plain_result("认知蒸馏失败，请稍后再试。")
         except Exception as e:
             logger.warning(f"[Reflection] /reflect 命令异常: {e}")
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result(f"认知蒸馏异常: {e}")
 
     @filter.llm_tool(name="evolve_persona")
@@ -738,12 +754,14 @@ class SelfEvolutionPlugin(Star):
         if score <= 0:
             status = "【已熔断/彻底拉黑】"
 
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(f"UID: {user_id}\n{self.persona_name} 的情感矩阵评分: {score}/100\n分类状态: {status}")
 
     @affinity_group.command("debug")
     async def affinity_debug(self, event: AstrMessageEvent, user_id: str = ""):
         """[管理员] 查看指定用户的详细好感度状态。"""
         if not event.is_admin():
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("错误：权限不足。")
             return
 
@@ -765,17 +783,20 @@ class SelfEvolutionPlugin(Star):
 最近信号:
 {chr(10).join(signals_lines) if signals_lines else "  (无)"}{returning_info}
 """
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
     @filter.command("set_affinity")
     async def set_affinity(self, event: AstrMessageEvent, user_id: str, score: int):
         """[管理员] 手动重置指定用户的好感度评分。"""
         if not event.is_admin():
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("错误：权限不足。")
             return
 
         await self.dao.reset_affinity(user_id, score)
         logger.warning(f"[SelfEvolution] 管理员 {event.get_sender_id()} 强制重置了用户 {user_id} 的好感度为 {score}。")
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(f"已成功将用户 {user_id} 的情感评分修正为: {score}")
 
     @filter.command_group("san")
@@ -786,12 +807,14 @@ class SelfEvolutionPlugin(Star):
     async def show_san(self, event: AstrMessageEvent):
         """查看当前 SAN 状态"""
         result = await commands.handle_san_show(event, self)
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
     @san_group.command("set")
     async def set_san(self, event: AstrMessageEvent, value: str = ""):
         """设置当前 SAN 值"""
         result = await commands.handle_set_san(event, self, value)
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
     @filter.llm_tool(name="update_affinity")
@@ -818,39 +841,48 @@ class SelfEvolutionPlugin(Star):
     async def review_evolutions(self, event: AstrMessageEvent, page: int = 1):
         """查看待审核的人格进化"""
         if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("权限拒绝：此操作仅限系统管理员执行。")
             return
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(await self.persona.review_evolutions(event, page))
 
     @evolution_group.command("approve")
     async def approve_evolution(self, event: AstrMessageEvent, request_id: int):
         """批准人格进化"""
         if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("权限拒绝：此操作仅限系统管理员执行。")
             return
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(await self.persona.approve_evolution(event, request_id))
 
     @evolution_group.command("reject")
     async def reject_evolution(self, event: AstrMessageEvent, request_id: int):
         """拒绝人格进化"""
         if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("权限拒绝：此操作仅限系统管理员执行。")
             return
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(await self.persona.reject_evolution(event, request_id))
 
     @evolution_group.command("clear")
     async def clear_evolutions(self, event: AstrMessageEvent):
         """清空待审核人格进化"""
         if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("权限拒绝：此操作仅限系统管理员执行。")
             return
 
         try:
             await self.dao.clear_pending_evolutions()
             logger.info("[SelfEvolution] 管理员清空了所有待审核的进化请求。")
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("所有待审核的进化请求已成功清空（标记为已忽略）。")
         except Exception as e:
             logger.warning(f"[SelfEvolution] 清空进化请求失败: {e}")
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result(f"清空审核列表时发生异常: {e}")
 
     @filter.llm_tool(name="list_tools")
@@ -1229,9 +1261,11 @@ class SelfEvolutionPlugin(Star):
         """查看用户画像"""
         if not commands.check_profile_admin(event, self):
             if user_id:
+                event.set_extra("self_evolution_command_reply", True)
                 yield event.plain_result("权限拒绝：普通用户无法查看他人画像。")
                 return
         result = await commands.handle_view(event, self)
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
     @profile_group.command("create")
@@ -1239,9 +1273,11 @@ class SelfEvolutionPlugin(Star):
         """手动创建画像"""
         if not commands.check_profile_admin(event, self):
             if user_id:
+                event.set_extra("self_evolution_command_reply", True)
                 yield event.plain_result("权限拒绝：普通用户无法给他人创建画像。")
                 return
         result = await commands.handle_create(event, self)
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
     @profile_group.command("update")
@@ -1249,27 +1285,33 @@ class SelfEvolutionPlugin(Star):
         """手动更新画像"""
         if not commands.check_profile_admin(event, self):
             if user_id:
+                event.set_extra("self_evolution_command_reply", True)
                 yield event.plain_result("权限拒绝：普通用户无法更新他人画像。")
                 return
         result = await commands.handle_update(event, self)
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
     @profile_group.command("delete")
     async def delete_profile_cmd(self, event: AstrMessageEvent, user_id: str):
         """删除指定用户画像"""
         if not commands.check_profile_admin(event, self):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
         result = await commands.handle_delete(event, self)
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
     @profile_group.command("stats")
     async def profile_stats_cmd(self, event: AstrMessageEvent):
         """查看画像统计"""
         if not commands.check_profile_admin(event, self):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
         result = await commands.handle_stats(event, self)
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
     # ========== 表情包相关 LLM 工具 ==========
@@ -1363,18 +1405,22 @@ class SelfEvolutionPlugin(Star):
     async def sticker_list_cmd(self, event: AstrMessageEvent, page: str = ""):
         """分页查看表情包"""
         if not commands.check_sticker_admin(event, self):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
         result = await commands.handle_sticker(event, self, "list", page)
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
     @sticker_group.command("preview")
     async def sticker_preview_cmd(self, event: AstrMessageEvent, sticker_uuid: str = ""):
         """预览指定 UUID 的表情包"""
         if not commands.check_sticker_admin(event, self):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
         if not sticker_uuid:
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("请提供表情包 UUID：/sticker preview <uuid>")
             return
         result = await commands.handle_sticker(event, self, "preview", sticker_uuid)
@@ -1385,6 +1431,7 @@ class SelfEvolutionPlugin(Star):
 
                 file_path = Path(result["image_path"])
                 if not file_path.exists():
+                    event.set_extra("self_evolution_command_reply", True)
                     yield event.plain_result(f"表情包文件不存在: {result['image_path']}")
                     return
 
@@ -1397,73 +1444,89 @@ class SelfEvolutionPlugin(Star):
                 return
             except Exception as e:
                 logger.warning(f"[Sticker] 预览表情包失败: {e}")
+                event.set_extra("self_evolution_command_reply", True)
                 yield event.plain_result(f"预览失败: {e}")
                 return
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
     @sticker_group.command("delete")
     async def sticker_delete_cmd(self, event: AstrMessageEvent, sticker_uuid: str = ""):
         """删除指定表情包"""
         if not commands.check_sticker_admin(event, self):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
         result = await commands.handle_sticker(event, self, "delete", sticker_uuid)
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
     @sticker_group.command("clear")
     async def sticker_clear_cmd(self, event: AstrMessageEvent):
         """清空表情包"""
         if not commands.check_sticker_admin(event, self):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
         result = await commands.handle_sticker(event, self, "clear", "")
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
     @sticker_group.command("disable")
     async def sticker_disable_cmd(self, event: AstrMessageEvent, sticker_uuid: str = ""):
         """禁用指定表情包"""
         if not commands.check_sticker_admin(event, self):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
         result = await commands.handle_sticker(event, self, "disable", sticker_uuid)
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
     @sticker_group.command("enable")
     async def sticker_enable_cmd(self, event: AstrMessageEvent, sticker_uuid: str = ""):
         """启用指定表情包"""
         if not commands.check_sticker_admin(event, self):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
         result = await commands.handle_sticker(event, self, "enable", sticker_uuid)
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
     @sticker_group.command("stats")
     async def sticker_stats_cmd(self, event: AstrMessageEvent):
         """查看表情包统计"""
         if not commands.check_sticker_admin(event, self):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
         result = await commands.handle_sticker(event, self, "stats", "")
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
     @sticker_group.command("sync")
     async def sticker_sync_cmd(self, event: AstrMessageEvent):
         """同步本地表情包目录"""
         if not commands.check_sticker_admin(event, self):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
         result = await commands.handle_sticker(event, self, "sync", "")
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
     @sticker_group.command("add")
     async def sticker_add_cmd(self, event: AstrMessageEvent):
         """添加表情包（发送图片后使用）"""
         if not commands.check_sticker_admin(event, self):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
 
         message_obj = getattr(event, "message_obj", None)
-        if not message_obj or not hasattr(message_obj, "message"):
+        if not message_obj or not hasattr(event.message_obj, "message"):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("请在发送图片后使用此命令")
             return
 
@@ -1495,19 +1558,23 @@ class SelfEvolutionPlugin(Star):
                     }
 
                 result = await self.entertainment.add_sticker_from_image(event, image_data)
+                event.set_extra("self_evolution_command_reply", True)
                 yield event.plain_result(result["message"])
                 return
 
         if not image_found:
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("请在发送图片后使用此命令，例如：发送图片后输入 /sticker add")
 
     @sticker_group.command("migrate")
     async def sticker_migrate_cmd(self, event: AstrMessageEvent):
         """从旧数据库迁移表情包到本地文件"""
         if not commands.check_sticker_admin(event, self):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
         result = await commands.handle_sticker(event, self, "migrate", "")
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
     @filter.command("shut")
@@ -1520,13 +1587,16 @@ class SelfEvolutionPlugin(Star):
         """
         result = await commands.handle_shut(event, self, minutes)
         if result:
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result(result)
 
     @filter.command("db")
     async def db_cmd(self, event: AstrMessageEvent, action: str = "", param: str = ""):
         """数据库管理命令"""
         if not commands.check_admin_admin(event, self):
+            event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
         result = await commands.handle_db(event, self, action, param)
+        event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
