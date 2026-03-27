@@ -346,8 +346,12 @@ async def _profile_build_impl(plugin):
         for group_id in batch:
             try:
                 group_umo = plugin.get_group_umo(group_id) if hasattr(plugin, "get_group_umo") else None
+                profile_manager = getattr(plugin, "profile", None)
+                if profile_manager and hasattr(profile_manager, "analyze_and_build_profiles"):
+                    await profile_manager.analyze_and_build_profiles(str(group_id), umo=group_umo)
+                    continue
                 builder = getattr(plugin, "profile_builder", None)
-                if builder:
+                if builder and hasattr(builder, "analyze_and_build_profiles"):
                     await builder.analyze_and_build_profiles(str(group_id), umo=group_umo)
             except Exception as e:
                 logger.warning(f"[Scheduler] ProfileBuild 群 {group_id} 失败: {e}")
