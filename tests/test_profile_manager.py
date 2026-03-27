@@ -29,6 +29,14 @@ class ProfileManagerTests(IsolatedAsyncioTestCase):
     def tearDown(self):
         cleanup_workspace_temp_dir(self.temp_dir)
 
+    def test_legacy_profile_builder_wiring_removed(self):
+        main_text = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+        tasks_text = (Path(__file__).resolve().parents[1] / "scheduler" / "tasks.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("ProfileBuilder", main_text)
+        self.assertNotIn("profile_builder", main_text)
+        self.assertNotIn("profile_builder", tasks_text)
+
     async def test_load_profile_prefers_canonical_file(self):
         canonical = self.manager.profile_dir / "100_200.yaml"
         legacy = self.manager.profile_dir / "100_200_oldname.yaml"

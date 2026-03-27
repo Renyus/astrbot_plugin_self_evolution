@@ -210,7 +210,7 @@ class SessionMemorySummarizer:
             return selected_messages
 
         except Exception as e:
-            logger.warning(f"[Memory] 获取会话消息失败: {e}")
+            logger.warning(f"[MemorySummary] 获取会话消息失败: {e}")
             return []
 
     def _format_scope_messages(self, messages: list[dict]) -> str:
@@ -302,7 +302,7 @@ class SessionMemorySummarizer:
             res = await llm_provider.text_chat(prompt=prompt, contexts=[])
             return res.completion_text.strip() if hasattr(res, "completion_text") else str(res).strip()
         except Exception as e:
-            logger.warning(f"[Memory] _request_summary failed: {e}")
+            logger.warning(f"[MemorySummary] _request_summary 失败: {e}")
             return ""
 
     async def _summarize_scope(self, scope_id: str, reference_dt: datetime | None = None) -> str:
@@ -398,7 +398,7 @@ class SessionMemorySummarizer:
             return json.dumps(merged, ensure_ascii=False)
 
         except Exception as e:
-            logger.warning(f"[Memory] _summarize_scope failed: {e}")
+            logger.warning(f"[MemorySummary] _summarize_scope 失败: {e}")
             return ""
 
     async def daily_summary(self, reference_dt: datetime | None = None) -> dict:
@@ -467,7 +467,7 @@ class SessionMemorySummarizer:
                 await asyncio.sleep(0.5)
 
             except Exception as e:
-                logger.warning(f"[Memory] scope={scope_id} 总结失败: {e}")
+                logger.warning(f"[MemorySummary] scope={scope_id} 总结失败: {e}")
                 result["failed_scopes"].append(scope_id)
 
         return result

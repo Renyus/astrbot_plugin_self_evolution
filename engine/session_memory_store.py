@@ -48,15 +48,6 @@ class SessionMemoryStore:
             except Exception:
                 pass
 
-            umo = None
-            try:
-                platform = self.plugin.context.platform_manager.platform_insts[0]
-                bot = platform.bot
-                login_info = await bot.call_action("get_login_info")
-                umo = str(login_info.get("user_id", ""))
-            except Exception:
-                pass
-
             try:
                 await kb_manager.create_kb_if_not_exists(
                     kb_name=scope_kb_name,
@@ -66,11 +57,11 @@ class SessionMemoryStore:
                 kb_helper = await asyncio.wait_for(kb_manager.get_kb_by_name(scope_kb_name), timeout=5.0)
                 return kb_helper
             except Exception as e:
-                logger.warning(f"[Memory] 创建知识库失败: {e}")
+                logger.warning(f"[MemoryStore] 创建知识库失败: {e}")
                 return None
 
         except Exception as e:
-            logger.warning(f"[Memory] _ensure_scope_kb 出错: {e}")
+            logger.warning(f"[MemoryStore] _ensure_scope_kb 出错: {e}")
             return None
 
     async def _resolve_active_kb_names_for_umo(self, umo: str):
@@ -126,10 +117,10 @@ class SessionMemoryStore:
                     umo=umo,
                 )
             except Exception as e:
-                self._debug(f"[MemoryStore] scope={scope_id} kb_bind=e: {e}")
+                self._debug(f"[MemoryStore] scope={scope_id} kb_bind=失败: {e}")
 
         except Exception as e:
-            self._debug(f"[MemoryStore] scope={scope_id} kb_bind=error: {e}")
+            self._debug(f"[MemoryStore] scope={scope_id} kb_bind=错误: {e}")
 
     async def save_daily_summary(
         self,
@@ -203,7 +194,7 @@ class SessionMemoryStore:
             return f"总结已保存: {summary_date}"
 
         except Exception as e:
-            logger.warning(f"[Memory] 保存总结失败: {e}")
+            logger.warning(f"[MemoryStore] 保存总结失败: {e}")
             return f"保存总结失败: {e}"
 
     async def save_session_event(
@@ -215,7 +206,7 @@ class SessionMemoryStore:
         try:
             kb_helper = await asyncio.wait_for(self._ensure_scope_kb(scope_id), timeout=10.0)
             if not kb_helper:
-                logger.warning(f"[Memory] 会话 {scope_id} 的隔离知识库不可用")
+                logger.warning(f"[MemoryStore] 会话 {scope_id} 的隔离知识库不可用")
                 return False
 
             date = session_event.get("date", datetime.now().strftime("%Y-%m-%d"))
@@ -247,7 +238,7 @@ class SessionMemoryStore:
             return True
 
         except Exception as e:
-            logger.warning(f"[Memory] save_session_event failed: {e}")
+            logger.warning(f"[MemoryStore] save_session_event 失败: {e}")
             return False
 
     async def get_summary_by_date(self, scope_id: str, summary_date: str) -> str:
@@ -325,7 +316,7 @@ class SessionMemoryStore:
             return content
 
         except Exception as e:
-            logger.warning(f"[Memory] get_summary_by_date failed: {e}")
+            logger.warning(f"[MemoryStore] get_summary_by_date 失败: {e}")
             return ""
 
     async def retrieve_events(
@@ -384,7 +375,7 @@ class SessionMemoryStore:
             return events[:max_results]
 
         except Exception as e:
-            logger.warning(f"[Memory] retrieve_events failed: {e}")
+            logger.warning(f"[MemoryStore] retrieve_events 失败: {e}")
             return []
 
     async def retrieve_summary(
@@ -454,7 +445,7 @@ class SessionMemoryStore:
             return result_text
 
         except Exception as e:
-            logger.warning(f"[Memory] retrieve_summary failed: {e}")
+            logger.warning(f"[MemoryStore] retrieve_summary 失败: {e}")
             return ""
 
     async def clear_summary(self, scope_id: str, confirm: bool = False) -> str:
@@ -495,5 +486,5 @@ class SessionMemoryStore:
                 return "知识库不支持清空操作"
 
         except Exception as e:
-            logger.warning(f"[Memory] clear_summary failed: {e}")
+            logger.warning(f"[MemoryStore] clear_summary 失败: {e}")
             return f"清空失败: {e}"
