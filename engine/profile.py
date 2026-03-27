@@ -3,27 +3,12 @@ import logging
 import random
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 import yaml
 
 from .context_injection import parse_message_chain
-
-
-@dataclass
-class StructuredProfile:
-    """结构化画像数据容器 - parse -> mutate -> serialize"""
-
-    identity: list[str] = field(default_factory=list)
-    preferences: list[str] = field(default_factory=list)
-    traits: list[str] = field(default_factory=list)
-    recent_updates: list[dict] = field(default_factory=list)
-    long_term_notes: list[str] = field(default_factory=list)
-
-    def is_empty(self) -> bool:
-        return not (self.identity or self.preferences or self.traits or self.recent_updates or self.long_term_notes)
 
 
 logger = logging.getLogger("astrbot")

@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import time
-import uuid
 from contextlib import suppress
 from datetime import datetime, timedelta
 from functools import wraps
@@ -373,19 +372,6 @@ class SelfEvolutionDAO:
             if row:
                 return {"group_id": row[0], "summary": row[1], "created_at": row[2]}
             return None
-
-    @with_db_retry()
-    async def get_group_reports(self, group_id: str, days: int = 7) -> list:
-        """获取最近N天的会话日报"""
-        db = await self.get_conn()
-        async with self._write_lock:
-            cutoff_date = (datetime.now().astimezone().date() - timedelta(days=max(days, 0))).strftime("%Y-%m-%d")
-            cursor = await db.execute(
-                "SELECT group_id, summary, created_at FROM group_daily_reports WHERE group_id = ? AND created_at >= ? ORDER BY created_at DESC",
-                (group_id, cutoff_date),
-            )
-            rows = await cursor.fetchall()
-            return [{"group_id": r[0], "summary": r[1], "created_at": r[2]} for r in rows]
 
     @with_db_retry()
     async def touch_known_scope(self, scope_id: str):

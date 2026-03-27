@@ -9,7 +9,6 @@ import yaml
 from astrbot.api import logger
 from astrbot.api.all import AstrMessageEvent, Context, Star, register
 from astrbot.api.event import filter
-from astrbot.api.event.filter import PermissionType
 from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import StarTools
 from astrbot.core.message.components import Plain
