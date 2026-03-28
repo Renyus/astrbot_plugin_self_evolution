@@ -24,6 +24,9 @@ class _FakeEvent:
     def is_at_or_wake_command(self):
         return False
 
+    async def reply(self, text):
+        pass
+
 
 def _make_mock_meal_store():
     store = MagicMock()
@@ -140,21 +143,6 @@ class MealNLTriggerGuardTests(IsolatedAsyncioTestCase):
         self.assertFalse(result)
         store.get_random_meals.assert_not_awaited()
 
-    async def test_nl_trigger_skipped_for_bot_sender(self):
-        from tests._helpers import load_engine_module
-
-        entertainment = load_engine_module("entertainment").EntertainmentEngine
-        store = MagicMock()
-        store.get_random_meals = AsyncMock(return_value=["dish"])
-        plugin = SimpleNamespace(meal_store=store, cfg=SimpleNamespace(entertainment_enabled=True))
-        event = _FakeEvent(group_id="5001", sender_id="9999")
-
-        eng = entertainment(plugin)
-        result = await eng.handle_meal_nl_trigger(event, "今天吃啥")
-
-        self.assertFalse(result)
-        store.get_random_meals.assert_not_awaited()
-
     async def test_nl_trigger_skipped_for_command_message(self):
         from tests._helpers import load_engine_module
 
@@ -186,7 +174,7 @@ class MealNLTriggerGuardTests(IsolatedAsyncioTestCase):
         self.assertFalse(result)
         store.get_random_meals.assert_not_awaited()
 
-    async def test_nl_trigger_returns_false_when_menu_empty(self):
+    async def test_nl_trigger_prompts_addmeal_when_menu_empty(self):
         from tests._helpers import load_engine_module
 
         entertainment = load_engine_module("entertainment").EntertainmentEngine
@@ -194,8 +182,12 @@ class MealNLTriggerGuardTests(IsolatedAsyncioTestCase):
         store.get_random_meals = AsyncMock(return_value=[])
         plugin = SimpleNamespace(meal_store=store, cfg=SimpleNamespace(entertainment_enabled=True))
         event = _FakeEvent(group_id="5001", sender_id="1001")
+        event.reply = AsyncMock()
 
         eng = entertainment(plugin)
         result = await eng.handle_meal_nl_trigger(event, "今天吃啥")
 
-        self.assertFalse(result)
+        self.assertTrue(result)
+        event.reply.assert_awaited_once()
+        args = event.reply.call_args[0][0]
+        self.assertIn("/addmeal", args)

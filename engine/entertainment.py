@@ -350,7 +350,7 @@ class EntertainmentEngine:
         if not group_id:
             return False
 
-        if event.is_at_or_wake_command:
+        if event.is_at_or_wake_command():
             return False
 
         for pattern in self.eat_keywords:
