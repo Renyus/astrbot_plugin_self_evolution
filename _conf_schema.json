@@ -338,14 +338,14 @@
     },
     "sticker": {
         "type": "object",
-        "description": "表情包",
-        "hint": "表情包学习、发送冷却与频次控制。",
+        "description": "娱乐",
+        "hint": "表情包、今日老婆、群菜单等娱乐功能配置。",
         "items": {
             "entertainment_enabled": {
                 "description": "启用娱乐模块",
                 "type": "bool",
                 "default": true,
-                "hint": "控制今日老婆、表情包提示和表情包发送。"
+                "hint": "控制今日老婆、群菜单、自然语言触发等娱乐功能。"
             },
             "sticker_learning_enabled": {
                 "description": "启用表情包学习",
@@ -376,6 +376,36 @@
                 "type": "int",
                 "default": 2,
                 "hint": "达到该频次后更容易被纳入学习候选。"
+            },
+            "meal_max_items": {
+                "description": "群菜单最大道数",
+                "type": "int",
+                "default": 100,
+                "hint": "每个群菜单最多存放的菜品数量上限。实际硬上限为 500。"
+            },
+            "meal_eat_keywords": {
+                "description": "吃啥触发关键词",
+                "type": "list",
+                "default": ["吃啥", "吃什么", "今天吃啥", "今天吃什么", "吃点啥"],
+                "hint": "触发随机推荐单道菜的关键词。"
+            },
+            "meal_banquet_keywords": {
+                "description": "摆酒席触发关键词",
+                "type": "list",
+                "default": ["摆酒席", "开席", "整一桌", "来一桌", "上菜"],
+                "hint": "触发随机抽取多道菜的关键词。"
+            },
+            "meal_banquet_count": {
+                "description": "摆酒席触发次数上限",
+                "type": "int",
+                "default": 5,
+                "hint": "5 分钟内最多触发多少次摆酒席。超过后冷却 meal_banquet_cooldown_minutes 分钟。"
+            },
+            "meal_banquet_cooldown_minutes": {
+                "description": "摆酒席冷却分钟数",
+                "type": "int",
+                "default": 5,
+                "hint": "触发次数超限后，冷却多少分钟。"
             }
         }
     },

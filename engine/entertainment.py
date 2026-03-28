@@ -21,6 +21,7 @@ class EntertainmentEngine:
         self.plugin = plugin
         self._last_send_time = {}
         self._image_freq_cache: dict[str, dict[str, int]] = {}
+        self._banquet_timestamps: dict[str, list[float]] = {}
 
     @property
     def dao(self):
@@ -313,3 +314,100 @@ class EntertainmentEngine:
         injection += "\n使用 list_stickers 工具可以查看可用的表情包。"
 
         return injection
+
+    # ========== 群菜单自然语言触发 ==========
+
+    @property
+    def eat_keywords(self) -> list[str]:
+        val = getattr(self.cfg, "meal_eat_keywords", None)
+        if val is None:
+            return ["吃啥", "吃什么", "今天吃啥", "今天吃什么", "吃点啥"]
+        if isinstance(val, list):
+            return val
+        if isinstance(val, str):
+            return [k.strip() for k in val.split("|") if k.strip()]
+        return ["吃啥", "吃什么", "今天吃啥", "今天吃什么", "吃点啥"]
+
+    @property
+    def banquet_keywords(self) -> list[str]:
+        val = getattr(self.cfg, "meal_banquet_keywords", None)
+        if val is None:
+            return ["摆酒席", "开席", "整一桌", "来一桌", "上菜"]
+        if isinstance(val, list):
+            return val
+        if isinstance(val, str):
+            return [k.strip() for k in val.split("|") if k.strip()]
+        return ["摆酒席", "开席", "整一桌", "来一桌", "上菜"]
+
+    async def handle_meal_nl_trigger(self, event, msg_text: str) -> bool:
+        """
+        处理群菜单自然语言触发
+        Returns: True if triggered, False otherwise
+        """
+        if not getattr(self.cfg, "entertainment_enabled", True):
+            return False
+
+        group_id = event.get_group_id()
+        if not group_id:
+            return False
+
+        if event.is_at_or_wake_command:
+            return False
+
+        for pattern in self.eat_keywords:
+            if pattern in msg_text:
+                meals = await self.plugin.meal_store.get_random_meals(group_id, count=1)
+                if meals:
+                    reply_text = f"吃{meals[0]}怎么样？"
+                else:
+                    reply_text = "菜单空空如也，请先用 /addmeal <菜名> 添加菜品再问我吃啥～"
+                await self._send_to_group(group_id, reply_text)
+                return True
+
+        for pattern in self.banquet_keywords:
+            if pattern in msg_text:
+                cooldown_result = await self._check_banquet_cooldown(group_id)
+                if cooldown_result:
+                    await self._send_to_group(group_id, cooldown_result)
+                    return True
+                meals = await self.plugin.meal_store.get_random_meals(group_id, count=10)
+                if meals:
+                    lines = [f"第{i + 1}道菜：{meal}" for i, meal in enumerate(meals)]
+                    reply_text = "\n".join(lines)
+                else:
+                    reply_text = "菜单空空如也，请先用 /addmeal <菜名> 添加菜品再来摆酒席～"
+                await self._send_to_group(group_id, reply_text)
+                return True
+
+        return False
+
+    async def _check_banquet_cooldown(self, group_id: str) -> str | None:
+        """
+        检查摆酒席是否在冷却中。
+        Returns: 冷却提示文本 if rate-limited, None if allowed.
+        """
+        import time
+
+        now = time.time()
+        window = getattr(self.cfg, "meal_banquet_cooldown_minutes", 5) * 60
+        limit = getattr(self.cfg, "meal_banquet_count", 5)
+
+        timestamps = self._banquet_timestamps.setdefault(group_id, [])
+        cutoff = now - window
+        timestamps[:] = [t for t in timestamps if t > cutoff]
+
+        if len(timestamps) >= limit:
+            remaining = int(timestamps[0] + window - now)
+            return f"冷却中，请 {remaining} 秒后再试～"
+
+        timestamps.append(now)
+        return None
+
+    async def _send_to_group(self, group_id: str, text: str):
+        """发送消息到群，参照 engagement_executor 实现"""
+        try:
+            platform = self.plugin.context.platform_manager.platform_insts[0]
+            bot = platform.bot
+            await bot.send_group_msg(group_id=int(group_id), message=[{"type": "text", "data": {"text": text}}])
+        except Exception:
+            pass

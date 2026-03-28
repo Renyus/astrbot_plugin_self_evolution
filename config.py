@@ -287,6 +287,34 @@ class PluginConfig:
     def sticker_freq_threshold(self):
         return int(self._get_nested("sticker", "sticker_freq_threshold", 2))
 
+    @property
+    def meal_max_items(self):
+        return int(self._get_nested("sticker", "meal_max_items", 100))
+
+    @property
+    def meal_eat_keywords(self):
+        return self._get_nested(
+            "sticker",
+            "meal_eat_keywords",
+            ["吃啥", "吃什么", "今天吃啥", "今天吃什么", "吃点啥"],
+        )
+
+    @property
+    def meal_banquet_keywords(self):
+        return self._get_nested(
+            "sticker",
+            "meal_banquet_keywords",
+            ["摆酒席", "开席", "整一桌", "来一桌", "上菜"],
+        )
+
+    @property
+    def meal_banquet_count(self):
+        return int(self._get_nested("sticker", "meal_banquet_count", 5))
+
+    @property
+    def meal_banquet_cooldown_minutes(self):
+        return int(self._get_nested("sticker", "meal_banquet_cooldown_minutes", 5))
+
     # prompt
     @property
     def disable_framework_contexts(self):

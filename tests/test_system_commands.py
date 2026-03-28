@@ -32,3 +32,5 @@ class HandleHelpTests(IsolatedAsyncioTestCase):
         self.assertIn("/profile view", result)
         self.assertIn("/sticker list [页码]", result)
         self.assertIn("/evolution review", result)
+        self.assertIn("/addmeal", result)
+        self.assertIn("/delmeal", result)

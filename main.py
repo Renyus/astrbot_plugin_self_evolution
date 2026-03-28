@@ -36,6 +36,7 @@ from .engine.profile_summary_service import ProfileSummaryService
 from .engine.session_memory_store import SessionMemoryStore
 from .engine.session_memory_summarizer import SessionMemorySummarizer
 from .engine.sticker_store import StickerStore
+from .engine.meal_store import MealStore
 from .engine.text_utils import clean_result_text, should_clean_result
 from .scheduler.register import register_tasks
 
@@ -79,7 +80,7 @@ class PromptContext:
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "CognitionCore 7.0 数字生命。",
-    "Ver 3.2.1",
+    "Ver 3.2.2",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
@@ -115,6 +116,9 @@ class SelfEvolutionPlugin(Star):
         self.stickers_dir = self.data_dir / "stickers"
         self.stickers_dir.mkdir(parents=True, exist_ok=True)
         self.sticker_store = StickerStore(self.stickers_dir)
+        self.meals_dir = self.data_dir / "meals"
+        self.meals_dir.mkdir(parents=True, exist_ok=True)
+        self.meal_store = MealStore(self.meals_dir)
         db_path = os.path.join(self.data_dir, "self_evolution.db")
 
         # 配置系统（提前初始化，以便后续使用）
@@ -617,6 +621,12 @@ class SelfEvolutionPlugin(Star):
         # 被动插嘴：新版社交参与引擎
         await self.eavesdropping.process_passive_engagement(event)
 
+        # 群菜单自然语言触发（跳过机器人自己的消息，防止重入）
+        sender_id = str(event.get_sender_id())
+        bot_id = self._get_bot_id()
+        if group_id and msg_text and sender_id != bot_id:
+            asyncio.create_task(self.entertainment.handle_meal_nl_trigger(event, msg_text))
+
     @filter.on_decorating_result()
     async def on_decorating_result(self, event: AstrMessageEvent):
         if not should_clean_result(event):
@@ -669,6 +679,53 @@ class SelfEvolutionPlugin(Star):
         if isinstance(result, list) and len(result) == 2:
             event.set_extra("self_evolution_command_reply", True)
             yield event.chain_result([Image.fromURL(result[1]), Plain(result[0])])
+
+    @filter.command("addmeal")
+    async def add_meal(self, event: AstrMessageEvent, meal_name: str = ""):
+        """添加菜品到群菜单"""
+        group_id = event.get_group_id()
+        if not group_id:
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result("此指令仅限群聊使用。")
+            return
+
+        if not meal_name or not meal_name.strip():
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result("请提供菜名，例如：/addmeal 红烧肉")
+            return
+
+        if not getattr(self.cfg, "entertainment_enabled", True):
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result("娱乐模块当前已关闭。")
+            return
+
+        max_items = getattr(self.cfg, "meal_max_items", 100)
+        success, message = await self.meal_store.add_meal(group_id, meal_name.strip(), max_items)
+        event.set_extra("self_evolution_command_reply", True)
+        yield event.plain_result(message)
+
+    @filter.command("delmeal")
+    async def del_meal(self, event: AstrMessageEvent, meal_name: str = ""):
+        """从群菜单删除菜品"""
+        group_id = event.get_group_id()
+        if not group_id:
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result("此指令仅限群聊使用。")
+            return
+
+        if not meal_name or not meal_name.strip():
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result("请提供菜名，例如：/delmeal 红烧肉")
+            return
+
+        if not getattr(self.cfg, "entertainment_enabled", True):
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result("娱乐模块当前已关闭。")
+            return
+
+        success, message = await self.meal_store.del_meal(group_id, meal_name.strip())
+        event.set_extra("self_evolution_command_reply", True)
+        yield event.plain_result(message)
 
     @filter.command("reflect")
     async def manual_reflect(self, event: AstrMessageEvent):

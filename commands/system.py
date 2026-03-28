@@ -36,6 +36,8 @@ async def handle_help(event, plugin):
 /affinity             - 查看 AI 对你的好感度评分
 /san show             - 查看当前 SAN 状态
 /今日老婆             - 查看今日老婆
+/addmeal <菜名>        - 添加菜品到群菜单（仅群聊）
+/delmeal <菜名>        - 从群菜单删除菜品（仅群聊）
 /profile view [用户ID]   - 查看用户画像（普通用户只能看自己，管理员可指定用户）
 /profile create [用户ID] - 手动创建画像（普通用户只能给自己创建，管理员可指定用户）
 /profile update [用户ID] - 手动更新画像（普通用户只能更新自己，管理员可指定用户）
