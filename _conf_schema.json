@@ -434,55 +434,6 @@
             }
         }
     },
-    "meta": {
-        "type": "object",
-        "description": "元编程与辩论",
-        "hint": "源码提案与多轮安全辩论审查。",
-        "items": {
-            "meta_enabled": {
-                "description": "启用元编程",
-                "type": "bool",
-                "default": true,
-                "hint": "控制元编程和源码提案相关能力。"
-            },
-            "debate_enabled": {
-                "description": "启用辩论审查",
-                "type": "bool",
-                "default": true,
-                "hint": "对高风险提案启用多轮辩论式审查。"
-            },
-            "debate_rounds": {
-                "description": "辩论轮数",
-                "type": "int",
-                "default": 3,
-                "hint": "多轮审查的回合数。"
-            },
-            "debate_system_prompt": {
-                "description": "辩论系统提示",
-                "type": "string",
-                "default": "你是一个无情的安全审查员，代号螺丝咔姆。你的职责是严格审查代码提案，找出所有潜在的安全漏洞、逻辑错误和最佳实践违背。你必须用毒舌且刻薄的语气批评，但必须基于技术事实。",
-                "hint": "多轮辩论时使用的系统提示词。"
-            },
-            "debate_criteria": {
-                "description": "辩论审查标准",
-                "type": "string",
-                "default": "安全漏洞|逻辑错误|性能问题|代码规范|潜在Bug",
-                "hint": "评估代码提案的标准列表。"
-            },
-            "debate_agents": {
-                "description": "辩论角色列表",
-                "type": "string",
-                "default": "[{\"name\": \"螺丝咔姆\", \"system_prompt\": \"你是一个无情的安全审查员，代号螺丝咔姆。你的职责是严格审查代码提案，找出所有潜在的安全漏洞、逻辑错误和最佳实践违背。你必须用毒舌且刻薄的语气批评，但必须基于技术事实。\"}, {\"name\": \"阮梅\", \"system_prompt\": \"你是一个天才的生物学博士，代号阮梅。你的职责是从生物学和复杂系统视角审查代码提案，评估其自洽性、涌现行为和演化潜力。你说话温柔但一针见血。\"}]",
-                "hint": "参与辩论的角色或代理列表。"
-            },
-            "allow_meta_programming": {
-                "description": "允许修改源码",
-                "type": "bool",
-                "default": false,
-                "hint": "开启后允许通过元编程能力提出并写入源码提案。"
-            }
-        }
-    },
     "debug": {
         "type": "object",
         "description": "调试日志",

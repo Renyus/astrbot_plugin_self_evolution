@@ -48,7 +48,7 @@
 | 基础 | 最常用，影响整体行为 | `persona_name`、`target_scopes`、`review_mode` |
 | 记忆 | 记忆读写、画像、反思 | `memory_enabled`、`enable_profile_injection`、`reflection_enabled` |
 | 行为 | 机器人表现，不影响数据 | `interject_enabled`、`affinity_auto_enabled`、`san_enabled` |
-| 实验 | 不稳定功能，默认可关 | `meta_enabled`、`allow_meta_programming` |
+
 | 调试 | 按模块开关日志，不用全局大开 | `memory_debug_enabled`、`engagement_debug_enabled`、`affinity_debug_enabled` |
 
 ## 推荐先看的配置
@@ -304,7 +304,6 @@
 
 相关文件：
 
-- [engine/meta_infra.py](engine/meta_infra.py)
 - [engine/persona.py](engine/persona.py)
 
 ## 最小安装步骤
@@ -385,8 +384,6 @@
 - `evolve_persona`
 - `list_tools`
 - `toggle_tool`
-- `get_plugin_source`
-- `update_plugin_source`
 - `list_stickers`
 - `send_sticker`
 
@@ -420,7 +417,6 @@
 - `interject_enabled`
 - `san_enabled`
 - `entertainment_enabled`
-- `meta_enabled`
 
 ### 记忆
 
@@ -475,11 +471,6 @@
 - `san_low_activity_drain`
 - `san_positive_vibe_bonus`
 - `san_negative_vibe_penalty`
-
-### 实验
-
-- `meta_enabled`
-- `debate_agents`
 
 ### 娱乐
 

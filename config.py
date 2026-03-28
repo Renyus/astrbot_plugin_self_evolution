@@ -249,53 +249,6 @@ class PluginConfig:
     def dropout_edge_rate(self):
         return float(self._get_nested("prompt", "dropout_edge_rate", 0.2))
 
-    # meta
-    @property
-    def meta_enabled(self):
-        return self._get_nested_bool("meta", "meta_enabled", True)
-
-    @property
-    def allow_meta_programming(self):
-        return self.meta_enabled and self._get_nested_bool("meta", "allow_meta_programming", False)
-
-    @property
-    def debate_enabled(self):
-        return self._get_nested_bool("meta", "debate_enabled", True)
-
-    @property
-    def debate_rounds(self):
-        return int(self._get_nested("meta", "debate_rounds", 3))
-
-    @property
-    def debate_system_prompt(self):
-        return self._get_nested(
-            "meta",
-            "debate_system_prompt",
-            "你是一个无情的安全审查员，代号螺丝咔姆。你的职责是严格审查代码提案，找出所有潜在的安全漏洞、逻辑错误和最佳实践违背。你必须用毒舌且刻薄的语气批评，但必须基于技术事实。",
-        )
-
-    @property
-    def debate_criteria(self):
-        return self._get_nested(
-            "meta",
-            "debate_criteria",
-            "安全漏洞|逻辑错误|性能问题|代码规范|潜在Bug",
-        )
-
-    @property
-    def debate_agents(self):
-        agents = self._get_nested(
-            "meta",
-            "debate_agents",
-            '[{"name": "螺丝咔姆", "system_prompt": "你是一个无情的安全审查员，代号螺丝咔姆。你的职责是严格审查代码提案，找出所有潜在的安全漏洞、逻辑错误和最佳实践违背。你必须用毒舌且刻薄的语气批评，但必须基于技术事实。"}, {"name": "阮梅", "system_prompt": "你是一个天才的生物学博士，代号阮梅。你的职责是从生物学和复杂系统视角审查代码提案，评估其自洽性、涌现行为和演化潜力。你说话温柔但一针见血。"}]',
-        )
-        if isinstance(agents, str):
-            try:
-                return json.loads(agents)
-            except Exception:
-                return []
-        return agents
-
     # surprise and monologue
     @property
     def surprise_enabled(self):

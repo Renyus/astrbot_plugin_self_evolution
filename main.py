@@ -29,7 +29,6 @@ from .engine.memory import MemoryManager
 from .engine.memory_router import MemoryRouter
 from .engine.memory_tools import MemoryTools
 from .engine.memory_types import MemoryQueryIntent, MemoryQueryRequest
-from .engine.meta_infra import MetaInfra
 from .engine.persona import PersonaManager
 from .engine.profile import ProfileManager
 
@@ -131,7 +130,6 @@ class SelfEvolutionPlugin(Star):
         try:
             self.dao = SelfEvolutionDAO(db_path)
             self.eavesdropping = EavesdroppingEngine(self)
-            self.meta_infra = MetaInfra(self)
             self.memory = MemoryManager(self)
             self.persona = PersonaManager(self)
             self.profile = ProfileManager(self)
@@ -153,7 +151,7 @@ class SelfEvolutionPlugin(Star):
             self.memory_router = MemoryRouter(self)
             self.memory_tools = MemoryTools(self)
             logger.info(
-                "[SelfEvolution] 核心组件 (DAO, Eavesdropping, Entertainment, ImageCache, MetaInfra, Memory, Persona, Profile, SAN, Reflection, SessionMemory*, Profile*) 初始化完成。"
+                "[SelfEvolution] 核心组件 (DAO, Eavesdropping, Entertainment, ImageCache, Memory, Persona, Profile, SAN, Reflection, SessionMemory*, Profile*) 初始化完成。"
             )
         except Exception as e:
             logger.error(f"[SelfEvolution] 核心组件初始化失败: {e}")
@@ -165,6 +163,7 @@ class SelfEvolutionPlugin(Star):
         self._group_umo_cache = {}  # 最近见过的群会话来源 {group_id: unified_msg_origin}
         self._private_umo_cache = {}  # 最近见过的私聊会话来源 {private_user_id: unified_msg_origin}
         self._scope_registry_touch_cache = {}  # 会话范围持久化防抖 {scope_id: last_touch_timestamp}
+        self._lock = None  # 元编程文件锁，防止并发写入
 
     def remember_group_umo(self, group_id, umo: str | None, user_id=None):
         """Remember the latest unified message origin for a group or private scope."""
@@ -940,38 +939,6 @@ class SelfEvolutionPlugin(Star):
                 raise
             logger.warning(f"[SelfEvolution] 工具切换业务失败: {e}")
             return "工具切换时遭遇系统异常。"
-
-    @filter.llm_tool(name="get_plugin_source")
-    async def get_plugin_source(self, event: AstrMessageEvent, mod_name: str = "main") -> str:
-        """Level 4: 元编程。读取本插件的源码，以便进行自我分析或修改请求。
-
-        Args:
-            mod_name(string): 模块名，可选: main, dao, eavesdropping, meta_infra, memory, persona
-        """
-        if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
-            return "需要管理员权限才能执行此操作。"
-        return await self.meta_infra.get_plugin_source(mod_name)
-
-    @filter.llm_tool(name="update_plugin_source")
-    async def update_plugin_source(
-        self,
-        event: AstrMessageEvent,
-        new_code: str,
-        description: str,
-        target_file: str = "main.py",
-    ) -> str:
-        """Level 4: 元编程。针对本插件提出代码修改建议。
-
-        Args:
-            new_code(string): 全新的、完整的 python 代码字符串
-            description(string): 为什么要修改代码
-            target_file(string): 目标文件名，默认 main.py
-        """
-        if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
-            return "需要管理员权限才能执行此操作。"
-        return await self.meta_infra.update_plugin_source(
-            new_code, description, target_file, umo=event.unified_msg_origin
-        )
 
     async def get_user_messages_for_tool(
         self,

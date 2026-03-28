@@ -17,7 +17,6 @@ from .memory_types import (
     MemoryWriteRequest,
     MemoryWriteTarget,
 )
-from .meta_infra import MetaInfra
 from .persona import PersonaManager
 from .profile import ProfileManager
 from .profile_summary_service import ProfileSummaryService
@@ -46,7 +45,6 @@ __all__ = [
     "MemoryWriteDecision",
     "MemoryWriteRequest",
     "MemoryWriteTarget",
-    "MetaInfra",
     "PersonaManager",
     "ProfileManager",
     "ProfileSummaryService",
