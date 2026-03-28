@@ -338,14 +338,14 @@
     },
     "sticker": {
         "type": "object",
-        "description": "表情包",
-        "hint": "表情包学习、发送冷却与频次控制。",
+        "description": "娱乐",
+        "hint": "表情包、今日老婆、群菜单等娱乐功能配置。",
         "items": {
             "entertainment_enabled": {
                 "description": "启用娱乐模块",
                 "type": "bool",
                 "default": true,
-                "hint": "控制今日老婆、表情包提示和表情包发送。"
+                "hint": "控制今日老婆、群菜单、自然语言触发等娱乐功能。"
             },
             "sticker_learning_enabled": {
                 "description": "启用表情包学习",
