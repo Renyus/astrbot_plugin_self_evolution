@@ -604,8 +604,20 @@ class SelfEvolutionPlugin(Star):
                 return
             logger.debug(f"[SelfEvolution] 管理员跳过好感度熔断")
 
-        # 命令消息不触发互动意愿系统
-        if event.is_at_or_wake_command:
+        # 写入 interaction extras（基于 At/Reply 组件，不依赖 NapCat 原始 payload）
+        interaction = extract_interaction_context(
+            event.get_messages(),
+            persona_name=self.cfg.persona_name,
+            bot_id=self._get_bot_id(),
+        )
+        has_at_to_bot = bool(interaction["at_info"])
+        has_reply_to_bot = bool(interaction["quoted_info"])
+        event.set_extra("is_at", has_at_to_bot)
+        event.set_extra("has_reply", has_reply_to_bot)
+
+        # 纯命令消息（is_at_or_wake_command=True 且无 @/reply 且是群聊）不触发互动意愿系统
+        # 私聊始终放行（AstrBot 在 friend_message_needs_wake_prefix=false 时也会设 is_at_or_wake_command=True）
+        if event.is_at_or_wake_command and not has_at_to_bot and not has_reply_to_bot and group_id:
             return
 
         group_id = event.get_group_id()

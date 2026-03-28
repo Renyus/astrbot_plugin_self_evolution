@@ -364,3 +364,59 @@ class EngagementExecutorTests(IsolatedAsyncioTestCase):
         msg_segments = call_kwargs[1]["message"] if "message" in call_kwargs[1] else call_kwargs[0][1]
         self.assertEqual(msg_segments[0]["type"], "text")
         self.assertEqual(msg_segments[0]["data"]["text"], "hello")
+
+
+class PassiveEngagementMentionTests(IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.temp_dir = make_workspace_temp_dir("eavesdropping_mention")
+        self.dao = SelfEvolutionDAO(str(Path(self.temp_dir) / "mention_test.db"))
+        await self.dao.init_db()
+        eavesdropping_module = load_engine_module("eavesdropping")
+        EavesdroppingEngine = eavesdropping_module.EavesdroppingEngine
+        self.plugin = SimpleNamespace(
+            dao=self.dao,
+            cfg=SimpleNamespace(
+                interject_cooldown=30,
+                engagement_react_probability=1.0,
+            ),
+            _get_bot_id=lambda: "bot123",
+        )
+        self.engine = EavesdroppingEngine(self.plugin)
+
+    async def asyncTearDown(self):
+        await self.dao.close()
+        cleanup_workspace_temp_dir(self.temp_dir)
+
+    def _make_event(
+        self,
+        message_str="hello",
+        group_id="5001",
+        is_at_extra=False,
+        has_reply_extra=False,
+        is_at_or_wake_command=False,
+    ):
+        event = SimpleNamespace()
+        event.get_group_id = lambda: group_id
+        event.get_user_id = lambda: "user123"
+        event.message_str = message_str
+        event.is_at_or_wake_command = is_at_or_wake_command
+        event.get_extra = lambda key, default=None: {"is_at": is_at_extra, "has_reply": has_reply_extra}.get(
+            key, default
+        )
+        event.message_obj = SimpleNamespace(message=[])
+        return event
+
+    async def test_pure_command_not_counted_as_mention(self):
+        saved_states = []
+        original_save = self.dao.save_engagement_state
+
+        async def capture_save(scope_id, state):
+            saved_states.append(state)
+            return await original_save(scope_id, state)
+
+        self.dao.save_engagement_state = capture_save
+        event = self._make_event("!test", is_at_extra=False, has_reply_extra=False, is_at_or_wake_command=True)
+        await self.engine.process_passive_engagement(event)
+        if saved_states:
+            has_mention = saved_states[0].get("last_bot_engagement_level")
+            self.assertIsNone(has_mention)
