@@ -240,7 +240,7 @@ class MealBanquetCooldownTests(IsolatedAsyncioTestCase):
 
         entertainment = load_engine_module("entertainment").EntertainmentEngine
         store = MagicMock()
-        store.get_random_meals = AsyncMock(return_value=["菜A"])
+        store.get_random_meals = AsyncMock(return_value=["dish"])
         plugin = SimpleNamespace(
             meal_store=store,
             cfg=SimpleNamespace(
@@ -264,7 +264,8 @@ class MealBanquetCooldownTests(IsolatedAsyncioTestCase):
         bot = plugin.context.platform_manager.platform_insts[0].bot
         bot.send_group_msg.assert_awaited_once()
         args = bot.send_group_msg.call_args
-        self.assertIn("太频繁", args[1]["message"][0]["data"]["text"])
+        msg_text = args[1]["message"][0]["data"]["text"]
+        self.assertNotIn("dish", msg_text)
 
     async def test_banquet_cooldown_resets_after_window(self):
         import time

@@ -288,19 +288,29 @@
 
 - [cognition/san.py](cognition/san.py)
 
-### 表情包与娱乐
+### 娱乐与群菜单
 
 表情包现在完全由本地资产目录管理，不再依赖数据库。
 
+群菜单功能允许群友通过 `/addmeal` 和 `/delmeal` 维护菜品列表，并通过自然语言（吃啥、摆酒席等）触发随机推荐。
+
+相关命令：
+- `/addmeal <菜名>` - 添加菜品到群菜单（仅群聊）
+- `/delmeal <菜名>` - 从群菜单删除菜品（仅群聊）
+
+自然语言触发：
+- 说"吃啥/吃什么/今天吃啥..."从菜单随机选一道推荐
+- 说"摆酒席/开席/整一桌..."从菜单随机抽最多 10 道菜
+
 相关文件：
 
-- [engine/sticker_store.py](engine/sticker_store.py)
+- [engine/meal_store.py](engine/meal_store.py)
 - [engine/entertainment.py](engine/entertainment.py)
 - [commands/sticker.py](commands/sticker.py)
 
-### 元编程与人格进化
+### 人格进化
 
-这部分更偏实验性，适合管理者在测试环境中使用。
+人格进化审批流，适合管理者使用。
 
 相关文件：
 
@@ -478,6 +488,11 @@
 - `sticker_learning_enabled`
 - `sticker_freq_threshold`
 - `sticker_total_limit`
+- `meal_max_items`
+- `meal_eat_keywords`
+- `meal_banquet_keywords`
+- `meal_banquet_count`
+- `meal_banquet_cooldown_minutes`
 
 ## 重装与迁移注意事项
 
