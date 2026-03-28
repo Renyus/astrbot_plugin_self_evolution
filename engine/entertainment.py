@@ -360,7 +360,7 @@ class EntertainmentEngine:
                     reply_text = f"吃{meals[0]}怎么样？"
                 else:
                     reply_text = "菜单空空如也，请先用 /addmeal <菜名> 添加菜品再问我吃啥～"
-                await event.reply(reply_text)
+                await self._send_to_group(group_id, reply_text)
                 return True
 
         for pattern in self.banquet_keywords:
@@ -371,7 +371,16 @@ class EntertainmentEngine:
                     reply_text = "\n".join(lines)
                 else:
                     reply_text = "菜单空空如也，请先用 /addmeal <菜名> 添加菜品再来摆酒席～"
-                await event.reply(reply_text)
+                await self._send_to_group(group_id, reply_text)
                 return True
 
         return False
+
+    async def _send_to_group(self, group_id: str, text: str):
+        """发送消息到群，参照 engagement_executor 实现"""
+        try:
+            platform = self.plugin.context.platform_manager.platform_insts[0]
+            bot = platform.bot
+            await bot.send_group_msg(group_id=int(group_id), message=[{"type": "text", "data": {"text": text}}])
+        except Exception:
+            pass

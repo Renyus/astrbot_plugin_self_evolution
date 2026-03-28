@@ -185,14 +185,20 @@ class MealNLTriggerGuardTests(IsolatedAsyncioTestCase):
         entertainment = load_engine_module("entertainment").EntertainmentEngine
         store = MagicMock()
         store.get_random_meals = AsyncMock(return_value=[])
-        plugin = SimpleNamespace(meal_store=store, cfg=SimpleNamespace(entertainment_enabled=True))
+        plugin = SimpleNamespace(
+            meal_store=store,
+            cfg=SimpleNamespace(entertainment_enabled=True),
+            context=MagicMock(
+                platform_manager=MagicMock(platform_insts=[MagicMock(bot=MagicMock(send_group_msg=AsyncMock()))])
+            ),
+        )
         event = _FakeEvent(group_id="5001", sender_id="1001")
-        event.reply = AsyncMock()
 
         eng = entertainment(plugin)
         result = await eng.handle_meal_nl_trigger(event, "今天吃啥")
 
         self.assertTrue(result)
-        event.reply.assert_awaited_once()
-        args = event.reply.call_args[0][0]
-        self.assertIn("/addmeal", args)
+        bot = plugin.context.platform_manager.platform_insts[0].bot
+        bot.send_group_msg.assert_awaited_once()
+        args = bot.send_group_msg.call_args
+        self.assertIn("/addmeal", args[1]["message"][0]["data"]["text"])
