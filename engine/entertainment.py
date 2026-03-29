@@ -401,6 +401,10 @@ class EntertainmentEngine:
 
     async def send_sticker_for_engagement(self, group_id: str) -> str | None:
         """engagement REACT 专用表情包发送。冷却只在发送成功后更新。"""
+        if not await self.should_send_sticker():
+            logger.debug("[Sticker] engagement react skipped by sticker cooldown")
+            return None
+
         sticker = await self.sticker_store.get_random_sticker()
         if not sticker:
             return None
