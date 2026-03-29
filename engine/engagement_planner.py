@@ -215,7 +215,7 @@ class EngagementPlanner:
         if scene == SceneType.IDLE:
             if has_mention or has_reply_to_bot:
                 plan = EngagementPlan(
-                    level=EngagementLevel.BRIEF,
+                    level=EngagementLevel.FULL,
                     reason="idle场景但被明确唤醒",
                     confidence=0.7,
                     scene=scene,
@@ -241,16 +241,9 @@ class EngagementPlanner:
                     confidence=confidence,
                     scene=scene,
                 )
-            elif self._high_relevance_check(state):
-                plan = EngagementPlan(
-                    level=EngagementLevel.BRIEF,
-                    reason="help场景且高相关",
-                    confidence=0.5,
-                    scene=scene,
-                )
             else:
                 plan = EngagementPlan(
-                    level=EngagementLevel.REACT,
+                    level=EngagementLevel.FULL,
                     reason="help场景低相关",
                     confidence=0.4,
                     scene=scene,
@@ -264,7 +257,7 @@ class EngagementPlanner:
             if has_mention or has_reply_to_bot:
                 confidence = min(confidence + 0.15, 1.0)
                 plan = EngagementPlan(
-                    level=EngagementLevel.REACT,
+                    level=EngagementLevel.FULL,
                     reason="debate场景但被明确唤醒",
                     confidence=confidence,
                     scene=scene,
@@ -284,7 +277,7 @@ class EngagementPlanner:
         if scene == SceneType.CASUAL:
             if has_mention or has_reply_to_bot:
                 plan = EngagementPlan(
-                    level=EngagementLevel.BRIEF,
+                    level=EngagementLevel.FULL,
                     reason="casual场景且被明确唤醒",
                     confidence=0.7,
                     scene=scene,
@@ -322,16 +315,12 @@ class EngagementPlanner:
         return plan
 
     def classify_scene_from_state(self, state: GroupSocialState) -> SceneType:
-        if state.scene != SceneType.CASUAL:
-            return state.scene
-
         if state.emotion_count_window >= 4:
             return SceneType.DEBATE
         if state.question_count_window >= 3:
             return SceneType.HELP
         if state.message_count_window < 3 and state.last_message_time > 0:
             return SceneType.IDLE
-
         return SceneType.CASUAL
 
     def _high_relevance_check(self, state: GroupSocialState) -> bool:

@@ -14,29 +14,6 @@ from .social_state import (
 
 
 class EngagementExecutor:
-    REACT_TEMPLATES = [
-        "嗯",
-        "哦",
-        "有点意思",
-        "继续",
-        "哈",
-        "是嘛",
-        "哦对",
-        "好吧",
-        "这样啊",
-        "哦豁",
-    ]
-
-    BRIEF_TEMPLATES = [
-        "这问题有意思",
-        "确实",
-        "可以这么理解",
-        "值得想想",
-        "有道理",
-        "有点东西",
-        "怎么说呢",
-    ]
-
     def __init__(self, plugin, planner: EngagementPlanner):
         self.plugin = plugin
         self.planner = planner
@@ -46,7 +23,16 @@ class EngagementExecutor:
         if getattr(self.cfg, "engagement_debug_enabled", False):
             logger.debug(msg)
 
-    async def execute(self, plan: EngagementPlan, state: GroupSocialState) -> EngagementExecutionResult:
+    async def execute(
+        self,
+        plan: EngagementPlan,
+        state: GroupSocialState,
+        trigger_text: str = "",
+        user_id: str = "",
+        sender_name: str = "群成员",
+        quoted_info: str = "",
+        at_info: str = "",
+    ) -> EngagementExecutionResult:
         if plan.level == EngagementLevel.IGNORE:
             self._debug(
                 f"[Engagement] execute=yes scope={getattr(state, 'scope_id', '?')} level=IGNORE action=none reason={plan.reason}"
@@ -66,14 +52,14 @@ class EngagementExecutor:
             return result
 
         if plan.level == EngagementLevel.BRIEF:
-            result = await self._execute_brief(plan, state)
+            result = await self._execute_full(plan, state, trigger_text, user_id, sender_name, quoted_info, at_info)
             self._debug(
-                f"[Engagement] execute=yes scope={getattr(state, 'scope_id', '?')} level=BRIEF action={result.action}"
+                f"[Engagement] execute=yes scope={getattr(state, 'scope_id', '?')} level=BRIEF->FULL action={result.action}"
             )
             return result
 
         if plan.level == EngagementLevel.FULL:
-            result = await self._execute_full(plan, state)
+            result = await self._execute_full(plan, state, trigger_text, user_id, sender_name, quoted_info, at_info)
             self._debug(
                 f"[Engagement] execute=yes scope={getattr(state, 'scope_id', '?')} level=FULL action={result.action}"
             )
@@ -97,44 +83,23 @@ class EngagementExecutor:
                 actual_text=sticker,
             )
 
-        text = random.choice(self.REACT_TEMPLATES)
-        success = await self._send_message(state.scope_id, text)
-        if success:
-            return EngagementExecutionResult(
-                executed=True,
-                level=EngagementLevel.REACT,
-                action="text",
-                reason=plan.reason,
-                actual_text=text,
-            )
-
         return EngagementExecutionResult(
             executed=False,
             level=EngagementLevel.REACT,
             action="none",
-            reason="发送失败",
+            reason="无表情包",
         )
 
-    async def _execute_brief(self, plan: EngagementPlan, state: GroupSocialState) -> EngagementExecutionResult:
-        text = random.choice(self.BRIEF_TEMPLATES)
-        success = await self._send_message(state.scope_id, text)
-        if success:
-            return EngagementExecutionResult(
-                executed=True,
-                level=EngagementLevel.BRIEF,
-                action="text",
-                reason=plan.reason,
-                actual_text=text,
-            )
-
-        return EngagementExecutionResult(
-            executed=False,
-            level=EngagementLevel.BRIEF,
-            action="none",
-            reason="发送失败",
-        )
-
-    async def _execute_full(self, plan: EngagementPlan, state: GroupSocialState) -> EngagementExecutionResult:
+    async def _execute_full(
+        self,
+        plan: EngagementPlan,
+        state: GroupSocialState,
+        trigger_text: str = "",
+        user_id: str = "",
+        sender_name: str = "群成员",
+        quoted_info: str = "",
+        at_info: str = "",
+    ) -> EngagementExecutionResult:
         final_prob = getattr(self.cfg, "interject_trigger_probability", 0.5)
         if random.random() > final_prob:
             return EngagementExecutionResult(
@@ -145,59 +110,39 @@ class EngagementExecutor:
             )
 
         group_id = state.scope_id
-        persona = self.cfg.persona_name or "黑塔"
-
-        identity_ctx = f"[身份] 你是在群聊中的{persona}，以自然的方式参与讨论。"
-
-        prompt = (
-            f"你是{persona}。\n"
-            f"{identity_ctx}\n"
-            f"当前场景：{plan.scene.value}\n"
-            f"参与原因：{plan.reason}\n"
-            f"请生成一段简短自然的回复，不超过50字。\n"
-        )
 
         try:
-            group_umo = self.plugin.get_group_umo(group_id) if hasattr(self.plugin, "get_group_umo") else None
-            if not group_umo:
-                return EngagementExecutionResult(
-                    executed=False,
-                    level=EngagementLevel.FULL,
-                    action="none",
-                    reason="无UMo provider",
-                )
-
-            from ..cognition.san import SANSystem
-
-            san = SANSystem(self.plugin)
-            san_ctx = san.get_injection_context()
-            prompt = f"{prompt}\n{san_ctx}"
-
-            llm_provider = self.plugin.context.get_using_provider(umo=group_umo)
-            resp = await llm_provider.text_chat(prompt=prompt, contexts=[])
-            text = resp.completion_text.strip()[:100] if hasattr(resp, "completion_text") else str(resp).strip()[:100]
-
-            success = await self._send_message(group_id, text)
-            if success:
-                return EngagementExecutionResult(
-                    executed=True,
-                    level=EngagementLevel.FULL,
-                    action="text",
-                    reason=plan.reason,
-                    actual_text=text,
-                )
+            text = await self.plugin.generate_social_reply(
+                group_id=group_id,
+                user_id=user_id or "unknown",
+                sender_name=sender_name,
+                trigger_text=trigger_text,
+                scene=plan.scene.value,
+                reason=plan.reason,
+                quoted_info=quoted_info,
+                at_info=at_info,
+            )
+            if text:
+                success = await self._send_message(group_id, text)
+                if success:
+                    return EngagementExecutionResult(
+                        executed=True,
+                        level=EngagementLevel.FULL,
+                        action="text",
+                        reason=plan.reason,
+                        actual_text=text,
+                    )
         except Exception as e:
             logger.warning(f"[EngagementExecutor] Full回复生成失败: {e}")
 
-        fallback = random.choice(self.BRIEF_TEMPLATES)
-        success = await self._send_message(state.scope_id, fallback)
-        if success:
+        sticker = await self._try_send_sticker(state.scope_id)
+        if sticker:
             return EngagementExecutionResult(
                 executed=True,
                 level=EngagementLevel.FULL,
-                action="text",
-                reason=f"LLM失败降级: {e}",
-                actual_text=fallback,
+                action="sticker",
+                reason="LLM失败降级",
+                actual_text=sticker,
             )
 
         return EngagementExecutionResult(
@@ -213,19 +158,15 @@ class EngagementExecutor:
 
         try:
             sticker_engine = self.plugin.entertainment
-            if not hasattr(sticker_engine, "get_random_sticker"):
+            if not hasattr(sticker_engine, "send_sticker_for_engagement"):
                 return None
 
-            sticker_uuid = await sticker_engine.get_random_sticker()
-            if not sticker_uuid:
-                return None
-
-            if hasattr(sticker_engine, "send_sticker_by_uuid"):
-                await sticker_engine.send_sticker_by_uuid(group_id, sticker_uuid)
-                return f"[sticker:{sticker_uuid}]"
+            filename = await sticker_engine.send_sticker_for_engagement(group_id)
+            return filename
 
         except Exception as e:
             logger.debug(f"[EngagementExecutor] 表情包发送失败: {e}")
+            return None
 
         return None
 

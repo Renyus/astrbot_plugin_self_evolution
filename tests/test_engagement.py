@@ -120,11 +120,11 @@ class EngagementPlannerTests(IsolatedAsyncioTestCase):
         plan = self.planner.plan_engagement(state, eligibility, has_mention=False, has_reply_to_bot=False)
         self.assertEqual(plan.level, EngagementLevel.IGNORE)
 
-    def test_plan_brief_in_idle_with_mention(self):
+    def test_plan_full_in_idle_with_mention(self):
         state = self._make_state(message_count_window=1, last_message_time=time.time() - 600)
         eligibility = self.planner.check_eligibility(state)
         plan = self.planner.plan_engagement(state, eligibility, has_mention=True, has_reply_to_bot=False)
-        self.assertEqual(plan.level, EngagementLevel.BRIEF)
+        self.assertEqual(plan.level, EngagementLevel.FULL)
 
     def test_plan_full_in_help_with_mention(self):
         state = self._make_state(question_count_window=3, scene=SceneType.HELP)
@@ -138,17 +138,17 @@ class EngagementPlannerTests(IsolatedAsyncioTestCase):
         plan = self.planner.plan_engagement(state, eligibility, has_mention=False, has_reply_to_bot=False)
         self.assertEqual(plan.level, EngagementLevel.IGNORE)
 
-    def test_plan_react_in_debate_with_mention(self):
+    def test_plan_full_in_debate_with_mention(self):
         state = self._make_state(emotion_count_window=5, scene=SceneType.DEBATE)
         eligibility = self.planner.check_eligibility(state)
         plan = self.planner.plan_engagement(state, eligibility, has_mention=True, has_reply_to_bot=False)
-        self.assertEqual(plan.level, EngagementLevel.REACT)
+        self.assertEqual(plan.level, EngagementLevel.FULL)
 
-    def test_plan_brief_in_casual_with_mention(self):
+    def test_plan_full_in_casual_with_mention(self):
         state = self._make_state(scene=SceneType.CASUAL)
         eligibility = self.planner.check_eligibility(state)
         plan = self.planner.plan_engagement(state, eligibility, has_mention=True, has_reply_to_bot=False)
-        self.assertEqual(plan.level, EngagementLevel.BRIEF)
+        self.assertEqual(plan.level, EngagementLevel.FULL)
 
     def test_plan_react_probability_triggers(self):
         self.plugin.cfg.engagement_react_probability = 1.0
@@ -221,9 +221,11 @@ class PassiveEngagementTests(IsolatedAsyncioTestCase):
         event = SimpleNamespace()
         event.get_group_id = lambda: group_id
         event.get_user_id = lambda: "user123"
+        event.get_sender_name = lambda: "TestUser"
         event.message_str = message_str
         event.is_at_or_wake_command = False
         event.get_extra = lambda key, default=None: default
+        event.get_messages = lambda: [{"type": "text", "data": {"text": message_str}}] if message_str else []
         event.message_obj = SimpleNamespace(message=[])
         return event
 
@@ -450,3 +452,125 @@ class PassiveEngagementMentionTests(IsolatedAsyncioTestCase):
         if saved_states:
             has_mention = saved_states[0].get("last_bot_engagement_level")
             self.assertIsNone(has_mention)
+
+
+class HelpSceneLowRelevanceTests(IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.temp_dir = make_workspace_temp_dir("help_scene")
+        self.dao = SelfEvolutionDAO(str(Path(self.temp_dir) / "help_scene_test.db"))
+        await self.dao.init_db()
+        planner_module = load_engine_module("engagement_planner")
+        EngagementPlanner = planner_module.EngagementPlanner
+        self.plugin = SimpleNamespace(
+            dao=self.dao,
+            cfg=SimpleNamespace(
+                interject_cooldown=30,
+                engagement_react_probability=0.15,
+            ),
+            _get_bot_id=lambda: "bot123",
+        )
+        self.planner = EngagementPlanner(self.plugin)
+
+    async def asyncTearDown(self):
+        await self.dao.close()
+        cleanup_workspace_temp_dir(self.temp_dir)
+
+    def test_help_scene_low_relevance_gives_full(self):
+        social_module = load_engine_module("social_state")
+        GroupSocialState = social_module.GroupSocialState
+        SceneType = social_module.SceneType
+        EngagementEligibility = social_module.EngagementEligibility
+
+        state = GroupSocialState(
+            scope_id="5001",
+            last_message_time=time.time() - 10,
+            last_bot_message_time=0,
+            last_seen_message_seq=None,
+            scene=SceneType.CASUAL,
+            message_count_window=3,
+            question_count_window=3,
+            emotion_count_window=0,
+            consecutive_bot_replies=0,
+        )
+        eligibility = EngagementEligibility(allowed=True, silence_seconds=30, reason_code="test", reason_text="test")
+        plan = self.planner.plan_engagement(state, eligibility, has_mention=False, has_reply_to_bot=False)
+        self.assertEqual(plan.level.value, "full")
+
+
+class SyncFrameworkReplyStateTests(IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.temp_dir = make_workspace_temp_dir("sync_reply")
+        self.dao = SelfEvolutionDAO(str(Path(self.temp_dir) / "sync_reply_test.db"))
+        await self.dao.init_db()
+        eavesdropping_module = load_engine_module("eavesdropping")
+        EavesdroppingEngine = eavesdropping_module.EavesdroppingEngine
+        self.plugin = SimpleNamespace(
+            dao=self.dao,
+            cfg=SimpleNamespace(
+                interject_cooldown=30,
+                engagement_react_probability=1.0,
+            ),
+            _get_bot_id=lambda: "bot123",
+        )
+        self.engine = EavesdroppingEngine(self.plugin)
+
+    async def asyncTearDown(self):
+        await self.dao.close()
+        cleanup_workspace_temp_dir(self.temp_dir)
+
+    async def test_sync_updates_cooldown_preserves_window(self):
+        now = time.time()
+        old_state = {
+            "scope_id": "5001",
+            "last_message_time": now - 10,
+            "last_bot_engagement_at": now - 300,
+            "last_bot_engagement_level": "brief",
+            "last_seen_message_seq": 100,
+            "scene_type": "casual",
+            "message_count_window": 5,
+            "question_count_window": 2,
+            "emotion_count_window": 1,
+            "consecutive_bot_replies": 1,
+        }
+        await self.dao.save_engagement_state("5001", old_state)
+
+        result = await self.engine.sync_framework_reply_state("5001", level="full")
+
+        self.assertTrue(result)
+        saved = await self.dao.get_engagement_state("5001")
+        self.assertEqual(saved["last_bot_engagement_level"], "full")
+        self.assertGreater(float(saved["last_bot_engagement_at"]), now - 5)
+        self.assertEqual(saved["consecutive_bot_replies"], 2)
+        self.assertEqual(saved["message_count_window"], 5)
+        self.assertEqual(saved["question_count_window"], 2)
+        self.assertEqual(saved["emotion_count_window"], 1)
+
+    async def test_sync_clears_counters_on_expired_window(self):
+        now = time.time()
+        old_state = {
+            "scope_id": "5001",
+            "last_message_time": now - 200,
+            "last_bot_engagement_at": now - 300,
+            "last_bot_engagement_level": "brief",
+            "last_seen_message_seq": 100,
+            "scene_type": "casual",
+            "message_count_window": 5,
+            "question_count_window": 2,
+            "emotion_count_window": 1,
+            "consecutive_bot_replies": 1,
+        }
+        await self.dao.save_engagement_state("5001", old_state)
+
+        result = await self.engine.sync_framework_reply_state("5001", level="full")
+
+        self.assertTrue(result)
+        saved = await self.dao.get_engagement_state("5001")
+        self.assertEqual(saved["message_count_window"], 0)
+        self.assertEqual(saved["question_count_window"], 0)
+        self.assertEqual(saved["emotion_count_window"], 0)
+        self.assertEqual(saved["consecutive_bot_replies"], 1)
+        self.assertEqual(saved["scene_type"], "casual")
+
+    async def test_sync_returns_false_for_unknown_scope(self):
+        result = await self.engine.sync_framework_reply_state("nonexistent", level="full")
+        self.assertFalse(result)

@@ -7,6 +7,7 @@ from astrbot.api.all import AstrMessageEvent
 from .engagement_planner import EngagementPlanner
 from .engagement_executor import EngagementExecutor
 from .social_state import EngagementLevel, GroupSocialState, SceneType
+from .event_context import extract_interaction_context
 
 
 _ACTIVE_WINDOW_SECONDS = 30.0
@@ -52,6 +53,48 @@ class EavesdroppingEngine:
     def get_active_scopes(self) -> list[str]:
         return self._active_scopes.get_active_scopes()
 
+    async def sync_framework_reply_state(self, scope_id: str, level: str = "full") -> bool:
+        """由框架正常回复链路调用，同步社交模块冷却状态。
+
+        在普通对话发完后调用，避免 3 秒后又来一句主动插嘴。
+        last_message_time 保持旧值，不改成 bot 发言时间。
+        """
+        state_dict = await self.plugin.dao.get_engagement_state(scope_id)
+        if not state_dict:
+            return False
+
+        now = time.time()
+        prev_last_message_time = float(state_dict.get("last_message_time") or 0)
+        window_active = prev_last_message_time > 0 and (now - prev_last_message_time) <= _MESSAGE_WINDOW_SECONDS
+
+        if window_active:
+            new_state = {
+                "last_message_time": prev_last_message_time,
+                "last_bot_engagement_at": now,
+                "last_bot_engagement_level": level,
+                "last_seen_message_seq": state_dict.get("last_seen_message_seq"),
+                "scene_type": state_dict.get("scene_type", "casual"),
+                "message_count_window": state_dict.get("message_count_window", 0),
+                "question_count_window": state_dict.get("question_count_window", 0),
+                "emotion_count_window": state_dict.get("emotion_count_window", 0),
+                "consecutive_bot_replies": state_dict.get("consecutive_bot_replies", 0) + 1,
+            }
+        else:
+            new_state = {
+                "last_message_time": prev_last_message_time,
+                "last_bot_engagement_at": now,
+                "last_bot_engagement_level": level,
+                "last_seen_message_seq": state_dict.get("last_seen_message_seq"),
+                "scene_type": "casual",
+                "message_count_window": 0,
+                "question_count_window": 0,
+                "emotion_count_window": 0,
+                "consecutive_bot_replies": 1,
+            }
+
+        await self.plugin.dao.save_engagement_state(scope_id, new_state)
+        return True
+
     async def check_engagement(self, group_id: str) -> bool:
         """主动参与入口 - 定时任务调度用"""
         if group_id in self.plugin._shut_until_by_group:
@@ -61,18 +104,18 @@ class EavesdroppingEngine:
             state_dict = await self.plugin.dao.get_engagement_state(group_id)
             now = time.time()
             if state_dict:
+                prev_last_message_time = float(state_dict.get("last_message_time") or 0)
+                window_active = prev_last_message_time > 0 and (now - prev_last_message_time) <= _MESSAGE_WINDOW_SECONDS
                 state = GroupSocialState(
                     scope_id=group_id,
-                    last_message_time=state_dict.get("last_message_time") or (now - 60),
+                    last_message_time=prev_last_message_time or (now - 60),
                     last_bot_message_time=float(state_dict.get("last_bot_engagement_at") or 0),
                     last_seen_message_seq=state_dict.get("last_seen_message_seq"),
-                    scene=SceneType(state_dict.get("scene_type", "casual"))
-                    if state_dict.get("scene_type")
-                    else SceneType.CASUAL,
-                    message_count_window=state_dict.get("message_count_window", 0),
-                    question_count_window=state_dict.get("question_count_window", 0),
-                    emotion_count_window=state_dict.get("emotion_count_window", 0),
-                    consecutive_bot_replies=state_dict.get("consecutive_bot_replies", 0),
+                    scene=SceneType.CASUAL,
+                    message_count_window=state_dict.get("message_count_window", 0) if window_active else 0,
+                    question_count_window=state_dict.get("question_count_window", 0) if window_active else 0,
+                    emotion_count_window=state_dict.get("emotion_count_window", 0) if window_active else 0,
+                    consecutive_bot_replies=state_dict.get("consecutive_bot_replies", 0) if window_active else 0,
                 )
             else:
                 state = GroupSocialState(scope_id=group_id, last_message_time=now)
@@ -81,8 +124,7 @@ class EavesdroppingEngine:
             executor = EngagementExecutor(self.plugin, planner)
 
             computed = planner.compute_scene_windows([], state)
-            state.question_count_window = computed["question_count_window"]
-            state.emotion_count_window = computed["emotion_count_window"]
+            state.mention_bot_recently = computed["mention_bot_recently"]
 
             eligibility = planner.check_eligibility(
                 state,
@@ -96,10 +138,25 @@ class EavesdroppingEngine:
             if plan.level == EngagementLevel.IGNORE:
                 return False
 
-            result = await executor.execute(plan, state)
+            result = await executor.execute(plan, state, trigger_text="")
+
             if result.executed:
+                new_state = {
+                    "last_message_time": state.last_message_time,
+                    "last_bot_engagement_at": time.time(),
+                    "last_bot_engagement_level": result.level.value,
+                    "last_seen_message_seq": state.last_seen_message_seq,
+                    "scene_type": plan.scene.value,
+                    "message_count_window": state.message_count_window,
+                    "question_count_window": state.question_count_window,
+                    "emotion_count_window": state.emotion_count_window,
+                    "consecutive_bot_replies": state.consecutive_bot_replies + 1,
+                }
+                await self.plugin.dao.save_engagement_state(group_id, new_state)
                 logger.info(f"[ActiveEngagement] 群 {group_id}: executed {result.action}")
-            return True
+                return True
+
+            return False
         except Exception as e:
             logger.warning(f"[ActiveEngagement] 群 {group_id} 检查失败: {e}", exc_info=True)
             return False
@@ -113,25 +170,20 @@ class EavesdroppingEngine:
         try:
             now = time.time()
             user_id = str(event.get_user_id()) if hasattr(event, "get_user_id") else ""
+            sender_name = event.get_sender_name() if hasattr(event, "get_sender_name") else "群成员"
             if user_id:
                 self.record_activity(group_id, user_id, now)
 
             state_dict = await self.plugin.dao.get_engagement_state(group_id)
             prev_last_message_time = float(state_dict.get("last_message_time") or 0) if state_dict else 0.0
-            window_active = (
-                prev_last_message_time > 0 and (now - prev_last_message_time) <= _MESSAGE_WINDOW_SECONDS
-            )
+            window_active = prev_last_message_time > 0 and (now - prev_last_message_time) <= _MESSAGE_WINDOW_SECONDS
             if state_dict:
                 state = GroupSocialState(
                     scope_id=group_id,
                     last_message_time=prev_last_message_time or (now - 60),
                     last_bot_message_time=float(state_dict.get("last_bot_engagement_at") or 0),
                     last_seen_message_seq=state_dict.get("last_seen_message_seq"),
-                    scene=(
-                        SceneType(state_dict.get("scene_type", "casual"))
-                        if window_active and state_dict.get("scene_type")
-                        else SceneType.CASUAL
-                    ),
+                    scene=SceneType.CASUAL,
                     message_count_window=state_dict.get("message_count_window", 0) if window_active else 0,
                     question_count_window=state_dict.get("question_count_window", 0) if window_active else 0,
                     emotion_count_window=state_dict.get("emotion_count_window", 0) if window_active else 0,
@@ -158,6 +210,14 @@ class EavesdroppingEngine:
             has_reply = event.get_extra("has_reply", False)
             has_mention = is_at or has_reply
 
+            interaction = extract_interaction_context(
+                event.get_messages(),
+                persona_name=getattr(self.plugin, "persona_name", "黑塔"),
+                bot_id=self.plugin._get_bot_id(),
+            )
+            quoted_info = interaction.get("quoted_info", "") or ""
+            at_info = interaction.get("at_info", "") or ""
+
             eligibility = planner.check_eligibility(
                 state,
                 cooldown_seconds=self.plugin.cfg.interject_cooldown,
@@ -167,15 +227,48 @@ class EavesdroppingEngine:
                 logger.debug(
                     f"[PassiveEngagement] scope={group_id} eligible=no reason={eligibility.reason_code} {eligibility.reason_text}"
                 )
+                new_state = {
+                    "last_message_time": now,
+                    "last_bot_engagement_at": state.last_bot_message_time,
+                    "last_bot_engagement_level": state_dict.get("last_bot_engagement_level") if state_dict else None,
+                    "last_seen_message_seq": state_dict.get("last_seen_message_seq") if state_dict else None,
+                    "scene_type": state.scene.value,
+                    "message_count_window": state.message_count_window,
+                    "question_count_window": state.question_count_window,
+                    "emotion_count_window": state.emotion_count_window,
+                    "consecutive_bot_replies": 0,
+                }
+                await self.plugin.dao.save_engagement_state(group_id, new_state)
                 return
 
             plan = planner.plan_engagement(state, eligibility, has_mention=has_mention, has_reply_to_bot=has_reply)
             if plan.level == EngagementLevel.IGNORE:
+                logger.debug(f"[PassiveEngagement] scope={group_id} level=IGNORE scene={plan.scene.value}")
+                new_state = {
+                    "last_message_time": now,
+                    "last_bot_engagement_at": state.last_bot_message_time,
+                    "last_bot_engagement_level": state_dict.get("last_bot_engagement_level") if state_dict else None,
+                    "last_seen_message_seq": state_dict.get("last_seen_message_seq") if state_dict else None,
+                    "scene_type": plan.scene.value,
+                    "message_count_window": state.message_count_window,
+                    "question_count_window": state.question_count_window,
+                    "emotion_count_window": state.emotion_count_window,
+                    "consecutive_bot_replies": 0,
+                }
+                await self.plugin.dao.save_engagement_state(group_id, new_state)
                 return
 
             logger.debug(f"[PassiveEngagement] scope={group_id} level={plan.level.value} scene={plan.scene.value}")
 
-            result = await executor.execute(plan, state)
+            result = await executor.execute(
+                plan,
+                state,
+                trigger_text=msg_text,
+                user_id=user_id,
+                sender_name=sender_name,
+                quoted_info=quoted_info,
+                at_info=at_info,
+            )
 
             new_state = {
                 "last_message_time": now,

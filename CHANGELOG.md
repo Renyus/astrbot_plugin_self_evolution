@@ -56,6 +56,15 @@
 - **互动 extras 前置**：`main.py` 在 `on_message_listener` 中提前计算 `is_at`/`has_reply` 并写入 `event.set_extra()`，让 `affinity.py` 和 `eavesdropping.py` 共用同一来源，避免各模块重复解析
 - **私聊不再误拦**：修复 `is_at_or_wake_command and not has_at_to_bot and not has_reply_to_bot` 条件缺少 `group_id` 判断，导致私聊普通消息被 early-return 拦截的问题
 - **@all 不再误判为 direct_engagement**：`event_context.py` 中 `at_info` 判断从 `"all" in at_targets or bot_id in at_targets` 改为仅 `bot_id in at_targets`，符合 direct_engagement = @bot/回复bot/私聊 的定义
+- **被动插嘴窗口状态不再因 early-return 丢失**：`eavesdropping.py` 在 `eligibility` 不通过或 `plan.level == IGNORE` 时，先构建并保存 `new_state`（含 `last_message_time`、`message_count_window`、`scene_type` 等）再返回，避免每条消息都重置为默认窗口值，导致 scene 永远停留 idle
+- **scene 分类不再粘滞**：`engagement_planner.py` 的 `classify_scene_from_state()` 删除"非 CASUAL 直接返回旧 scene"的逻辑，改为每次按当前窗口字段重算；`eavesdropping.py` 读库时 scene 固定初始化为 CASUAL，由 planner 重新计算真实场景。连续消息现在能正确从 IDLE → CASUAL → REACT/BRIEF 流转
+- **主动路径不再因过期窗口误触发**：在 `check_engagement()`（主动插嘴定时任务）中补上 `window_active` 判断，超过 `_MESSAGE_WINDOW_SECONDS`（120s）未活跃的群将把窗口计数清零，避免安静群被误判为 CASUAL 而触发插嘴
+- **主动路径不再覆盖已有问句/情绪计数**：`check_engagement()` 中 `compute_scene_windows([], state)` 空消息列表不再覆盖 `question_count_window`/`emotion_count_window`，只更新 `mention_bot_recently`，保留 DAO 中已有积累
+- **主动插嘴执行后回写冷却状态**：`check_engagement()` 在 `result.executed` 后补充 `save_engagement_state()`，更新 `last_bot_engagement_at`、`last_bot_engagement_level`、`consecutive_bot_replies`，避免连续调度周期重复主动发言
+- **框架正常回复同步社交冷却**：`eavesdropping.py` 新增 `sync_framework_reply_state(scope_id, level)` 方法；`main.py` 在 `@filter.after_message_sent()` 钩子中调用它，普通对话发完后立即更新 `last_bot_engagement_at` 和 `consecutive_bot_replies`，避免 3 秒后又来主动插嘴；窗口内保留已有计数，窗口失效则清零
+- **engagement 层级语义重构**：执行层 `REACT`=表情包（删文字模板），`BRIEF`→`FULL`（合并到 LLM 回复链路），`FULL`=保持现有 LLM 回复；`engagement_executor.py` 移除 `REACT_TEMPLATES`/`BRIEF_TEMPLATES`，`_execute_react()` 仅发表情包，`BRIEF` 在 `execute()` 中直接路由到 `_execute_full()`，`_execute_full()` LLM 失败降级改为发表情包；规划层所有 `BRIEF` 分支统一改为 `FULL`（IDLE/HELP/CASUAL 有唤醒均走 FULL，DEBATE 有唤醒也改为 FULL）
+- **REACT 表情包链路接口修复**：`engagement_executor._try_send_sticker()` 之前调用的 `get_random_sticker`/`send_sticker_by_uuid` 在 entertainment 模块中不存在；`entertainment.py` 新增 `send_sticker_for_engagement(group_id)` 方法，复用 sticker_store 现成接口（get_random_sticker → get_sticker_path → base64 编码 → send_group_msg），调用 `should_send_sticker()` 检查冷却，冷却只在发送成功后更新，发送失败不占用冷却
+- **FULL 回复复用主链路上下文**：`main.py` 新增 `generate_social_reply()` 公共方法，复用 `_build_identity_injection`、`_build_group_history_injection`、`_build_profile_injection`、`_build_kb_memory_injection`、`_build_behavior_hints` 等现有注入构建逻辑生成社交回复；任务说明直接包含触发消息文本；`_execute_full()` 重新补回 `interject_trigger_probability` 概率门；被动链路透传 `quoted_info`/`at_info` 到 `generate_social_reply()`，使 @/回复 触发时 identity 注入和 profile 判断能获取真实上下文
 - **配置项 list 语义统一收口**：`config.py` 新增 `_get_nested_list()` 统一读取 list 类型配置；`target_scopes`、`sticker_target_qq`、`meal_eat_keywords`、`meal_banquet_keywords`、`surprise_boost_keywords`、`admin_users` 全部改走 list 语义；`_conf_schema.json` 中 `sticker_target_qq` 和 `surprise_boost_keywords` 从 string 改为 list；`_get_nested_list()` 同时兼容 `|` 和 `,` 分隔符，确保旧有逗号配置（如 `"123,456"`）平滑迁移
 
 ### Config
