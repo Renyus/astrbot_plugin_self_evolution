@@ -2,6 +2,7 @@
 娱乐功能模块 - 包含表情包学习和今日老婆等娱乐指令
 """
 
+import asyncio
 import hashlib
 import mimetypes
 import random
@@ -22,6 +23,7 @@ class EntertainmentEngine:
         self._last_send_time = {}
         self._image_freq_cache: dict[str, dict[str, int]] = {}
         self._banquet_timestamps: dict[str, list[float]] = {}
+        self._sticker_send_lock = asyncio.Lock()
 
     @property
     def dao(self):
@@ -400,37 +402,38 @@ class EntertainmentEngine:
         return None
 
     async def send_sticker_for_engagement(self, group_id: str) -> str | None:
-        """engagement REACT 专用表情包发送。冷却只在发送成功后更新。"""
-        if not await self.should_send_sticker():
-            logger.debug("[Sticker] engagement react skipped by sticker cooldown")
-            return None
-
-        sticker = await self.sticker_store.get_random_sticker()
-        if not sticker:
-            return None
-
-        try:
-            file_path = self.sticker_store.get_sticker_path(sticker)
-            if not file_path or not Path(file_path).exists():
-                logger.warning(f"[Sticker] 表情包文件不存在: {sticker['filename']}")
+        """engagement REACT 专用表情包发送。全局锁防止并发穿透冷却。"""
+        async with self._sticker_send_lock:
+            if not await self.should_send_sticker():
+                logger.debug("[Sticker] engagement react skipped by sticker cooldown")
                 return None
 
-            with open(file_path, "rb") as f:
-                data = f.read()
-            bs64 = __import__("base64").b64encode(data).decode()
+            sticker = await self.sticker_store.get_random_sticker()
+            if not sticker:
+                return None
 
-            from astrbot.core.message.components import Image
+            try:
+                file_path = self.sticker_store.get_sticker_path(sticker)
+                if not file_path or not Path(file_path).exists():
+                    logger.warning(f"[Sticker] 表情包文件不存在: {sticker['filename']}")
+                    return None
 
-            platform = self.plugin.context.platform_manager.platform_insts[0]
-            bot = platform.bot
-            await bot.send_group_msg(
-                group_id=int(group_id), message=[{"type": "image", "data": {"file": f"base64://{bs64}"}}]
-            )
-            self._last_send_time["global"] = time.time()
-            return sticker.get("filename")
-        except Exception as e:
-            logger.warning(f"[Sticker] 表情包发送失败: {e}")
-            return None
+                with open(file_path, "rb") as f:
+                    data = f.read()
+                bs64 = __import__("base64").b64encode(data).decode()
+
+                from astrbot.core.message.components import Image
+
+                platform = self.plugin.context.platform_manager.platform_insts[0]
+                bot = platform.bot
+                await bot.send_group_msg(
+                    group_id=int(group_id), message=[{"type": "image", "data": {"file": f"base64://{bs64}"}}]
+                )
+                self._last_send_time["global"] = time.time()
+                return sticker.get("filename")
+            except Exception as e:
+                logger.warning(f"[Sticker] 表情包发送失败: {e}")
+                return None
 
     async def _send_to_group(self, group_id: str, text: str):
         """发送消息到群，参照 engagement_executor 实现"""
