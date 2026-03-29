@@ -400,8 +400,8 @@ class EntertainmentEngine:
         return None
 
     async def send_sticker_for_engagement(self, group_id: str) -> str | None:
-        """engagement REACT 专用表情包发送。返回 sticker 文件名或 None。"""
-        sticker = await self.get_sticker_for_sending()
+        """engagement REACT 专用表情包发送。冷却只在发送成功后更新。"""
+        sticker = await self.sticker_store.get_random_sticker()
         if not sticker:
             return None
 
@@ -422,6 +422,7 @@ class EntertainmentEngine:
             await bot.send_group_msg(
                 group_id=int(group_id), message=[{"type": "image", "data": {"file": f"base64://{bs64}"}}]
             )
+            self._last_send_time["global"] = time.time()
             return sticker.get("filename")
         except Exception as e:
             logger.warning(f"[Sticker] 表情包发送失败: {e}")
