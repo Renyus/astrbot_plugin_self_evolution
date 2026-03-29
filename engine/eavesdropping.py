@@ -146,7 +146,7 @@ class EavesdroppingEngine:
             state.emotion_count_window = computed["emotion_count_window"]
             state.mention_bot_recently = computed["mention_bot_recently"]
 
-            is_at = event.is_at_or_wake_command
+            is_at = event.get_extra("is_at", False)
             has_reply = event.get_extra("has_reply", False)
             has_mention = is_at or has_reply
 

@@ -36,6 +36,9 @@ class FakeEvent:
     def get_extra(self, key, default=None):
         return self._extra.get(key, default)
 
+    def get_messages(self):
+        return []
+
 
 class AffinityEngineTests(IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -163,3 +166,78 @@ class AffinityDAOSignalTests(IsolatedAsyncioTestCase):
         self.assertEqual(info["affinity_score"], 55)
         self.assertEqual(len(info["recent_signals"]), 1)
         self.assertEqual(info["recent_signals"][0]["signal_type"], "direct_engagement")
+
+
+class AffinityExtraFallbackTests(IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.temp_dir = make_workspace_temp_dir("affinity_fallback")
+        self.dao = SelfEvolutionDAO(str(Path(self.temp_dir) / "affinity_fallback_test.db"))
+        await self.dao.init_db()
+        self.plugin = SimpleNamespace(
+            dao=self.dao,
+            cfg=SimpleNamespace(
+                affinity_auto_enabled=True,
+                affinity_direct_engagement_delta=1,
+                affinity_friendly_language_delta=1,
+                affinity_hostile_language_delta=-2,
+                affinity_returning_user_delta=1,
+                affinity_direct_engagement_cooldown_minutes=360,
+                affinity_friendly_daily_limit=2,
+                affinity_hostile_cooldown_minutes=60,
+                affinity_returning_user_daily_limit=1,
+                persona_name="黑塔",
+            ),
+            _get_bot_id=lambda: "bot123",
+        )
+        self.engine = AffinityEngine(self.plugin)
+
+    async def asyncTearDown(self):
+        await self.dao.close()
+        cleanup_workspace_temp_dir(self.temp_dir)
+
+    def _make_event_no_extra(self, message_str, sender_id="1001", group_id="5001", message_components=None):
+        class NoExtraEvent:
+            def __init__(self):
+                self.message_str = message_str
+                self._sender_id = sender_id
+                self._group_id = group_id
+                self._message_components = message_components or []
+
+            def get_sender_id(self):
+                return self._sender_id
+
+            def get_group_id(self):
+                return self._group_id
+
+            def get_extra(self, key, default=None):
+                return default
+
+            def get_messages(self):
+                return self._message_components
+
+        return NoExtraEvent()
+
+    async def test_affinity_extra_fallback_uses_extract_interaction_context(self):
+        class At:
+            def __init__(self):
+                self.qq = "bot123"
+
+        class Reply:
+            def __init__(self):
+                self.sender_nickname = "黑塔"
+                self.sender_id = "bot123"
+
+        event = self._make_event_no_extra(
+            "hello",
+            sender_id="user456",
+            group_id="group999",
+            message_components=[At(), Reply()],
+        )
+        signals = await self.engine.process_message(event)
+        at_signals = [s for s in signals if s.signal_type == "direct_engagement"]
+        self.assertGreaterEqual(len(at_signals), 1)
+
+    async def test_affinity_extra_not_set_no_false_positive(self):
+        event = self._make_event_no_extra("hello", sender_id="user456", group_id="group999", message_components=[])
+        signals = await self.engine.process_message(event)
+        self.assertEqual(len(signals), 0)

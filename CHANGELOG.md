@@ -9,7 +9,7 @@
 - `2.x` 是当前插件版本号体系
 - 更早的 `5.x`、`4.x`、`3.x` 记录来自此前的内部阶段版本，保留用于历史参考
 
-## [Unreleased]
+## [3.3]
 
 ### Added
 
@@ -53,6 +53,9 @@
 - `process_message()` 新增 bot 自消息过滤，防止平台回环时给自己刷分
 - `_is_command_message`（原 `_is_command_only`）真正识别命令型消息（前缀+命令词/中文），而非仅识别"只有前缀没有内容"的消息
 - `avatar_url` 头像尺寸从 `s=256` 改为 `s=40`，避免图片传输失败
+- **互动 extras 前置**：`main.py` 在 `on_message_listener` 中提前计算 `is_at`/`has_reply` 并写入 `event.set_extra()`，让 `affinity.py` 和 `eavesdropping.py` 共用同一来源，避免各模块重复解析
+- **私聊不再误拦**：修复 `is_at_or_wake_command and not has_at_to_bot and not has_reply_to_bot` 条件缺少 `group_id` 判断，导致私聊普通消息被 early-return 拦截的问题
+- **@all 不再误判为 direct_engagement**：`event_context.py` 中 `at_info` 判断从 `"all" in at_targets or bot_id in at_targets` 改为仅 `bot_id in at_targets`，符合 direct_engagement = @bot/回复bot/私聊 的定义
 
 ### Config
 

@@ -108,8 +108,20 @@ class AffinityEngine:
         if bot_id and user_id == bot_id:
             return []
 
-        is_at = event.get_extra("is_at", False)
-        has_reply = event.get_extra("has_reply", False)
+        is_at = event.get_extra("is_at", None)
+        has_reply = event.get_extra("has_reply", None)
+        if is_at is None or has_reply is None:
+            from .event_context import extract_interaction_context
+
+            interaction = extract_interaction_context(
+                event.get_messages(),
+                persona_name=getattr(self.plugin.cfg, "persona_name", ""),
+                bot_id=bot_id,
+            )
+            if is_at is None:
+                is_at = bool(interaction["at_info"])
+            if has_reply is None:
+                has_reply = bool(interaction["quoted_info"])
 
         is_command_only = self._is_command_message(msg_text)
 

@@ -19,7 +19,7 @@ def extract_interaction_context(message_components, *, persona_name: str, bot_id
             at_targets.append(str(getattr(comp, "qq", "")))
 
     at_info = ""
-    if at_targets and ("all" in at_targets or str(bot_id) in at_targets):
+    if at_targets and str(bot_id) in at_targets:
         at_info = "at了你"
 
     return {
