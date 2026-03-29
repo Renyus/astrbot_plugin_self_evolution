@@ -172,6 +172,7 @@ class EngagementDAOPersistenceTests(IsolatedAsyncioTestCase):
     async def test_save_and_get_engagement_state(self):
         state = {
             "scope_id": "5001",
+            "last_message_time": time.time() - 15,
             "last_bot_engagement_at": time.time(),
             "last_bot_engagement_level": "brief",
             "last_seen_message_seq": 12345,
@@ -186,6 +187,7 @@ class EngagementDAOPersistenceTests(IsolatedAsyncioTestCase):
         saved = await self.dao.get_engagement_state("5001")
         self.assertIsNotNone(saved)
         self.assertEqual(saved["scope_id"], "5001")
+        self.assertGreater(saved["last_message_time"], 0)
         self.assertEqual(saved["scene_type"], "casual")
         self.assertEqual(saved["message_count_window"], 10)
 
@@ -329,6 +331,34 @@ class PassiveEngagementTests(IsolatedAsyncioTestCase):
 
         self.assertTrue(len(saved_states) > 0, "image message caused crash or no save")
         self.assertIn("scene_type", saved_states[-1])
+
+    async def test_recent_messages_accumulate_window_count(self):
+        now = time.time()
+        old_state = {
+            "scope_id": "5001",
+            "last_message_time": now - 10,
+            "last_bot_engagement_at": 0.0,
+            "scene_type": "casual",
+            "message_count_window": 2,
+            "question_count_window": 0,
+            "emotion_count_window": 0,
+            "consecutive_bot_replies": 0,
+        }
+        await self.dao.save_engagement_state("5001", old_state)
+
+        saved_states = []
+        original_save = self.dao.save_engagement_state
+
+        async def capture_save(scope_id, state):
+            saved_states.append(state)
+            return await original_save(scope_id, state)
+
+        self.dao.save_engagement_state = capture_save
+        event = self._make_event("hello again", group_id="5001")
+        await self.engine.process_passive_engagement(event)
+
+        self.assertTrue(len(saved_states) > 0, "message window was never saved")
+        self.assertEqual(saved_states[-1]["message_count_window"], 3)
 
 
 class EngagementExecutorTests(IsolatedAsyncioTestCase):

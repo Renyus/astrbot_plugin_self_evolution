@@ -354,10 +354,10 @@
                 "hint": "允许从目标用户消息中学习和记录表情包。"
             },
             "sticker_target_qq": {
-                "description": "学习目标QQ",
-                "type": "string",
-                "default": "",
-                "hint": "指定优先学习表情包的 QQ 号。"
+                "description": "学习目标QQ列表",
+                "type": "list",
+                "default": [],
+                "hint": "指定优先学习表情包的 QQ 号列表。"
             },
             "sticker_total_limit": {
                 "description": "表情包总上限",
@@ -446,8 +446,8 @@
             },
             "surprise_boost_keywords": {
                 "description": "惊奇关键词表",
-                "type": "string",
-                "default": "突然|惊讶|没想到|居然",
+                "type": "list",
+                "default": ["突然", "惊讶", "没想到", "居然"],
                 "hint": "命中这些关键词时提升惊奇加成。"
             },
             "dropout_enabled": {

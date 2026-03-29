@@ -156,6 +156,7 @@ class SelfEvolutionDAO:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS engagement_state (
                 scope_id TEXT PRIMARY KEY,
+                last_message_time REAL DEFAULT 0,
                 last_bot_engagement_at TEXT,
                 last_bot_engagement_level TEXT,
                 last_seen_message_seq INTEGER,
@@ -167,6 +168,12 @@ class SelfEvolutionDAO:
                 updated_at TEXT NOT NULL
             )
         """)
+        async with db.execute("PRAGMA table_info(engagement_state)") as cursor:
+            columns = {row[1] for row in await cursor.fetchall()}
+        if "last_message_time" not in columns:
+            await db.execute(
+                "ALTER TABLE engagement_state ADD COLUMN last_message_time REAL DEFAULT 0"
+            )
         await db.execute("""
             CREATE TABLE IF NOT EXISTS pending_evolutions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -749,12 +756,13 @@ class SelfEvolutionDAO:
         async with self._write_lock:
             await db.execute(
                 """INSERT OR REPLACE INTO engagement_state 
-                   (scope_id, last_bot_engagement_at, last_bot_engagement_level, 
+                   (scope_id, last_message_time, last_bot_engagement_at, last_bot_engagement_level, 
                     last_seen_message_seq, scene_type, message_count_window,
                     question_count_window, emotion_count_window, consecutive_bot_replies, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     scope_id,
+                    state.get("last_message_time", 0),
                     state.get("last_bot_engagement_at"),
                     state.get("last_bot_engagement_level"),
                     state.get("last_seen_message_seq"),

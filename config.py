@@ -30,6 +30,24 @@ class PluginConfig:
         val = self._get_nested(group, key, default)
         return self._parse_bool(val, default)
 
+    def _get_nested_list(self, group: str, key: str, default=None):
+        """读取 list 类型配置项。兼容旧 string（| 或 , 分割）后返回清洗后的 list。
+
+        优先级：| 分割为主（与新 list 格式一致）；若无 | 但含逗号，则按逗号分割（兼容旧配置）。
+        """
+        val = self._get_nested(group, key, default)
+        if val is None:
+            return default if default is not None else []
+        if isinstance(val, list):
+            return [str(v).strip() for v in val if str(v).strip()]
+        if isinstance(val, str):
+            if "|" in val:
+                return [k.strip() for k in val.split("|") if k.strip()]
+            if "," in val:
+                return [k.strip() for k in val.split(",") if k.strip()]
+            return [val.strip()] if val.strip() else []
+        return [str(val).strip()]
+
     def __getattr__(self, name):
         if name.startswith("_") or name in ("plugin", "config"):
             raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
@@ -49,14 +67,11 @@ class PluginConfig:
 
     @property
     def admin_users(self):
-        return self._get_nested("base", "admin_users", [])
+        return self._get_nested_list("base", "admin_users", [])
 
     @property
     def target_scopes(self):
-        scopes = self._get_nested("base", "target_scopes", [])
-        if isinstance(scopes, str):
-            scopes = [g.strip() for g in scopes.split(",") if g.strip()]
-        return scopes
+        return self._get_nested_list("base", "target_scopes", [])
 
     # memory_summary
     @property
@@ -256,10 +271,10 @@ class PluginConfig:
 
     @property
     def surprise_boost_keywords(self):
-        return self._get_nested(
+        return self._get_nested_list(
             "prompt",
             "surprise_boost_keywords",
-            "突然|惊讶|没想到|居然",
+            ["突然", "惊讶", "没想到", "居然"],
         )
 
     # entertainment / sticker
@@ -273,7 +288,7 @@ class PluginConfig:
 
     @property
     def sticker_target_qq(self):
-        return self._get_nested("sticker", "sticker_target_qq", "")
+        return self._get_nested_list("sticker", "sticker_target_qq", [])
 
     @property
     def sticker_total_limit(self):
@@ -293,7 +308,7 @@ class PluginConfig:
 
     @property
     def meal_eat_keywords(self):
-        return self._get_nested(
+        return self._get_nested_list(
             "sticker",
             "meal_eat_keywords",
             ["吃啥", "吃什么", "今天吃啥", "今天吃什么", "吃点啥"],
@@ -301,7 +316,7 @@ class PluginConfig:
 
     @property
     def meal_banquet_keywords(self):
-        return self._get_nested(
+        return self._get_nested_list(
             "sticker",
             "meal_banquet_keywords",
             ["摆酒席", "开席", "整一桌", "来一桌", "上菜"],
