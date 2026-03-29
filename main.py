@@ -661,7 +661,6 @@ class SelfEvolutionPlugin(Star):
 
     async def generate_social_reply(
         self,
-        *,
         group_id: str,
         user_id: str,
         sender_name: str = "群成员",
@@ -671,10 +670,10 @@ class SelfEvolutionPlugin(Star):
         quoted_info: str = "",
         at_info: str = "",
     ) -> str | None:
-        """Social engagement FULL reply generation — reuses main pipeline context building.
+        """Social engagement FULL reply generation.
 
-        Does NOT go through the full event pipeline (no recursion into LLM request handlers).
-        Returns generated text or None if generation fails.
+        system_prompt = current persona + plugin injection (identity/history/profile/memory/behavior)
+        prompt       = thin task description only
         """
         try:
             memory_scope_id = self._resolve_profile_scope_id(group_id, user_id)
@@ -683,6 +682,10 @@ class SelfEvolutionPlugin(Star):
             affinity = await self.dao.get_affinity(user_id)
             bot_id = self._get_bot_id()
             umo = getattr(self, "get_group_umo", lambda g: None)(group_id) if hasattr(self, "get_group_umo") else None
+            if not umo:
+                return None
+
+            persona_prompt = await self._get_active_persona_prompt(umo)
 
             ctx = PromptContext(
                 user_id=user_id,
@@ -713,29 +716,71 @@ class SelfEvolutionPlugin(Star):
                 parts.append(await self._build_profile_injection(ctx))
             if self._should_inject_kb_memory(ctx):
                 parts.append(await self._build_kb_memory_injection(ctx))
-
             parts.append(await self._build_behavior_hints(ctx))
 
-            scene_label = scene.replace("_", " ")
-            trigger_line = f"【被回复消息】{trigger_text}" if trigger_text else ""
-            task_instruction = (
-                f"【任务】在群聊中自然插话回应。\n"
-                f"场景：{scene_label} | 原因：{reason}\n"
-                f"{trigger_line}\n"
-                f"要求：简短自然（50字以内），不要像客服，不要重复已有信息。\n"
+            plugin_injection = "".join([p for p in parts if p and p.strip()])
+            system_prompt = (persona_prompt + "\n\n" + plugin_injection).strip()
+
+            user_prompt = self._build_social_user_prompt(
+                trigger_text=trigger_text,
+                scene=scene,
+                reason=reason,
+                is_passive=bool(trigger_text),
             )
 
-            system_prompt = task_instruction + "".join([p for p in parts if p and p.strip()])
-
-            if not umo:
-                return None
-
             llm_provider = self.context.get_using_provider(umo=umo)
-            resp = await llm_provider.text_chat(prompt=system_prompt, contexts=[])
+            resp = await llm_provider.text_chat(prompt=user_prompt, system_prompt=system_prompt, contexts=[])
             return resp.completion_text.strip()[:200] if hasattr(resp, "completion_text") else None
         except Exception as e:
             logger.warning(f"[SocialReply] 生成失败: {e}")
             return None
+
+    async def _get_active_persona_prompt(self, umo: str) -> str:
+        """从当前活跃会话获取 persona prompt。"""
+        try:
+            if not hasattr(self.context, "conversation_manager"):
+                return self.persona_name or "你是一个在群聊中自然参与讨论的角色。"
+            conv_mgr = self.context.conversation_manager
+            cid = await conv_mgr.get_curr_conversation_id(umo)
+            if not cid:
+                return self.persona_name or "你是一个在群聊中自然参与讨论的角色。"
+            conv = await conv_mgr.get_conversation(umo, cid)
+            conversation_persona_id = getattr(conv, "persona_id", None) if conv else None
+            cfg = self.context.get_config(umo=umo).get("provider_settings", {})
+            _, personality, _, _ = await self.context.persona_manager.resolve_selected_persona(
+                umo=umo,
+                conversation_persona_id=conversation_persona_id,
+                platform_name=getattr(self, "_platform_name", "unknown"),
+                provider_settings=cfg,
+            )
+            if personality and isinstance(personality, dict) and personality.get("prompt"):
+                return personality["prompt"]
+        except Exception:
+            pass
+        return self.persona_name or "你是一个在群聊中自然参与讨论的角色。"
+
+    def _build_social_user_prompt(
+        self,
+        trigger_text: str,
+        scene: str,
+        reason: str,
+        is_passive: bool,
+    ) -> str:
+        """构建极薄的社交 user prompt。"""
+        scene_label = scene.replace("_", " ")
+        if is_passive:
+            return (
+                f"请基于当前系统设定和上下文，在群聊里自然接一句话。\n"
+                f"场景：{scene_label} | 原因：{reason}\n"
+                f"被回复消息：{trigger_text}\n"
+                f"要求：简短自然（50字以内），保持角色口吻，不要重复最近已说过的话，只输出回复正文。"
+            )
+        else:
+            return (
+                f"请基于当前群聊上下文，自然插一句话。\n"
+                f"场景：{scene_label} | 原因：{reason}\n"
+                f"要求：简短自然（50字以内），不要主动开启新话题，不要过度打断，不要重复最近 bot 已说过的话，只输出回复正文。"
+            )
 
     @filter.on_plugin_loaded()
     async def on_loaded(self, metadata):
