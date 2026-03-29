@@ -10,6 +10,7 @@ from .social_state import EngagementLevel, GroupSocialState, SceneType
 
 
 _ACTIVE_WINDOW_SECONDS = 30.0
+_MESSAGE_WINDOW_SECONDS = 120.0
 
 
 @dataclass
@@ -116,22 +117,28 @@ class EavesdroppingEngine:
                 self.record_activity(group_id, user_id, now)
 
             state_dict = await self.plugin.dao.get_engagement_state(group_id)
+            prev_last_message_time = float(state_dict.get("last_message_time") or 0) if state_dict else 0.0
+            window_active = (
+                prev_last_message_time > 0 and (now - prev_last_message_time) <= _MESSAGE_WINDOW_SECONDS
+            )
             if state_dict:
                 state = GroupSocialState(
                     scope_id=group_id,
-                    last_message_time=state_dict.get("last_message_time") or (now - 60),
+                    last_message_time=prev_last_message_time or (now - 60),
                     last_bot_message_time=float(state_dict.get("last_bot_engagement_at") or 0),
                     last_seen_message_seq=state_dict.get("last_seen_message_seq"),
-                    scene=SceneType(state_dict.get("scene_type", "casual"))
-                    if state_dict.get("scene_type")
-                    else SceneType.CASUAL,
-                    message_count_window=state_dict.get("message_count_window", 0),
-                    question_count_window=state_dict.get("question_count_window", 0),
-                    emotion_count_window=state_dict.get("emotion_count_window", 0),
-                    consecutive_bot_replies=state_dict.get("consecutive_bot_replies", 0),
+                    scene=(
+                        SceneType(state_dict.get("scene_type", "casual"))
+                        if window_active and state_dict.get("scene_type")
+                        else SceneType.CASUAL
+                    ),
+                    message_count_window=state_dict.get("message_count_window", 0) if window_active else 0,
+                    question_count_window=state_dict.get("question_count_window", 0) if window_active else 0,
+                    emotion_count_window=state_dict.get("emotion_count_window", 0) if window_active else 0,
+                    consecutive_bot_replies=state_dict.get("consecutive_bot_replies", 0) if window_active else 0,
                 )
             else:
-                state = GroupSocialState(scope_id=group_id, last_message_time=0, message_count_window=1)
+                state = GroupSocialState(scope_id=group_id, last_message_time=0, message_count_window=0)
 
             msg_text = event.message_str or ""
             if not msg_text.strip():
@@ -141,9 +148,10 @@ class EavesdroppingEngine:
             planner = EngagementPlanner(self.plugin)
             executor = EngagementExecutor(self.plugin, planner)
 
+            state.message_count_window = max(int(state.message_count_window), 0) + 1
             computed = planner.compute_scene_windows(messages_for_scene, state)
-            state.question_count_window = computed["question_count_window"]
-            state.emotion_count_window = computed["emotion_count_window"]
+            state.question_count_window = max(int(state.question_count_window), 0) + computed["question_count_window"]
+            state.emotion_count_window = max(int(state.emotion_count_window), 0) + computed["emotion_count_window"]
             state.mention_bot_recently = computed["mention_bot_recently"]
 
             is_at = event.get_extra("is_at", False)
@@ -177,7 +185,7 @@ class EavesdroppingEngine:
                 else (state_dict.get("last_bot_engagement_level") if state_dict else None),
                 "last_seen_message_seq": state_dict.get("last_seen_message_seq") if state_dict else None,
                 "scene_type": plan.scene.value,
-                "message_count_window": 1,
+                "message_count_window": state.message_count_window,
                 "question_count_window": state.question_count_window,
                 "emotion_count_window": state.emotion_count_window,
                 "consecutive_bot_replies": (state.consecutive_bot_replies + 1) if result.executed else 0,

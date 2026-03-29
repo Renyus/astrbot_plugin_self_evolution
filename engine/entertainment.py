@@ -83,11 +83,7 @@ class EntertainmentEngine:
         if not self.cfg.sticker_learning_enabled:
             return False
 
-        target_qq = self.cfg.sticker_target_qq
-        if not target_qq:
-            return False
-
-        target_qq_list = [qq.strip() for qq in target_qq.split(",") if qq.strip()]
+        target_qq_list = self.cfg.sticker_target_qq
         if not target_qq_list:
             return False
 

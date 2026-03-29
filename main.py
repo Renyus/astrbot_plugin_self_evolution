@@ -478,9 +478,7 @@ class SelfEvolutionPlugin(Star):
             )
 
         if self._should_inject_surprise_detection(ctx):
-            keywords_str = self.surprise_boost_keywords.replace("|", ",")
-            surprise_keywords = [k.strip() for k in keywords_str.split(",") if k.strip()]
-            if any(kw in ctx.msg_text for kw in surprise_keywords):
+            if any(kw in ctx.msg_text for kw in self.surprise_boost_keywords):
                 parts.append(
                     "[认知颠覆检测]\n"
                     "用户表达了惊讶、认知颠覆或恍然大悟的态度！这是一个重要的学习信号。"

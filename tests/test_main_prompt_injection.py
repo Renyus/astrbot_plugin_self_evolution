@@ -67,7 +67,7 @@ def _make_engine(**cfg_defaults):
         max_prompt_injection_length=2000,
         debug_log_enabled=False,
         surprise_enabled=True,
-        surprise_boost_keywords="我错了|原来如此|没想到",
+        surprise_boost_keywords=["我错了", "原来如此", "没想到"],
     )
     defaults.update(cfg_defaults)
 
@@ -379,7 +379,7 @@ class BehaviorHintsTests(IsolatedAsyncioTestCase):
 
     def test_surprise_detection_triggered(self):
         ctx = self._ctx(msg_text="我错了，原来如此！")
-        engine = _make_engine(surprise_enabled=True, surprise_boost_keywords="我错了|原来如此|没想到")
+        engine = _make_engine(surprise_enabled=True, surprise_boost_keywords=["我错了", "原来如此", "没想到"])
         self.assertTrue(engine._should_inject_surprise_detection(ctx))
 
     def test_surprise_detection_not_triggered_when_disabled(self):
