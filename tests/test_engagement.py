@@ -221,9 +221,11 @@ class PassiveEngagementTests(IsolatedAsyncioTestCase):
         event = SimpleNamespace()
         event.get_group_id = lambda: group_id
         event.get_user_id = lambda: "user123"
+        event.get_sender_name = lambda: "TestUser"
         event.message_str = message_str
         event.is_at_or_wake_command = False
         event.get_extra = lambda key, default=None: default
+        event.get_messages = lambda: [{"type": "text", "data": {"text": message_str}}] if message_str else []
         event.message_obj = SimpleNamespace(message=[])
         return event
 

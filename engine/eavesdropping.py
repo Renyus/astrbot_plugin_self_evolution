@@ -7,6 +7,7 @@ from astrbot.api.all import AstrMessageEvent
 from .engagement_planner import EngagementPlanner
 from .engagement_executor import EngagementExecutor
 from .social_state import EngagementLevel, GroupSocialState, SceneType
+from .event_context import extract_interaction_context
 
 
 _ACTIVE_WINDOW_SECONDS = 30.0
@@ -137,7 +138,8 @@ class EavesdroppingEngine:
             if plan.level == EngagementLevel.IGNORE:
                 return False
 
-            result = await executor.execute(plan, state)
+            result = await executor.execute(plan, state, trigger_text="")
+
             if result.executed:
                 new_state = {
                     "last_message_time": state.last_message_time,
@@ -152,7 +154,9 @@ class EavesdroppingEngine:
                 }
                 await self.plugin.dao.save_engagement_state(group_id, new_state)
                 logger.info(f"[ActiveEngagement] 群 {group_id}: executed {result.action}")
-            return True
+                return True
+
+            return False
         except Exception as e:
             logger.warning(f"[ActiveEngagement] 群 {group_id} 检查失败: {e}", exc_info=True)
             return False
@@ -166,6 +170,7 @@ class EavesdroppingEngine:
         try:
             now = time.time()
             user_id = str(event.get_user_id()) if hasattr(event, "get_user_id") else ""
+            sender_name = event.get_sender_name() if hasattr(event, "get_sender_name") else "群成员"
             if user_id:
                 self.record_activity(group_id, user_id, now)
 
@@ -204,6 +209,14 @@ class EavesdroppingEngine:
             is_at = event.get_extra("is_at", False)
             has_reply = event.get_extra("has_reply", False)
             has_mention = is_at or has_reply
+
+            interaction = extract_interaction_context(
+                event.get_messages(),
+                persona_name=getattr(self.plugin, "persona_name", "黑塔"),
+                bot_id=self.plugin._get_bot_id(),
+            )
+            quoted_info = interaction.get("quoted_info", "") or ""
+            at_info = interaction.get("at_info", "") or ""
 
             eligibility = planner.check_eligibility(
                 state,
@@ -247,7 +260,15 @@ class EavesdroppingEngine:
 
             logger.debug(f"[PassiveEngagement] scope={group_id} level={plan.level.value} scene={plan.scene.value}")
 
-            result = await executor.execute(plan, state)
+            result = await executor.execute(
+                plan,
+                state,
+                trigger_text=msg_text,
+                user_id=user_id,
+                sender_name=sender_name,
+                quoted_info=quoted_info,
+                at_info=at_info,
+            )
 
             new_state = {
                 "last_message_time": now,

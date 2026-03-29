@@ -23,7 +23,16 @@ class EngagementExecutor:
         if getattr(self.cfg, "engagement_debug_enabled", False):
             logger.debug(msg)
 
-    async def execute(self, plan: EngagementPlan, state: GroupSocialState) -> EngagementExecutionResult:
+    async def execute(
+        self,
+        plan: EngagementPlan,
+        state: GroupSocialState,
+        trigger_text: str = "",
+        user_id: str = "",
+        sender_name: str = "群成员",
+        quoted_info: str = "",
+        at_info: str = "",
+    ) -> EngagementExecutionResult:
         if plan.level == EngagementLevel.IGNORE:
             self._debug(
                 f"[Engagement] execute=yes scope={getattr(state, 'scope_id', '?')} level=IGNORE action=none reason={plan.reason}"
@@ -43,14 +52,14 @@ class EngagementExecutor:
             return result
 
         if plan.level == EngagementLevel.BRIEF:
-            result = await self._execute_full(plan, state)
+            result = await self._execute_full(plan, state, trigger_text, user_id, sender_name, quoted_info, at_info)
             self._debug(
                 f"[Engagement] execute=yes scope={getattr(state, 'scope_id', '?')} level=BRIEF->FULL action={result.action}"
             )
             return result
 
         if plan.level == EngagementLevel.FULL:
-            result = await self._execute_full(plan, state)
+            result = await self._execute_full(plan, state, trigger_text, user_id, sender_name, quoted_info, at_info)
             self._debug(
                 f"[Engagement] execute=yes scope={getattr(state, 'scope_id', '?')} level=FULL action={result.action}"
             )
@@ -81,7 +90,16 @@ class EngagementExecutor:
             reason="无表情包",
         )
 
-    async def _execute_full(self, plan: EngagementPlan, state: GroupSocialState) -> EngagementExecutionResult:
+    async def _execute_full(
+        self,
+        plan: EngagementPlan,
+        state: GroupSocialState,
+        trigger_text: str = "",
+        user_id: str = "",
+        sender_name: str = "群成员",
+        quoted_info: str = "",
+        at_info: str = "",
+    ) -> EngagementExecutionResult:
         final_prob = getattr(self.cfg, "interject_trigger_probability", 0.5)
         if random.random() > final_prob:
             return EngagementExecutionResult(
@@ -92,47 +110,28 @@ class EngagementExecutor:
             )
 
         group_id = state.scope_id
-        persona = self.cfg.persona_name or "黑塔"
-
-        identity_ctx = f"[身份] 你是在群聊中的{persona}，以自然的方式参与讨论。"
-
-        prompt = (
-            f"你是{persona}。\n"
-            f"{identity_ctx}\n"
-            f"当前场景：{plan.scene.value}\n"
-            f"参与原因：{plan.reason}\n"
-            f"请生成一段简短自然的回复，不超过50字。\n"
-        )
 
         try:
-            group_umo = self.plugin.get_group_umo(group_id) if hasattr(self.plugin, "get_group_umo") else None
-            if not group_umo:
-                return EngagementExecutionResult(
-                    executed=False,
-                    level=EngagementLevel.FULL,
-                    action="none",
-                    reason="无UMo provider",
-                )
-
-            from ..cognition.san import SANSystem
-
-            san = SANSystem(self.plugin)
-            san_ctx = san.get_injection_context()
-            prompt = f"{prompt}\n{san_ctx}"
-
-            llm_provider = self.plugin.context.get_using_provider(umo=group_umo)
-            resp = await llm_provider.text_chat(prompt=prompt, contexts=[])
-            text = resp.completion_text.strip()[:100] if hasattr(resp, "completion_text") else str(resp).strip()[:100]
-
-            success = await self._send_message(group_id, text)
-            if success:
-                return EngagementExecutionResult(
-                    executed=True,
-                    level=EngagementLevel.FULL,
-                    action="text",
-                    reason=plan.reason,
-                    actual_text=text,
-                )
+            text = await self.plugin.generate_social_reply(
+                group_id=group_id,
+                user_id=user_id or "unknown",
+                sender_name=sender_name,
+                trigger_text=trigger_text,
+                scene=plan.scene.value,
+                reason=plan.reason,
+                quoted_info=quoted_info,
+                at_info=at_info,
+            )
+            if text:
+                success = await self._send_message(group_id, text)
+                if success:
+                    return EngagementExecutionResult(
+                        executed=True,
+                        level=EngagementLevel.FULL,
+                        action="text",
+                        reason=plan.reason,
+                        actual_text=text,
+                    )
         except Exception as e:
             logger.warning(f"[EngagementExecutor] Full回复生成失败: {e}")
 
@@ -142,7 +141,7 @@ class EngagementExecutor:
                 executed=True,
                 level=EngagementLevel.FULL,
                 action="sticker",
-                reason=f"LLM失败降级: {e}",
+                reason="LLM失败降级",
                 actual_text=sticker,
             )
 

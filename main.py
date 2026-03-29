@@ -659,6 +659,84 @@ class SelfEvolutionPlugin(Star):
             return
         await self.eavesdropping.sync_framework_reply_state(group_id, level="full")
 
+    async def generate_social_reply(
+        self,
+        *,
+        group_id: str,
+        user_id: str,
+        sender_name: str = "群成员",
+        trigger_text: str = "",
+        scene: str = "casual",
+        reason: str = "",
+        quoted_info: str = "",
+        at_info: str = "",
+    ) -> str | None:
+        """Social engagement FULL reply generation — reuses main pipeline context building.
+
+        Does NOT go through the full event pipeline (no recursion into LLM request handlers).
+        Returns generated text or None if generation fails.
+        """
+        try:
+            memory_scope_id = self._resolve_profile_scope_id(group_id, user_id)
+            await self.touch_known_scope(memory_scope_id)
+
+            affinity = await self.dao.get_affinity(user_id)
+            bot_id = self._get_bot_id()
+            umo = getattr(self, "get_group_umo", lambda g: None)(group_id) if hasattr(self, "get_group_umo") else None
+
+            ctx = PromptContext(
+                user_id=user_id,
+                sender_name=sender_name,
+                group_id=group_id,
+                scope_id=memory_scope_id,
+                profile_scope_id=memory_scope_id,
+                umo=umo,
+                msg_text=trigger_text,
+                affinity=affinity,
+                role_info="",
+                is_group=True,
+                quoted_info=quoted_info,
+                ai_context_info="",
+                at_targets=[at_info] if at_info else [],
+                at_info=at_info,
+                has_reply=bool(quoted_info),
+                has_at=bool(at_info),
+                bot_id=bot_id,
+                event=None,
+            )
+
+            parts = []
+            parts.append(self._build_identity_injection(ctx))
+            if self._should_inject_group_history(ctx):
+                parts.append(await self._build_group_history_injection(ctx))
+            if self._should_inject_profile(ctx):
+                parts.append(await self._build_profile_injection(ctx))
+            if self._should_inject_kb_memory(ctx):
+                parts.append(await self._build_kb_memory_injection(ctx))
+
+            parts.append(await self._build_behavior_hints(ctx))
+
+            scene_label = scene.replace("_", " ")
+            trigger_line = f"【被回复消息】{trigger_text}" if trigger_text else ""
+            task_instruction = (
+                f"【任务】在群聊中自然插话回应。\n"
+                f"场景：{scene_label} | 原因：{reason}\n"
+                f"{trigger_line}\n"
+                f"要求：简短自然（50字以内），不要像客服，不要重复已有信息。\n"
+            )
+
+            system_prompt = task_instruction + "".join([p for p in parts if p and p.strip()])
+
+            if not umo:
+                return None
+
+            llm_provider = self.context.get_using_provider(umo=umo)
+            resp = await llm_provider.text_chat(prompt=system_prompt, contexts=[])
+            return resp.completion_text.strip()[:200] if hasattr(resp, "completion_text") else None
+        except Exception as e:
+            logger.warning(f"[SocialReply] 生成失败: {e}")
+            return None
+
     @filter.on_plugin_loaded()
     async def on_loaded(self, metadata):
         """插件加载完成后，注册定时任务"""
