@@ -130,9 +130,6 @@ class EavesdroppingEngine:
             has_reply = event.get_extra("has_reply", False)
             has_mention = is_at or has_reply
 
-            if momentum.bot_has_spoken_in_current_wave and has_mention:
-                return
-
             msg_text = event.message_str or ""
             if not msg_text.strip():
                 msg_text = "[图片]"

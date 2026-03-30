@@ -73,6 +73,7 @@
   - Phase 4 新增 `engine/reply_intent.py`（`ReplyIntent` + `IntentSource` + `process_intent()`）：主动/被动统一抽象为 `ReplyIntent`，`process_intent()` 统一处理 policy → eligibility → plan → execute → record 全链路
   - Phase 5 新增 `engine/reply_executor.py`（`ReplyExecutor` 类）：统一执行层，`execute()` 方法统一路由 REACT→sticker、BRIEF/FULL→文本+降级；`eavesdropping.py` 和 `reply_intent.py` 全部改用 `ReplyExecutor`
   - Phase 6：`engagement_executor.py` 改为 `ReplyExecutor` 的 alias（`EngagementExecutor = ReplyExecutor`），向后兼容；`engine/__init__.py` 导出所有新类（`ReplyExecutor` / `ReplyPolicy` / `ReplyRecorder` / `ReplyIntent` / `ConversationMomentum` / `BotMessageKind` / `IntentSource` / `ReplyPolicyDecision`）
+- **修复 Bug**：主动插话被新状态机永久堵死 — `ReplyPolicy.check()` 中 `E_NO_NEW_USER_AFTER_BOT` 移到 `E_WAVE_CONSUMED` 之前判断（主动路径中 `new_user_message_after_bot == True` 时允许接话）；明确唤醒被静默吞掉 — 移除 `bot_has_spoken_in_current_wave and has_mention` 的早期 return，明确 @/reply bot 时被动链路正常继续
 
 ### Config
 

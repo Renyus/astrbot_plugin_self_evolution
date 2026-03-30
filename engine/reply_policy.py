@@ -46,18 +46,18 @@ class ReplyPolicy:
         now = time.time()
         scope_id = momentum.scope_id
 
-        if momentum.bot_has_spoken_in_current_wave:
-            return ReplyPolicyDecision(
-                allow=False,
-                reason_code="E_WAVE_CONSUMED",
-                reason_text="当前 wave 已被 bot 占住，禁止继续发言",
-            )
-
         if require_new_user_after_bot and not momentum.new_user_message_after_bot:
             return ReplyPolicyDecision(
                 allow=False,
                 reason_code="E_NO_NEW_USER_AFTER_BOT",
                 reason_text="bot 发言后无新用户消息，禁止主动插话",
+            )
+
+        if momentum.bot_has_spoken_in_current_wave:
+            return ReplyPolicyDecision(
+                allow=False,
+                reason_code="E_WAVE_CONSUMED",
+                reason_text="当前 wave 已被 bot 占住，禁止继续发言",
             )
 
         silence_seconds = now - momentum.last_message_time if momentum.last_message_time > 0 else 999
