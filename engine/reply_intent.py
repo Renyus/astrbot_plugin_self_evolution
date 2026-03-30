@@ -39,6 +39,7 @@ class ReplyIntent:
     scene: str = "casual"
     reason: str = ""
     is_passive_trigger: bool = False
+    is_active_trigger: bool = False
     created_at: float = 0.0
 
     def __post_init__(self):
@@ -57,7 +58,6 @@ async def process_intent(
     executor: ReplyExecutor,
     policy: ReplyPolicy,
     recorder: ReplyRecorder,
-    is_active: bool = False,
     cfg=None,
 ) -> bool:
     """统一处理 intent：policy 检查 → eligibility → plan → execute → record。
@@ -68,6 +68,7 @@ async def process_intent(
     scope_id = intent.scope_id
     now = time_module.time()
     cfg = cfg or plugin.cfg
+    is_active = intent.is_active_trigger
 
     require_new_user_after_bot = not is_active and momentum.consecutive_bot_replies > 0
     policy_decision = policy.check(
@@ -145,6 +146,7 @@ async def process_intent(
         sender_name=intent.sender_name,
         quoted_info=intent.quoted_info,
         at_info=intent.at_info,
+        is_active_trigger=intent.is_active_trigger,
     )
 
     momentum.message_count_window = state.message_count_window

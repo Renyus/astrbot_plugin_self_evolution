@@ -37,6 +37,7 @@ class ReplyExecutor:
         sender_name: str = "群成员",
         quoted_info: str = "",
         at_info: str = "",
+        is_active_trigger: bool = False,
     ) -> EngagementExecutionResult:
         if plan.level == EngagementLevel.IGNORE:
             self._debug(
@@ -53,7 +54,9 @@ class ReplyExecutor:
             return await self._execute_sticker(plan, state)
 
         if plan.level in (EngagementLevel.BRIEF, EngagementLevel.FULL):
-            return await self._execute_text(plan, state, trigger_text, user_id, sender_name, quoted_info, at_info)
+            return await self._execute_text(
+                plan, state, trigger_text, user_id, sender_name, quoted_info, at_info, is_active_trigger
+            )
 
         return EngagementExecutionResult(
             executed=False,
@@ -89,6 +92,7 @@ class ReplyExecutor:
         sender_name: str = "群成员",
         quoted_info: str = "",
         at_info: str = "",
+        is_active_trigger: bool = False,
     ) -> EngagementExecutionResult:
         final_prob = getattr(self.cfg, "interject_trigger_probability", 0.5)
         if random.random() > final_prob:
@@ -102,16 +106,47 @@ class ReplyExecutor:
         group_id = state.scope_id
 
         try:
-            text = await self.plugin.generate_social_reply(
+            umo = (
+                getattr(self.plugin, "get_group_umo", lambda g: None)(group_id)
+                if hasattr(self.plugin, "get_group_umo")
+                else None
+            )
+            if not umo:
+                return EngagementExecutionResult(
+                    executed=False,
+                    level=EngagementLevel.FULL,
+                    action="none",
+                    reason="无umo",
+                )
+
+            if is_active_trigger:
+                effective_user_id = self.plugin._get_bot_id()
+                effective_sender_name = getattr(self.plugin, "persona_name", "黑塔")
+            else:
+                effective_user_id = user_id or "unknown"
+                effective_sender_name = sender_name
+
+            req = await self.plugin.build_active_trigger_request(
                 group_id=group_id,
-                user_id=user_id or "unknown",
-                sender_name=sender_name,
+                user_id=effective_user_id,
+                sender_name=effective_sender_name,
                 trigger_text=trigger_text,
                 scene=plan.scene.value,
                 reason=plan.reason,
                 quoted_info=quoted_info,
                 at_info=at_info,
+                is_active_trigger=is_active_trigger,
             )
+            if not req:
+                return EngagementExecutionResult(
+                    executed=False,
+                    level=EngagementLevel.FULL,
+                    action="none",
+                    reason="prompt构建失败",
+                )
+
+            text = await self.plugin.inject_and_chat(req, umo)
+
             if text:
                 success = await self._send_message(group_id, text)
                 if success:

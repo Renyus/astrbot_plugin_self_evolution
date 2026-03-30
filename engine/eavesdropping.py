@@ -88,15 +88,14 @@ class EavesdroppingEngine:
             intent = ReplyIntent(
                 source=IntentSource.ACTIVE,
                 scope_id=group_id,
+                is_active_trigger=True,
             )
 
             planner = EngagementPlanner(self.plugin)
             executor = ReplyExecutor(self.plugin, planner)
             policy = ReplyPolicy(self.plugin)
 
-            return await process_intent(
-                self.plugin, intent, momentum, planner, executor, policy, self._recorder, is_active=True
-            )
+            return await process_intent(self.plugin, intent, momentum, planner, executor, policy, self._recorder)
         except Exception as e:
             logger.warning(f"[ActiveEngagement] 群 {group_id} 检查失败: {e}", exc_info=True)
             return False
@@ -171,8 +170,6 @@ class EavesdroppingEngine:
 
             policy = ReplyPolicy(self.plugin)
 
-            await process_intent(
-                self.plugin, intent, momentum, planner, executor, policy, self._recorder, is_active=False
-            )
+            await process_intent(self.plugin, intent, momentum, planner, executor, policy, self._recorder)
         except Exception as e:
             logger.warning(f"[PassiveEngagement] 群 {group_id} 处理失败: {e}", exc_info=True)

@@ -12,6 +12,7 @@ from astrbot.api.event import filter
 from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import StarTools
 from astrbot.core.message.components import Plain
+from astrbot.core.star.star_handler import EventType, star_handlers_registry
 
 from . import commands
 from .cognition import SANSystem
@@ -467,8 +468,15 @@ class SelfEvolutionPlugin(Star):
         tag = f"\n\n{injection}\n" if injection else ""
         return tag, all_facts
 
-    async def _build_behavior_hints(self, ctx: PromptContext) -> str:
+    async def _build_behavior_hints(self, ctx: PromptContext, is_active_trigger: bool = False) -> str:
         parts = []
+
+        if is_active_trigger:
+            parts.append(
+                "[主动发言模式]\n"
+                "你是主动加入群聊讨论的。请基于上下文自然接话，不要开启新话题，"
+                "不要过度打断，保持简短（50字以内），只输出回复正文。"
+            )
 
         if self._should_inject_preference_hints(ctx):
             parts.append(
@@ -659,7 +667,7 @@ class SelfEvolutionPlugin(Star):
             return
         await self.eavesdropping.sync_framework_reply_state(group_id, level="full")
 
-    async def generate_social_reply(
+    async def build_active_trigger_request(
         self,
         group_id: str,
         user_id: str,
@@ -669,11 +677,12 @@ class SelfEvolutionPlugin(Star):
         reason: str = "",
         quoted_info: str = "",
         at_info: str = "",
-    ) -> str | None:
-        """Social engagement FULL reply generation.
+        is_active_trigger: bool = True,
+        event: AstrMessageEvent | None = None,
+    ) -> ProviderRequest | None:
+        """Build ProviderRequest for active trigger with full prompt injection.
 
-        system_prompt = current persona + plugin injection (identity/history/profile/memory/behavior)
-        prompt       = thin task description only
+        Returns ProviderRequest or None if failed.
         """
         try:
             memory_scope_id = self._resolve_profile_scope_id(group_id, user_id)
@@ -705,7 +714,7 @@ class SelfEvolutionPlugin(Star):
                 has_reply=bool(quoted_info),
                 has_at=bool(at_info),
                 bot_id=bot_id,
-                event=None,
+                event=event,
             )
 
             parts = []
@@ -716,24 +725,74 @@ class SelfEvolutionPlugin(Star):
                 parts.append(await self._build_profile_injection(ctx))
             if self._should_inject_kb_memory(ctx):
                 parts.append(await self._build_kb_memory_injection(ctx))
-            parts.append(await self._build_behavior_hints(ctx))
+            parts.append(await self._build_behavior_hints(ctx, is_active_trigger=is_active_trigger))
 
             plugin_injection = "".join([p for p in parts if p and p.strip()])
             system_prompt = (persona_prompt + "\n\n" + plugin_injection).strip()
 
-            user_prompt = self._build_social_user_prompt(
+            user_prompt = self._build_active_user_prompt(
                 trigger_text=trigger_text,
                 scene=scene,
                 reason=reason,
-                is_passive=bool(trigger_text),
+                is_active_trigger=is_active_trigger,
             )
 
+            req = ProviderRequest(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                contexts=[],
+            )
+            return req
+        except Exception as e:
+            logger.warning(f"[ActiveTriggerPrompt] 构建失败: {e}")
+            return None
+
+    async def inject_and_chat(
+        self,
+        req: ProviderRequest,
+        umo: str,
+    ) -> str | None:
+        """Execute LLM request with full prompt injection.
+
+        Uses build_active_trigger_request which already contains all prompt
+        injection (persona, identity, history, profile, memory, behavior hints).
+        Does not call on_llm_request hooks since they are designed for
+        user-message-driven requests and active trigger is self-initiated.
+        """
+        try:
             llm_provider = self.context.get_using_provider(umo=umo)
-            resp = await llm_provider.text_chat(prompt=user_prompt, system_prompt=system_prompt, contexts=[])
+            resp = await llm_provider.text_chat(
+                prompt=req.prompt,
+                system_prompt=req.system_prompt,
+                contexts=req.contexts,
+            )
             return resp.completion_text.strip()[:200] if hasattr(resp, "completion_text") else None
         except Exception as e:
-            logger.warning(f"[SocialReply] 生成失败: {e}")
+            logger.warning(f"[InjectAndChat] LLM调用失败: {e}")
             return None
+
+    def _build_active_user_prompt(
+        self,
+        trigger_text: str,
+        scene: str,
+        reason: str,
+        is_active_trigger: bool,
+    ) -> str:
+        """Build user prompt for active trigger."""
+        scene_label = scene.replace("_", " ")
+        if is_active_trigger:
+            return (
+                f"请基于当前群聊上下文，自然接一句话。\n"
+                f"场景：{scene_label} | 原因：{reason}\n"
+                f"要求：简短自然（50字以内），不要主动开启新话题，不要过度打断，只输出回复正文。"
+            )
+        else:
+            return (
+                f"请基于当前系统设定和上下文，在群聊里自然接一句话。\n"
+                f"场景：{scene_label} | 原因：{reason}\n"
+                f"被回复消息：{trigger_text}\n"
+                f"要求：简短自然（50字以内），保持角色口吻，不要重复最近已说过的话，只输出回复正文。"
+            )
 
     async def _get_active_persona_prompt(self, umo: str) -> str:
         """从当前活跃会话获取 persona prompt。"""
@@ -758,29 +817,6 @@ class SelfEvolutionPlugin(Star):
         except Exception:
             pass
         return self.persona_name or "你是一个在群聊中自然参与讨论的角色。"
-
-    def _build_social_user_prompt(
-        self,
-        trigger_text: str,
-        scene: str,
-        reason: str,
-        is_passive: bool,
-    ) -> str:
-        """构建极薄的社交 user prompt。"""
-        scene_label = scene.replace("_", " ")
-        if is_passive:
-            return (
-                f"请基于当前系统设定和上下文，在群聊里自然接一句话。\n"
-                f"场景：{scene_label} | 原因：{reason}\n"
-                f"被回复消息：{trigger_text}\n"
-                f"要求：简短自然（50字以内），保持角色口吻，不要重复最近已说过的话，只输出回复正文。"
-            )
-        else:
-            return (
-                f"请基于当前群聊上下文，自然插一句话。\n"
-                f"场景：{scene_label} | 原因：{reason}\n"
-                f"要求：简短自然（50字以内），不要主动开启新话题，不要过度打断，不要重复最近 bot 已说过的话，只输出回复正文。"
-            )
 
     @filter.on_plugin_loaded()
     async def on_loaded(self, metadata):
