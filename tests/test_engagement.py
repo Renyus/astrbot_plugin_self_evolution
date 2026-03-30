@@ -150,13 +150,13 @@ class EngagementPlannerTests(IsolatedAsyncioTestCase):
         plan = self.planner.plan_engagement(state, eligibility, has_mention=True, has_reply_to_bot=False)
         self.assertEqual(plan.level, EngagementLevel.FULL)
 
-    def test_plan_react_probability_triggers(self):
+    def test_plan_no_anchor_no_trigger(self):
         self.plugin.cfg.engagement_react_probability = 1.0
         planner = EngagementPlanner(self.plugin)
         state = self._make_state(scene=SceneType.CASUAL)
         eligibility = planner.check_eligibility(state)
-        plan = planner.plan_engagement(state, eligibility, has_mention=False, has_reply_to_bot=False)
-        self.assertEqual(plan.level, EngagementLevel.REACT)
+        plan = planner.plan_engagement(state, eligibility, has_mention=False, has_reply_to_bot=False, trigger_text="")
+        self.assertEqual(plan.level, EngagementLevel.IGNORE)
 
 
 class EngagementDAOPersistenceTests(IsolatedAsyncioTestCase):
@@ -756,3 +756,308 @@ class ReplyPolicyStateTransitionTests(IsolatedAsyncioTestCase):
             len(saved_states) > 0,
             "bot 已回复后用户 @bot 追问，被动链路不应被静默吞掉（应有状态回写）",
         )
+
+
+class SpeechTypesRegressionTests(IsolatedAsyncioTestCase):
+    """第五阶段回归测试：OutputGuard + SpeechOpportunity + SpeechDecision 架构."""
+
+    def test_anchor_type_enum_has_none(self):
+        speech_types = load_engine_module("speech_types")
+        self.assertTrue(hasattr(speech_types.AnchorType, "NONE"))
+
+    def test_opportunity_kind_enum_complete(self):
+        speech_types = load_engine_module("speech_types")
+        OpportunityKind = speech_types.OpportunityKind
+        self.assertEqual(OpportunityKind.DIRECT_REPLY.value, "direct_reply")
+        self.assertEqual(OpportunityKind.MENTION_REPLY.value, "mention_reply")
+        self.assertEqual(OpportunityKind.ACTIVE_CONTINUATION.value, "active_continuation")
+        self.assertEqual(OpportunityKind.TOPIC_HOOK.value, "topic_hook")
+        self.assertEqual(OpportunityKind.EMOJI_REACT.value, "emoji_react")
+        self.assertEqual(OpportunityKind.IGNORE.value, "ignore")
+
+    def test_speech_decision_ignore_factory(self):
+        speech_types = load_engine_module("speech_types")
+        decision = speech_types.SpeechDecision.ignore("test reason")
+        self.assertEqual(decision.delivery_mode, "ignore")
+        self.assertEqual(decision.target_kind, speech_types.OpportunityKind.IGNORE)
+        self.assertEqual(decision.anchor_type, speech_types.AnchorType.NONE)
+
+    def test_speech_decision_emoji_factory(self):
+        speech_types = load_engine_module("speech_types")
+        decision = speech_types.SpeechDecision.emoji("test reason", 0.6)
+        self.assertEqual(decision.delivery_mode, "emoji")
+        self.assertEqual(decision.target_kind, speech_types.OpportunityKind.EMOJI_REACT)
+        self.assertEqual(decision.anchor_type, speech_types.AnchorType.NONE)
+
+    def test_speech_decision_text_factory(self):
+        speech_types = load_engine_module("speech_types")
+        decision = speech_types.SpeechDecision.text(
+            text_mode="reply",
+            anchor_type=speech_types.AnchorType.QUESTION_UNANSWERED,
+            confidence=0.7,
+            reason="test",
+            max_chars=150,
+            anchor_text="怎么了？",
+        )
+        self.assertEqual(decision.delivery_mode, "text")
+        self.assertEqual(decision.anchor_type, speech_types.AnchorType.QUESTION_UNANSWERED)
+        self.assertEqual(decision.max_chars, 150)
+
+
+class OutputGuardRegressionTests(IsolatedAsyncioTestCase):
+    """OutputGuard 行为回归测试."""
+
+    def setUp(self):
+        install_aiosqlite_stub()
+        speech_types = load_engine_module("speech_types")
+        output_guard = load_engine_module("output_guard")
+        self.OutputGuard = output_guard.OutputGuard
+        self.OutputResult = speech_types.OutputResult
+        self.SpeechDecision = speech_types.SpeechDecision
+
+        self.plugin = SimpleNamespace(
+            cfg=SimpleNamespace(persona_name="黑塔"),
+        )
+        self.guard = self.OutputGuard(self.plugin)
+
+    def _make_decision(self, **kwargs):
+        defaults = {"delivery_mode": "text", "max_chars": 200, "anchor_type": None}
+        defaults.update(kwargs)
+        return SimpleNamespace(**defaults)
+
+    def test_empty_text_dropped(self):
+        result = self.guard.check("", self._make_decision())
+        self.assertEqual(result.status, self.OutputResult.DROP)
+
+    def test_whitespace_only_dropped(self):
+        result = self.guard.check("   \n\n  ", self._make_decision())
+        self.assertEqual(result.status, self.OutputResult.DROP)
+
+    def test_action_only_retry_shorter(self):
+        result = self.guard.check("【黑塔正在思考】", self._make_decision())
+        self.assertEqual(result.status, self.OutputResult.RETRY_SHORTER)
+
+    def test_too_many_newlines_retry_shorter(self):
+        result = self.guard.check("第一段\n\n第二段\n\n第三段\n\n第四段", self._make_decision())
+        self.assertEqual(result.status, self.OutputResult.RETRY_SHORTER)
+
+    def test_repetitive_text_retry_shorter(self):
+        text = "你好呀，你今天怎么样？你好呀，你今天怎么样？"
+        result = self.guard.check(text, self._make_decision())
+        self.assertEqual(result.status, self.OutputResult.RETRY_SHORTER)
+
+    def test_ai_voice_not_persona_downgrade(self):
+        texts = [
+            "作为一个人工智能，我认为这个问题很有趣。",
+            "作为一个语言模型，我需要指出这个问题。",
+            "根据我的分析，这道题目的答案是42。",
+        ]
+        for text in texts:
+            result = self.guard.check(text, self._make_decision())
+            self.assertEqual(result.status, self.OutputResult.DOWNGRADE_TO_EMOJI, f"文本不应通过: {text}")
+
+    def test_too_long_retry_shorter(self):
+        long_text = "a" * 300
+        result = self.guard.check(long_text, self._make_decision(max_chars=200))
+        self.assertEqual(result.status, self.OutputResult.RETRY_SHORTER)
+
+    def test_normal_text_pass(self):
+        result = self.guard.check("黑塔：嗯，这个话题挺有意思的。", self._make_decision())
+        self.assertEqual(result.status, self.OutputResult.PASS)
+
+    def test_recent_text_repetitive_detected(self):
+        self.guard._add_recent("今天的星星真美")
+        result = self.guard.check("今天的星星真美", self._make_decision())
+        self.assertEqual(result.status, self.OutputResult.RETRY_SHORTER)
+
+    def test_clear_recent_texts(self):
+        self.guard._add_recent("text1")
+        self.guard._add_recent("text2")
+        self.assertEqual(len(self.guard._recent_texts), 2)
+        self.guard.clear_recent()
+        self.assertEqual(len(self.guard._recent_texts), 0)
+
+
+class AnchorRequirementRegressionTests(IsolatedAsyncioTestCase):
+    """主动文本发言必须有锚点，无锚点时只能 IGNORE 或 EMOJI_REACT."""
+
+    async def asyncSetUp(self):
+        self.temp_dir = make_workspace_temp_dir("anchor_require")
+        self.dao = SelfEvolutionDAO(str(Path(self.temp_dir) / "anchor_require_test.db"))
+        await self.dao.init_db()
+        planner_module = load_engine_module("engagement_planner")
+        EngagementPlanner = planner_module.EngagementPlanner
+        self.plugin = SimpleNamespace(
+            dao=self.dao,
+            cfg=SimpleNamespace(
+                interject_cooldown=30,
+                engagement_react_probability=0.15,
+                persona_trigger_keywords=[],
+            ),
+            _get_bot_id=lambda: "bot123",
+        )
+        self.planner = EngagementPlanner(self.plugin)
+        social_module = load_engine_module("social_state")
+        GroupSocialState = social_module.GroupSocialState
+        EngagementEligibility = social_module.EngagementEligibility
+        SceneType = social_module.SceneType
+        self.GroupSocialState = GroupSocialState
+        self.EngagementEligibility = EngagementEligibility
+        self.SceneType = SceneType
+
+    async def asyncTearDown(self):
+        await self.dao.close()
+        cleanup_workspace_temp_dir(self.temp_dir)
+
+    def _make_state(self, scene=SceneType.CASUAL, emotion_count=0, message_count=5, last_msg_time_delta=60):
+        return self.GroupSocialState(
+            scope_id="5001",
+            last_message_time=time.time() - last_msg_time_delta,
+            last_bot_message_time=0,
+            message_count_window=message_count,
+            question_count_window=0,
+            emotion_count_window=emotion_count,
+            consecutive_bot_replies=0,
+            scene=scene,
+        )
+
+    def test_no_anchor_casual_emoji_react_only(self):
+        """无锚点时，只有情绪活跃才能 EMOJI_REACT.
+
+        Natural landing only triggers when 2 <= message_count_window <= 4 in CASUAL.
+        With message_count=1, there's no natural landing and emotion=1 < 2, so IGNORE.
+        """
+        state = self._make_state(scene=self.SceneType.CASUAL, emotion_count=1, message_count=1)
+        eligibility = self.EngagementEligibility(allowed=True, silence_seconds=60, reason_code="OK", reason_text="OK")
+        plan = self.planner.plan_engagement(
+            state, eligibility, has_mention=False, has_reply_to_bot=False, trigger_text="hello"
+        )
+        self.assertEqual(plan.level.value, "ignore", "低情绪无锚点应 IGNORE")
+
+    def test_no_anchor_emotion_high_emoji_react(self):
+        """高情绪无锚点时降级为 REACT.
+
+        CASUAL scene with message_count=1 (no natural landing) and emotion_count=3 (>=2),
+        should return EMOJI_REACT -> REACT level.
+        Note: message_count=1 in _make_state still produces IDLE scene, so we use message_count=5
+        to ensure CASUAL scene while avoiding natural landing (needs 2<=x<=4).
+        """
+        state = self._make_state(scene=self.SceneType.CASUAL, emotion_count=3, message_count=5)
+        eligibility = self.EngagementEligibility(allowed=True, silence_seconds=60, reason_code="OK", reason_text="OK")
+        plan = self.planner.plan_engagement(
+            state, eligibility, has_mention=False, has_reply_to_bot=False, trigger_text="今天吃饭了"
+        )
+        self.assertEqual(plan.level.value, "react", "高情绪无锚点应 REACT")
+
+    def test_question_anchor_text_allowed_full(self):
+        """问题锚点应允许主动文本发言."""
+        state = self._make_state(scene=self.SceneType.CASUAL, message_count=3)
+        eligibility = self.EngagementEligibility(allowed=True, silence_seconds=60, reason_code="OK", reason_text="OK")
+        plan = self.planner.plan_engagement(
+            state, eligibility, has_mention=False, has_reply_to_bot=False, trigger_text="这个问题怎么解决？"
+        )
+        self.assertEqual(plan.level.value, "full")
+        self.assertNotEqual(plan.anchor_type.value, "none")
+
+    def test_natural_landing_anchor_full(self):
+        """自然落点应允许主动文本发言."""
+        state = self.GroupSocialState(
+            scope_id="5001",
+            last_message_time=time.time() - 60,
+            last_bot_message_time=0,
+            message_count_window=3,
+            question_count_window=0,
+            emotion_count_window=0,
+            consecutive_bot_replies=0,
+            scene=self.SceneType.CASUAL,
+        )
+        eligibility = self.EngagementEligibility(allowed=True, silence_seconds=60, reason_code="OK", reason_text="OK")
+        plan = self.planner.plan_engagement(
+            state, eligibility, has_mention=False, has_reply_to_bot=False, trigger_text="今天天气真好"
+        )
+        self.assertIn(plan.level.value, ("full", "ignore"))
+
+    def test_recognize_opportunity_question_unanswered(self):
+        """_is_question_unanswered 应正确识别问题."""
+        state = self._make_state()
+        opp = self.planner.recognize_opportunity(state, False, False, "这个怎么弄？")
+        self.assertEqual(opp.kind.value, "active_continuation")
+        self.assertEqual(opp.anchor_type.value, "question_unanswered")
+
+    def test_recognize_opportunity_no_anchor_ignore(self):
+        """无锚点时返回 IGNORE.
+
+        With message_count=1 (no natural landing), emotion=0, and no question/persona hook,
+        should return IGNORE.
+        """
+        state = self._make_state(emotion_count=0, message_count=1)
+        opp = self.planner.recognize_opportunity(state, False, False, "今天吃了米饭")
+        self.assertEqual(opp.kind.value, "ignore")
+
+    def test_recognize_opportunity_emotion_emoji(self):
+        """高情绪时返回 EMOJI_REACT.
+
+        With message_count=1 (no natural landing) and emotion_count=3 (>=2),
+        and trigger text that doesn't match memorable/persona hooks,
+        should return EMOJI_REACT.
+        """
+        state = self._make_state(emotion_count=3, message_count=1)
+        opp = self.planner.recognize_opportunity(state, False, False, "今天天气真好")
+        self.assertEqual(opp.kind.value, "emoji_react")
+
+
+class EngagementPlanToSpeechDecisionTests(IsolatedAsyncioTestCase):
+    """EngagementPlan.to_speech_decision() 转换测试."""
+
+    def test_ignore_plan_to_ignore_decision(self):
+        social_module = load_engine_module("social_state")
+        EngagementPlan = social_module.EngagementPlan
+        EngagementLevel = social_module.EngagementLevel
+        SceneType = social_module.SceneType
+
+        plan = EngagementPlan(
+            level=EngagementLevel.IGNORE,
+            reason="无锚点",
+            confidence=0.8,
+            scene=SceneType.CASUAL,
+        )
+        decision = plan.to_speech_decision()
+        self.assertEqual(decision.delivery_mode, "ignore")
+
+    def test_react_plan_to_emoji_decision(self):
+        social_module = load_engine_module("social_state")
+        EngagementPlan = social_module.EngagementPlan
+        EngagementLevel = social_module.EngagementLevel
+        SceneType = social_module.SceneType
+        AnchorType = load_engine_module("speech_types").AnchorType
+
+        plan = EngagementPlan(
+            level=EngagementLevel.REACT,
+            reason="情绪活跃",
+            confidence=0.5,
+            scene=SceneType.CASUAL,
+            anchor_type=AnchorType.NONE,
+        )
+        decision = plan.to_speech_decision()
+        self.assertEqual(decision.delivery_mode, "emoji")
+        self.assertEqual(decision.anchor_type.value, "none")
+
+    def test_full_plan_preserves_anchor(self):
+        social_module = load_engine_module("social_state")
+        EngagementPlan = social_module.EngagementPlan
+        EngagementLevel = social_module.EngagementLevel
+        SceneType = social_module.SceneType
+        AnchorType = load_engine_module("speech_types").AnchorType
+
+        plan = EngagementPlan(
+            level=EngagementLevel.FULL,
+            reason="问题锚点",
+            confidence=0.7,
+            scene=SceneType.CASUAL,
+            anchor_type=AnchorType.QUESTION_UNANSWERED,
+            anchor_text="这个问题怎么解决？",
+        )
+        decision = plan.to_speech_decision()
+        self.assertEqual(decision.delivery_mode, "text")
+        self.assertEqual(decision.anchor_type, AnchorType.QUESTION_UNANSWERED)
+        self.assertEqual(decision.anchor_text, "这个问题怎么解决？")

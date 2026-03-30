@@ -81,7 +81,7 @@ class PromptContext:
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "CognitionCore 7.0 数字生命。",
-    "Ver 3.4.0",
+    "Ver 4.0.0",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
@@ -667,22 +667,52 @@ class SelfEvolutionPlugin(Star):
             return
         await self.eavesdropping.sync_framework_reply_state(group_id, level="full")
 
-    async def build_active_trigger_request(
+        for comp in result.chain:
+            if isinstance(comp, Plain) and comp.text:
+                cleaned = clean_result_text(comp.text)
+                if cleaned:
+                    self.eavesdropping._output_guard._add_recent(cleaned)
+
+    async def inject_and_chat(
+        self,
+        req,
+        umo,
+    ):
+        """Builds a generation spec and calls LLM directly without standard
+        user-message-driven request hooks.
+
+        Injects: persona, identity, history, profile, memory, behavior hints.
+        Does not call on_llm_request hooks since they are designed for
+        user-message-driven requests and active trigger is self-initiated.
+        """
+        try:
+            llm_provider = self.context.get_using_provider(umo=umo)
+            resp = await llm_provider.text_chat(
+                prompt=req.prompt,
+                system_prompt=req.system_prompt,
+                contexts=req.contexts,
+            )
+            return resp.completion_text.strip()[:200] if hasattr(resp, "completion_text") else None
+        except Exception as e:
+            logger.warning(f"[InjectAndChat] LLM调用失败: {e}")
+            return None
+
+    async def build_generation_spec(
         self,
         group_id: str,
         user_id: str,
-        sender_name: str = "群成员",
-        trigger_text: str = "",
-        scene: str = "casual",
-        reason: str = "",
+        sender_name: str,
+        trigger_text: str,
+        scene: str,
+        decision,  # SpeechDecision
+        anchor_text: str = "",
         quoted_info: str = "",
         at_info: str = "",
-        is_active_trigger: bool = True,
-        event: AstrMessageEvent | None = None,
     ) -> ProviderRequest | None:
-        """Build ProviderRequest for active trigger with full prompt injection.
+        """Build ProviderRequest using unified ContextBuilder.
 
-        Returns ProviderRequest or None if failed.
+        All text generation now uses the same prompt injection pipeline.
+        The difference between active and passive is only in the decision.mode.
         """
         try:
             memory_scope_id = self._resolve_profile_scope_id(group_id, user_id)
@@ -693,8 +723,6 @@ class SelfEvolutionPlugin(Star):
             umo = getattr(self, "get_group_umo", lambda g: None)(group_id) if hasattr(self, "get_group_umo") else None
             if not umo:
                 return None
-
-            persona_prompt = await self._get_active_persona_prompt(umo)
 
             ctx = PromptContext(
                 user_id=user_id,
@@ -714,85 +742,24 @@ class SelfEvolutionPlugin(Star):
                 has_reply=bool(quoted_info),
                 has_at=bool(at_info),
                 bot_id=bot_id,
-                event=event,
+                event=None,
             )
 
-            parts = []
-            parts.append(self._build_identity_injection(ctx))
-            if self._should_inject_group_history(ctx):
-                parts.append(await self._build_group_history_injection(ctx))
-            if self._should_inject_profile(ctx):
-                parts.append(await self._build_profile_injection(ctx))
-            if self._should_inject_kb_memory(ctx):
-                parts.append(await self._build_kb_memory_injection(ctx))
-            parts.append(await self._build_behavior_hints(ctx, is_active_trigger=is_active_trigger))
+            from .engine.generation_context import ContextBuilder
 
-            plugin_injection = "".join([p for p in parts if p and p.strip()])
-            system_prompt = (persona_prompt + "\n\n" + plugin_injection).strip()
-
-            user_prompt = self._build_active_user_prompt(
-                trigger_text=trigger_text,
-                scene=scene,
-                reason=reason,
-                is_active_trigger=is_active_trigger,
-            )
+            builder = ContextBuilder(self)
+            gc = await builder.build(ctx, decision, anchor_text, scene)
+            spec = builder.build_generation_spec(gc, decision)
 
             req = ProviderRequest(
-                prompt=user_prompt,
-                system_prompt=system_prompt,
+                prompt=spec.user_prompt,
+                system_prompt=spec.system_prompt,
                 contexts=[],
             )
             return req
         except Exception as e:
-            logger.warning(f"[ActiveTriggerPrompt] 构建失败: {e}")
+            logger.warning(f"[BuildGenerationSpec] 构建失败: {e}")
             return None
-
-    async def inject_and_chat(
-        self,
-        req: ProviderRequest,
-        umo: str,
-    ) -> str | None:
-        """Execute LLM request with full prompt injection.
-
-        Uses build_active_trigger_request which already contains all prompt
-        injection (persona, identity, history, profile, memory, behavior hints).
-        Does not call on_llm_request hooks since they are designed for
-        user-message-driven requests and active trigger is self-initiated.
-        """
-        try:
-            llm_provider = self.context.get_using_provider(umo=umo)
-            resp = await llm_provider.text_chat(
-                prompt=req.prompt,
-                system_prompt=req.system_prompt,
-                contexts=req.contexts,
-            )
-            return resp.completion_text.strip()[:200] if hasattr(resp, "completion_text") else None
-        except Exception as e:
-            logger.warning(f"[InjectAndChat] LLM调用失败: {e}")
-            return None
-
-    def _build_active_user_prompt(
-        self,
-        trigger_text: str,
-        scene: str,
-        reason: str,
-        is_active_trigger: bool,
-    ) -> str:
-        """Build user prompt for active trigger."""
-        scene_label = scene.replace("_", " ")
-        if is_active_trigger:
-            return (
-                f"请基于当前群聊上下文，自然接一句话。\n"
-                f"场景：{scene_label} | 原因：{reason}\n"
-                f"要求：简短自然（50字以内），不要主动开启新话题，不要过度打断，只输出回复正文。"
-            )
-        else:
-            return (
-                f"请基于当前系统设定和上下文，在群聊里自然接一句话。\n"
-                f"场景：{scene_label} | 原因：{reason}\n"
-                f"被回复消息：{trigger_text}\n"
-                f"要求：简短自然（50字以内），保持角色口吻，不要重复最近已说过的话，只输出回复正文。"
-            )
 
     async def _get_active_persona_prompt(self, umo: str) -> str:
         """从当前活跃会话获取 persona prompt。"""

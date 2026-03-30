@@ -9,6 +9,7 @@ from .social_state import (
     GroupSocialState,
     SceneType,
 )
+from .speech_types import AnchorType, OpportunityKind, SpeechOpportunity
 
 
 QUESTION_WORDS = {"吗", "呢", "怎么", "如何", "为什么", "啥", "什么", "是不是", "能不能", "要不要", "?"}
@@ -18,25 +19,6 @@ HELP_INDICATORS = {"帮", "帮我", "请问", "请教", "求助", "救命", "急
 
 
 class EngagementPlanner:
-    REACT_TEMPLATES = [
-        "嗯",
-        "哦",
-        "有点意思",
-        "继续",
-        "哈",
-        "是嘛",
-        "哦对",
-        "好吧",
-    ]
-
-    BRIEF_TEMPLATES = [
-        "这问题有意思",
-        "确实",
-        "可以这么理解",
-        "值得想想",
-        "有道理",
-    ]
-
     def __init__(self, plugin):
         self.plugin = plugin
         self.cfg = plugin.cfg
@@ -208,6 +190,7 @@ class EngagementPlanner:
         eligibility: EngagementEligibility,
         has_mention: bool = False,
         has_reply_to_bot: bool = False,
+        trigger_text: str = "",
     ) -> EngagementPlan:
         scene = self.classify_scene_from_state(state)
         confidence = min(eligibility.silence_seconds / 120.0, 1.0) * 0.5 + 0.5
@@ -283,20 +266,29 @@ class EngagementPlanner:
                     scene=scene,
                 )
             else:
-                react_prob = getattr(self.cfg, "engagement_react_probability", 0.15)
-                import random as _random
-
-                if _random.random() < react_prob:
+                opportunity = self.recognize_opportunity(state, False, False, trigger_text)
+                if opportunity.kind == OpportunityKind.EMOJI_REACT:
                     plan = EngagementPlan(
                         level=EngagementLevel.REACT,
-                        reason="casual场景随机react",
-                        confidence=0.5,
+                        reason=f"emoji参与: {opportunity.reason}",
+                        confidence=opportunity.confidence,
                         scene=scene,
+                        anchor_type=opportunity.anchor_type,
+                        anchor_text=opportunity.anchor_text,
+                    )
+                elif opportunity.kind in (OpportunityKind.ACTIVE_CONTINUATION, OpportunityKind.TOPIC_HOOK):
+                    plan = EngagementPlan(
+                        level=EngagementLevel.FULL,
+                        reason=f"主动文本: {opportunity.reason}",
+                        confidence=opportunity.confidence,
+                        scene=scene,
+                        anchor_type=opportunity.anchor_type,
+                        anchor_text=opportunity.anchor_text,
                     )
                 else:
                     plan = EngagementPlan(
                         level=EngagementLevel.IGNORE,
-                        reason="casual场景不参与",
+                        reason=f"无锚点不参与: {opportunity.reason}",
                         confidence=0.7,
                         scene=scene,
                     )
@@ -325,3 +317,116 @@ class EngagementPlanner:
 
     def _high_relevance_check(self, state: GroupSocialState) -> bool:
         return state.mention_bot_recently
+
+    def recognize_opportunity(
+        self,
+        state: GroupSocialState,
+        has_mention: bool = False,
+        has_reply_to_bot: bool = False,
+        trigger_text: str = "",
+    ) -> SpeechOpportunity:
+        """识别当前是否存在说话机会。
+
+        主动文本发言必须有锚点，没有锚点时只能 IGNORE 或 EMOJI_REACT。
+        """
+        scope_id = state.scope_id
+        silence_seconds = time.time() - state.last_message_time if state.last_message_time > 0 else 999
+
+        if has_mention or has_reply_to_bot:
+            anchor_type = AnchorType.REPLY_TO_BOT if has_reply_to_bot else AnchorType.MENTION
+            return SpeechOpportunity(
+                scope_id=scope_id,
+                kind=OpportunityKind.DIRECT_REPLY if has_reply_to_bot else OpportunityKind.MENTION_REPLY,
+                anchor_type=anchor_type,
+                confidence=0.9,
+                reason=f"被明确唤醒（{anchor_type.value}）",
+                anchor_text=trigger_text,
+            )
+
+        if self._is_question_unanswered(trigger_text, state):
+            return SpeechOpportunity(
+                scope_id=scope_id,
+                kind=OpportunityKind.ACTIVE_CONTINUATION,
+                anchor_type=AnchorType.QUESTION_UNANSWERED,
+                confidence=0.6,
+                reason="检测到未回答的问题",
+                anchor_text=trigger_text,
+            )
+
+        if self._is_persona_hook(trigger_text):
+            return SpeechOpportunity(
+                scope_id=scope_id,
+                kind=OpportunityKind.TOPIC_HOOK,
+                anchor_type=AnchorType.PERSONA_HOOK,
+                confidence=0.7,
+                reason="话题触发角色关注点",
+                anchor_text=trigger_text,
+            )
+
+        if self._is_memorable_hook(trigger_text, state):
+            return SpeechOpportunity(
+                scope_id=scope_id,
+                kind=OpportunityKind.TOPIC_HOOK,
+                anchor_type=AnchorType.MEMORABLE_HOOK,
+                confidence=0.6,
+                reason="触发值得接梗的内容",
+                anchor_text=trigger_text,
+            )
+
+        if self._is_natural_landing(state):
+            return SpeechOpportunity(
+                scope_id=scope_id,
+                kind=OpportunityKind.ACTIVE_CONTINUATION,
+                anchor_type=AnchorType.NATURAL_LANDING,
+                confidence=0.5,
+                reason="存在自然落点",
+                anchor_text="",
+            )
+
+        if state.emotion_count_window >= 2:
+            return SpeechOpportunity.emoji_react(
+                scope_id,
+                reason="情绪活跃，可发表情包",
+                confidence=0.4,
+            )
+
+        return SpeechOpportunity.ignore(scope_id, reason="无锚点，不主动插嘴")
+
+    def _is_question_unanswered(self, text: str, state: GroupSocialState) -> bool:
+        if not text:
+            return False
+        for qw in QUESTION_WORDS:
+            if qw in text:
+                return True
+        return False
+
+    def _is_persona_hook(self, text: str) -> bool:
+        if not text:
+            return False
+        persona_hooks = getattr(self.cfg, "persona_trigger_keywords", [])
+        if not persona_hooks:
+            return False
+        text_lower = text.lower()
+        for hook in persona_hooks:
+            if hook.lower() in text_lower:
+                return True
+        return False
+
+    def _is_memorable_hook(self, text: str, state: GroupSocialState) -> bool:
+        if not text:
+            return False
+        memorable_keywords = {"笑死", "笑死我了", "哈哈", "笑死我了", "卧槽", "牛", "厉害", "离谱", "绝了"}
+        text_lower = text.lower()
+        for kw in memorable_keywords:
+            if kw in text_lower:
+                return True
+        return False
+
+    def _is_natural_landing(self, state: GroupSocialState) -> bool:
+        if state.scene in (SceneType.HELP, SceneType.DEBATE):
+            if state.message_count_window >= 5:
+                return True
+        if state.scene == SceneType.CASUAL:
+            if 2 <= state.message_count_window <= 4:
+                return True
+        return False

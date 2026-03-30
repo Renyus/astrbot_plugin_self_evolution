@@ -4,6 +4,7 @@ from typing import Optional
 from astrbot.api import logger
 
 from .engagement_planner import EngagementPlanner
+from .output_guard import OutputGuard
 from .social_state import (
     EngagementExecutionResult,
     EngagementLevel,
@@ -19,14 +20,11 @@ class ReplyExecutor:
     执行失败不影响状态（由 Recorder 统一处理）。
     """
 
-    def __init__(self, plugin, planner: EngagementPlanner):
+    def __init__(self, plugin, planner: EngagementPlanner, output_guard=None):
         self.plugin = plugin
         self.planner = planner
         self.cfg = plugin.cfg
-
-    def _debug(self, msg: str):
-        if getattr(self.cfg, "engagement_debug_enabled", False):
-            logger.debug(msg)
+        self.output_guard = output_guard if output_guard is not None else OutputGuard(plugin)
 
     async def execute(
         self,
@@ -53,7 +51,7 @@ class ReplyExecutor:
         if plan.level == EngagementLevel.REACT:
             return await self._execute_sticker(plan, state)
 
-        if plan.level in (EngagementLevel.BRIEF, EngagementLevel.FULL):
+        if plan.level == EngagementLevel.FULL:
             return await self._execute_text(
                 plan, state, trigger_text, user_id, sender_name, quoted_info, at_info, is_active_trigger
             )
@@ -126,16 +124,20 @@ class ReplyExecutor:
                 effective_user_id = user_id or "unknown"
                 effective_sender_name = sender_name
 
-            req = await self.plugin.build_active_trigger_request(
+            decision = plan.to_speech_decision()
+            if is_active_trigger and decision.text_mode == "reply":
+                decision.text_mode = "interject"
+
+            req = await self.plugin.build_generation_spec(
                 group_id=group_id,
                 user_id=effective_user_id,
                 sender_name=effective_sender_name,
                 trigger_text=trigger_text,
                 scene=plan.scene.value,
-                reason=plan.reason,
+                decision=decision,
+                anchor_text=plan.anchor_text,
                 quoted_info=quoted_info,
                 at_info=at_info,
-                is_active_trigger=is_active_trigger,
             )
             if not req:
                 return EngagementExecutionResult(
@@ -148,15 +150,30 @@ class ReplyExecutor:
             text = await self.plugin.inject_and_chat(req, umo)
 
             if text:
-                success = await self._send_message(group_id, text)
-                if success:
-                    return EngagementExecutionResult(
-                        executed=True,
-                        level=EngagementLevel.FULL,
-                        action="text",
-                        reason=plan.reason,
-                        actual_text=text,
-                    )
+                result = self.output_guard.check(text, decision)
+                if result.status == "pass":
+                    success = await self._send_message(group_id, text)
+                    if success:
+                        return EngagementExecutionResult(
+                            executed=True,
+                            level=EngagementLevel.FULL,
+                            action="text",
+                            reason=plan.reason,
+                            actual_text=text,
+                        )
+                elif result.status == "downgrade_to_emoji":
+                    logger.debug(f"[ReplyExecutor] OutputGuard: {result.reason}，降级表情包")
+                    sticker = await self._try_send_sticker(state.scope_id)
+                    if sticker:
+                        return EngagementExecutionResult(
+                            executed=True,
+                            level=EngagementLevel.FULL,
+                            action="sticker",
+                            reason=f"内容审查降级: {result.reason}",
+                            actual_text=sticker,
+                        )
+                else:
+                    logger.debug(f"[ReplyExecutor] OutputGuard: {result.reason}")
         except Exception as e:
             logger.warning(f"[ReplyExecutor] Full回复生成失败: {e}")
 

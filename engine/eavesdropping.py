@@ -5,6 +5,7 @@ from astrbot.api import logger
 from astrbot.api.all import AstrMessageEvent
 
 from .engagement_planner import EngagementPlanner
+from .output_guard import OutputGuard
 from .reply_executor import ReplyExecutor
 from .reply_intent import IntentSource, ReplyIntent, process_intent
 from .reply_policy import ReplyPolicy
@@ -51,6 +52,7 @@ class EavesdroppingEngine:
         self.plugin = plugin
         self._active_scopes = ActiveScopeStore()
         self._recorder = ReplyRecorder(plugin)
+        self._output_guard = OutputGuard(plugin)
 
     def record_activity(self, scope_id: str, user_id: str, now: float | None = None):
         self._active_scopes.record(scope_id, user_id, now)
@@ -92,7 +94,7 @@ class EavesdroppingEngine:
             )
 
             planner = EngagementPlanner(self.plugin)
-            executor = ReplyExecutor(self.plugin, planner)
+            executor = ReplyExecutor(self.plugin, planner, output_guard=self._output_guard)
             policy = ReplyPolicy(self.plugin)
 
             return await process_intent(self.plugin, intent, momentum, planner, executor, policy, self._recorder)
@@ -143,7 +145,7 @@ class EavesdroppingEngine:
 
             messages_for_scene = [{"text": msg_text, "message": []}]
             planner = EngagementPlanner(self.plugin)
-            executor = ReplyExecutor(self.plugin, planner)
+            executor = ReplyExecutor(self.plugin, planner, output_guard=self._output_guard)
 
             momentum.message_count_window = max(int(momentum.message_count_window), 0) + 1
             computed = planner.compute_scene_windows(messages_for_scene, None)

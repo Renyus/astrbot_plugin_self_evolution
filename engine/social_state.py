@@ -4,11 +4,12 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
+from .speech_types import AnchorType, OpportunityKind, SpeechDecision, SpeechOpportunity
+
 
 class EngagementLevel(Enum):
     IGNORE = "ignore"
     REACT = "react"
-    BRIEF = "brief"
     FULL = "full"
 
 
@@ -53,6 +54,23 @@ class EngagementPlan:
     suggested_text: str = ""
     use_sticker: bool = False
     sticker_id: Optional[str] = None
+    anchor_type: AnchorType = AnchorType.NONE
+    anchor_text: str = ""
+
+    def to_speech_decision(self) -> SpeechDecision:
+        if self.level == EngagementLevel.IGNORE:
+            return SpeechDecision.ignore(self.reason)
+        if self.level == EngagementLevel.REACT:
+            return SpeechDecision.emoji(self.reason, self.confidence)
+        return SpeechDecision.text(
+            text_mode="reply",
+            anchor_type=self.anchor_type,
+            confidence=self.confidence,
+            reason=self.reason,
+            max_chars=200,
+            must_follow_thread=True,
+            anchor_text=self.anchor_text,
+        )
 
 
 @dataclass

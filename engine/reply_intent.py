@@ -125,6 +125,7 @@ async def process_intent(
         eligibility,
         has_mention=intent.has_mention,
         has_reply_to_bot=intent.has_reply_to_bot,
+        trigger_text=intent.trigger_text,
     )
     if plan.level == EngagementLevel.IGNORE:
         logger.debug(
