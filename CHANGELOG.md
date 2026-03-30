@@ -66,10 +66,11 @@
 - **REACT 表情包链路接口修复**：`engagement_executor._try_send_sticker()` 之前调用的 `get_random_sticker`/`send_sticker_by_uuid` 在 entertainment 模块中不存在；`entertainment.py` 新增 `send_sticker_for_engagement(group_id)` 方法，复用 sticker_store 现成接口（get_random_sticker → get_sticker_path → base64 编码 → send_group_msg），调用 `should_send_sticker()` 检查冷却，`EntertainmentEngine` 新增 `_sticker_send_lock` 全局异步锁包裹整个发送流程，防止并发穿透冷却检查
 - **FULL 回复复用主链路上下文**：重构 `generate_social_reply()`，拆分为 `_get_active_persona_prompt(umo)`（从当前活跃会话获取 persona system prompt）和 `_build_social_user_prompt()`（极薄任务描述）；`system_prompt` = 当前 persona + 插件注入（identity/history/profile/memory/behavior），`prompt` = 薄层任务说明；调用 `text_chat(prompt=user_prompt, system_prompt=assembled_system_prompt, contexts=[])`；主动/被动插话 user prompt 分流，被动含被回复消息，主动只依赖群历史上下文；`_get_active_persona_prompt()` 改为 `async def`，正确 `await` Core 异步 API（`get_curr_conversation_id`/`get_conversation`），通过 `persona_manager.resolve_selected_persona()` 取 `persona["prompt"]`，不再把 coroutine 对象当值用
 - **配置项 list 语义统一收口**：`config.py` 新增 `_get_nested_list()` 统一读取 list 类型配置；`target_scopes`、`sticker_target_qq`、`meal_eat_keywords`、`meal_banquet_keywords`、`surprise_boost_keywords`、`admin_users` 全部改走 list 语义；`_conf_schema.json` 中 `sticker_target_qq` 和 `surprise_boost_keywords` 从 string 改为 list；`_get_nested_list()` 同时兼容 `|` 和 `,` 分隔符，确保旧有逗号配置（如 `"123,456"`）平滑迁移
-- **Phase 1-3：统一状态模型 + wave 语义 + 统一 Recorder + 统一 Policy**：
+- **Phase 1-4：统一状态模型 + wave 语义 + 统一 Recorder + 统一 Policy + 统一 Intent**：
   - Phase 1 新增 `engine/reply_state.py`（`ConversationMomentum` 数据类），引入 wave 概念；DAO 新增 5 个字段；`from_dict` 兼容旧格式
   - Phase 2 新增 `engine/reply_recorder.py`（`ReplyRecorder` 类）：所有 bot 发言状态回写统一入口，`bot_spoke()` 内部递增 `consecutive_bot_replies`
-  - Phase 3 新增 `engine/reply_policy.py`（`ReplyPolicy` 类）：把"能不能说"的仲裁集中化；`ReplyPolicy.check()` 统一执行：`E_WAVE_CONSUMED`（wave 已被占）、`E_NO_NEW_USER_AFTER_BOT`（bot 发言后无新用户消息）、`E_COOLDOWN`（bot 冷却中）、`E_SILENCE`（群太活跃）、`E_BOT_FLOOD`（连发限制）、`E_MSG_COUNT`（消息量不足）；`check_engagement`（主动）和 `process_passive_engagement`（被动）在各自的 eligibility 检查前先过 Policy；Policy 检查在窗口计数增量之后执行，避免冷启动误杀
+  - Phase 3 新增 `engine/reply_policy.py`（`ReplyPolicy` 类）：把"能不能说"的仲裁集中化；`ReplyPolicy.check()` 统一执行：`E_WAVE_CONSUMED`（wave 已被占）、`E_NO_NEW_USER_AFTER_BOT`（bot 发言后无新用户消息）、`E_COOLDOWN`（bot 冷却中）、`E_SILENCE`（群太活跃）、`E_BOT_FLOOD`（连发限制）、`E_MSG_COUNT`（消息量不足）；Policy 检查在窗口计数增量之后执行，避免冷启动误杀
+  - Phase 4 新增 `engine/reply_intent.py`（`ReplyIntent` + `IntentSource` + `process_intent()`）：主动/被动统一抽象为 `ReplyIntent`，`process_intent()` 统一处理 policy 检查 → eligibility → plan → execute → record 全链路；`check_engagement` 和 `process_passive_engagement` 各自构建 `ReplyIntent`，被动路径在调用 `process_intent()` 前先完成 scene window 增量计算
 
 ### Config
 
