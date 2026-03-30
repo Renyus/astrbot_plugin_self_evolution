@@ -168,7 +168,7 @@
                 "description": "插嘴检查间隔",
                 "type": "int",
                 "default": 30,
-                "hint": "主动插嘴任务的检查频率，单位秒。"
+                "hint": "主动插嘴任务的检查频率，单位分钟。"
             },
             "interject_cooldown": {
                 "description": "插嘴冷却秒数",
