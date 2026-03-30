@@ -42,9 +42,10 @@ class ConversationMomentum:
     last_seen_message_seq: Optional[int] = None
 
     def user_message_arrived(self, now: float) -> None:
-        """用户发消息：开启或续活 wave。"""
+        """用户发消息：开启或续活 wave，新 turn 开始，允许 bot 重新响应。"""
         self.last_message_time = now
         self.new_user_message_after_bot = False
+        self.bot_has_spoken_in_current_wave = False
 
     def bot_spoke(self, now: float, kind: BotMessageKind, start_new_wave: bool = False) -> None:
         """bot 发消息：占住当前 wave，并递增连发计数。"""
