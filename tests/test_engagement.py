@@ -531,6 +531,11 @@ class SyncFrameworkReplyStateTests(IsolatedAsyncioTestCase):
             "question_count_window": 2,
             "emotion_count_window": 1,
             "consecutive_bot_replies": 1,
+            "last_bot_message_at": now - 10,
+            "last_bot_message_kind": "normal",
+            "wave_started_at": now - 10,
+            "bot_has_spoken_in_current_wave": 1,
+            "new_user_message_after_bot": 0,
         }
         await self.dao.save_engagement_state("5001", old_state)
 
@@ -544,6 +549,7 @@ class SyncFrameworkReplyStateTests(IsolatedAsyncioTestCase):
         self.assertEqual(saved["message_count_window"], 5)
         self.assertEqual(saved["question_count_window"], 2)
         self.assertEqual(saved["emotion_count_window"], 1)
+        self.assertEqual(saved["bot_has_spoken_in_current_wave"], 1)
 
     async def test_sync_clears_counters_on_expired_window(self):
         now = time.time()
@@ -558,6 +564,11 @@ class SyncFrameworkReplyStateTests(IsolatedAsyncioTestCase):
             "question_count_window": 2,
             "emotion_count_window": 1,
             "consecutive_bot_replies": 1,
+            "last_bot_message_at": now - 200,
+            "last_bot_message_kind": "normal",
+            "wave_started_at": now - 200,
+            "bot_has_spoken_in_current_wave": 1,
+            "new_user_message_after_bot": 0,
         }
         await self.dao.save_engagement_state("5001", old_state)
 
@@ -570,7 +581,178 @@ class SyncFrameworkReplyStateTests(IsolatedAsyncioTestCase):
         self.assertEqual(saved["emotion_count_window"], 0)
         self.assertEqual(saved["consecutive_bot_replies"], 1)
         self.assertEqual(saved["scene_type"], "casual")
+        self.assertEqual(saved["bot_has_spoken_in_current_wave"], 1)
+        self.assertGreater(float(saved["wave_started_at"]), now - 5)
 
     async def test_sync_returns_false_for_unknown_scope(self):
         result = await self.engine.sync_framework_reply_state("nonexistent", level="full")
         self.assertFalse(result)
+
+
+class ReplyPolicyStateTransitionTests(IsolatedAsyncioTestCase):
+    """测试新状态机的关键状态转换。
+
+    Bug 1: 主动插话被状态机永久堵死
+    - bot 说过后，new_user_message_after_bot=True 时，主动路径应允许
+    - new_user_message_after_bot=False 时，主动路径应拒绝（E_NO_NEW_USER_AFTER_BOT）
+
+    Bug 2: 明确唤醒被静默吞掉
+    - bot 说过后，用户明确 @bot/reply，被动路径应继续（不被 early return）
+    """
+
+    async def asyncSetUp(self):
+        self.temp_dir = make_workspace_temp_dir("policy_state")
+        self.dao = SelfEvolutionDAO(str(Path(self.temp_dir) / "policy_state_test.db"))
+        await self.dao.init_db()
+        eavesdropping_module = load_engine_module("eavesdropping")
+        EavesdroppingEngine = eavesdropping_module.EavesdroppingEngine
+        self.plugin = SimpleNamespace(
+            dao=self.dao,
+            cfg=SimpleNamespace(
+                interject_cooldown=30,
+                interject_min_msg_count=3,
+                engagement_react_probability=1.0,
+            ),
+            _shut_until_by_group={},
+            _get_bot_id=lambda: "bot123",
+        )
+        self.engine = EavesdroppingEngine(self.plugin)
+
+    async def asyncTearDown(self):
+        await self.dao.close()
+        cleanup_workspace_temp_dir(self.temp_dir)
+
+    def _make_event(self, message_str="hello", group_id="5001", is_at=False, has_reply=False):
+        event = SimpleNamespace()
+        event.get_group_id = lambda: group_id
+        event.get_user_id = lambda: "user456"
+        event.get_sender_name = lambda: "AnotherUser"
+        event.message_str = message_str
+        event.is_at_or_wake_command = False
+        extras = {}
+        if is_at:
+            extras["is_at"] = True
+        if has_reply:
+            extras["has_reply"] = True
+        event.get_extra = lambda key, default=None: extras.get(key, default)
+        event.get_messages = lambda: [{"type": "text", "data": {"text": message_str}}]
+        return event
+
+    async def test_bug1_active_allowed_when_new_user_after_bot(self):
+        """主动插话在 new_user_message_after_bot=True 时应被允许。
+
+        场景：bot 在当前 wave 说过话，用户新消息到达（user_message_arrived），
+        新消息续活 wave，新用户消息在 bot 发言之后（new_user_message_after_bot=True），
+        user_message_arrived 会重置 bot_has_spoken_in_current_wave，允许主动路径通过。
+        """
+        now = time.time()
+        reply_policy_module = load_engine_module("reply_policy")
+        ReplyPolicy = reply_policy_module.ReplyPolicy
+        reply_state_module = load_engine_module("reply_state")
+        ConversationMomentum = reply_state_module.ConversationMomentum
+
+        momentum = ConversationMomentum(scope_id="5001")
+        momentum.last_message_time = now - 60
+        momentum.last_bot_message_at = now - 60
+        momentum.message_count_window = 3
+        momentum.consecutive_bot_replies = 1
+        momentum.bot_has_spoken_in_current_wave = True
+
+        momentum.user_message_arrived(now)
+        momentum.new_user_after_bot()
+
+        momentum.last_message_time = now - 10
+
+        self.assertFalse(
+            momentum.bot_has_spoken_in_current_wave,
+            "user_message_arrived 应重置 bot_has_spoken_in_current_wave",
+        )
+
+        policy = ReplyPolicy(self.plugin)
+        decision = policy.check(
+            momentum,
+            cooldown_seconds=30,
+            min_new_messages=1,
+            require_new_user_after_bot=True,
+            allow_active=True,
+        )
+
+        self.assertTrue(
+            decision.allow,
+            f"new_user_message_after_bot=True 时主动路径应允许（实际: {decision.reason_code} {decision.reason_text}）",
+        )
+
+    async def test_bug1_active_rejected_when_no_new_user_after_bot(self):
+        """主动插话在 new_user_message_after_bot=False 时应被拒绝。
+
+        场景：bot 在当前 wave 说过话（bot_has_spoken=True），
+        用户没有继续发消息（new_user_message_after_bot=False），
+        主动调度扫到这个群，应该被 E_NO_NEW_USER_AFTER_BOT 拒绝。
+        """
+        now = time.time()
+        state = {
+            "scope_id": "5002",
+            "last_message_time": now - 60,
+            "last_bot_engagement_at": now - 10,
+            "last_bot_engagement_level": "full",
+            "last_seen_message_seq": 50,
+            "scene_type": "casual",
+            "message_count_window": 2,
+            "question_count_window": 0,
+            "emotion_count_window": 0,
+            "consecutive_bot_replies": 1,
+            "last_bot_message_at": now - 10,
+            "last_bot_message_kind": "normal",
+            "wave_started_at": now - 60,
+            "bot_has_spoken_in_current_wave": 1,
+            "new_user_message_after_bot": 0,
+        }
+        await self.dao.save_engagement_state("5002", state)
+
+        executed = await self.engine.check_engagement("5002")
+        self.assertFalse(
+            executed,
+            "主动插话应在 new_user_message_after_bot=False 时被拒绝（E_NO_NEW_USER_AFTER_BOT）",
+        )
+
+    async def test_bug2_explicit_mention_after_bot_reply_not_dropped(self):
+        """bot 说过后，用户明确 @bot/reply 时被动链路应继续。
+
+        场景：bot 在当前 wave 说过话（bot_has_spoken=True），
+        用户立即 @bot 追问，被动入口不应被静默吞掉。
+        """
+        now = time.time()
+        state = {
+            "scope_id": "5003",
+            "last_message_time": now - 5,
+            "last_bot_engagement_at": now - 10,
+            "last_bot_engagement_level": "full",
+            "last_seen_message_seq": 50,
+            "scene_type": "casual",
+            "message_count_window": 2,
+            "question_count_window": 0,
+            "emotion_count_window": 0,
+            "consecutive_bot_replies": 1,
+            "last_bot_message_at": now - 10,
+            "last_bot_message_kind": "normal",
+            "wave_started_at": now - 10,
+            "bot_has_spoken_in_current_wave": 1,
+            "new_user_message_after_bot": 1,
+        }
+        await self.dao.save_engagement_state("5003", state)
+
+        saved_states = []
+        original_save = self.dao.save_engagement_state
+
+        async def capture_save(scope_id, st):
+            saved_states.append(st)
+            return await original_save(scope_id, st)
+
+        self.dao.save_engagement_state = capture_save
+        event = self._make_event("@bot 你刚才说的什么意思？", group_id="5003", is_at=True)
+        await self.engine.process_passive_engagement(event)
+
+        self.assertTrue(
+            len(saved_states) > 0,
+            "bot 已回复后用户 @bot 追问，被动链路不应被静默吞掉（应有状态回写）",
+        )

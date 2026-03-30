@@ -165,15 +165,26 @@ class SelfEvolutionDAO:
                 question_count_window INTEGER DEFAULT 0,
                 emotion_count_window INTEGER DEFAULT 0,
                 consecutive_bot_replies INTEGER DEFAULT 0,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                last_bot_message_at REAL DEFAULT 0,
+                last_bot_message_kind TEXT DEFAULT 'normal',
+                wave_started_at REAL DEFAULT 0,
+                bot_has_spoken_in_current_wave INTEGER DEFAULT 0,
+                new_user_message_after_bot INTEGER DEFAULT 0
             )
         """)
         async with db.execute("PRAGMA table_info(engagement_state)") as cursor:
             columns = {row[1] for row in await cursor.fetchall()}
-        if "last_message_time" not in columns:
-            await db.execute(
-                "ALTER TABLE engagement_state ADD COLUMN last_message_time REAL DEFAULT 0"
-            )
+        for col, dtype, default in [
+            ("last_message_time", "REAL", 0),
+            ("last_bot_message_at", "REAL", 0),
+            ("last_bot_message_kind", "TEXT", "'normal'"),
+            ("wave_started_at", "REAL", 0),
+            ("bot_has_spoken_in_current_wave", "INTEGER", 0),
+            ("new_user_message_after_bot", "INTEGER", 0),
+        ]:
+            if col not in columns:
+                await db.execute(f"ALTER TABLE engagement_state ADD COLUMN {col} {dtype} DEFAULT {default}")
         await db.execute("""
             CREATE TABLE IF NOT EXISTS pending_evolutions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -755,11 +766,13 @@ class SelfEvolutionDAO:
         now = datetime.now().isoformat()
         async with self._write_lock:
             await db.execute(
-                """INSERT OR REPLACE INTO engagement_state 
-                   (scope_id, last_message_time, last_bot_engagement_at, last_bot_engagement_level, 
+                """INSERT OR REPLACE INTO engagement_state
+                   (scope_id, last_message_time, last_bot_engagement_at, last_bot_engagement_level,
                     last_seen_message_seq, scene_type, message_count_window,
-                    question_count_window, emotion_count_window, consecutive_bot_replies, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    question_count_window, emotion_count_window, consecutive_bot_replies, updated_at,
+                    last_bot_message_at, last_bot_message_kind,
+                    wave_started_at, bot_has_spoken_in_current_wave, new_user_message_after_bot)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     scope_id,
                     state.get("last_message_time", 0),
@@ -772,6 +785,11 @@ class SelfEvolutionDAO:
                     state.get("emotion_count_window", 0),
                     state.get("consecutive_bot_replies", 0),
                     now,
+                    state.get("last_bot_message_at", 0),
+                    state.get("last_bot_message_kind", "normal"),
+                    state.get("wave_started_at", 0),
+                    int(state.get("bot_has_spoken_in_current_wave", False)),
+                    int(state.get("new_user_message_after_bot", False)),
                 ),
             )
             await db.commit()

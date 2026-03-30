@@ -20,6 +20,11 @@ from .memory_types import (
 from .persona import PersonaManager
 from .profile import ProfileManager
 from .profile_summary_service import ProfileSummaryService
+from .reply_executor import ReplyExecutor
+from .reply_intent import IntentSource, ReplyIntent
+from .reply_policy import ReplyPolicy, ReplyPolicyDecision
+from .reply_recorder import ReplyRecorder
+from .reply_state import BotMessageKind, ConversationMomentum
 from .session_memory_store import SessionMemoryStore
 from .session_memory_summarizer import SessionMemorySummarizer
 from .social_state import (
@@ -48,6 +53,14 @@ __all__ = [
     "PersonaManager",
     "ProfileManager",
     "ProfileSummaryService",
+    "ReplyExecutor",
+    "ReplyIntent",
+    "ReplyPolicy",
+    "ReplyPolicyDecision",
+    "ReplyRecorder",
+    "ConversationMomentum",
+    "BotMessageKind",
+    "IntentSource",
     "SessionMemoryStore",
     "SessionMemorySummarizer",
     "EngagementEligibility",
