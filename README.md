@@ -261,6 +261,10 @@
 - [engine/generation_context.py](engine/generation_context.py)
 - [engine/output_guard.py](engine/output_guard.py)
 - [engine/speech_types.py](engine/speech_types.py)
+- [engine/engagement_stats.py](engine/engagement_stats.py)
+
+行为统计命令：
+- `/evolution stats [scope_id]` — 查看行为统计摘要（默认当前群组，支持跨重启恢复）
 
 ## 情感积分
 
@@ -376,6 +380,7 @@
 - `/evolution approve <ID>`
 - `/evolution reject <ID>`
 - `/evolution clear`
+- `/evolution stats [scope_id]`
 - `/sticker list [页码]`
 - `/sticker preview <UUID>`
 - `/sticker delete <UUID>`

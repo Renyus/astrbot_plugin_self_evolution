@@ -1,4 +1,5 @@
 import time
+import re
 
 from astrbot.api import logger
 
@@ -12,10 +13,64 @@ from .social_state import (
 from .speech_types import AnchorType, OpportunityKind, SpeechOpportunity
 
 
-QUESTION_WORDS = {"吗", "呢", "怎么", "如何", "为什么", "啥", "什么", "是不是", "能不能", "要不要", "?"}
+QUESTION_WORDS = {"吗", "呢", "怎么", "如何", "为什么", "啥", "什么", "是不是", "能不能", "要不要", "?", "？"}
 EMOTION_WORDS = {"哈哈", "哈哈哈", "笑死", "卧槽", "牛逼", "厉害", "赞", "哭", "笑", "怒", "生气", "烦"}
 DEBATE_INDICATORS = {"不对", "不是", "但是", "可是", "虽然", "然而", "错的", "胡说", "滚", "傻"}
 HELP_INDICATORS = {"帮", "帮我", "请问", "请教", "求助", "救命", "急", "在线等"}
+
+RHETORICAL_PATTERNS = [
+    re.compile(r"^真的吗[？?。.]?$"),
+    re.compile(r"^不是吧[。.]?$"),
+    re.compile(r"^不会吧[。.]?$"),
+    re.compile(r"^真的假的[？?。.]?$"),
+    re.compile(r"^我去[，,]?这也能"),
+    re.compile(r"^说实话[，,]?"),
+    re.compile(r"^讲真[，,]?"),
+    re.compile(r"^话说[，,]?"),
+    re.compile(r"^话说回来"),
+]
+GREETING_QUESTION_PATTERNS = [
+    re.compile(r"^[吃喝睡在去哪好没].{0,4}[吗呢嘛]$"),
+    re.compile(r"^吃了没"),
+    re.compile(r"^在吗$"),
+    re.compile(r"^在不在$"),
+    re.compile(r"^还好吗$"),
+]
+ACTION_OR_REACTION_PATTERNS = [
+    re.compile(r"^[卧我噢哦诶唉呃哈嘿]+[。,]?"),
+    re.compile(r"^笑死我了[。]?$"),
+    re.compile(r"^[太真可]?[很就都还挺]"),
+    re.compile(r"^无语[，,]?"),
+    re.compile(r"^离谱[。]?$"),
+    re.compile(r"^绝了[。]?$"),
+    re.compile(r"^牛[。]?[年月日]?$"),
+]
+MEMORABLE_KEYWORDS = {
+    "笑死我了",
+    "笑死",
+    "笑不活",
+    "笑到",
+    "卧槽",
+    "我擦",
+    "我天",
+    "我去",
+    "牛逼",
+    "牛啊",
+    "太牛了",
+    "离谱",
+    "太离谱",
+    "真离谱",
+    "绝了",
+    "太绝了",
+    "绝绝子",
+    "芭比q",
+    "完了完了",
+    "救命",
+    "救命啊",
+    "哭死",
+    "哭唧唧",
+}
+PERSONA_HOOK_MIN_LENGTH = 3
 
 
 class EngagementPlanner:
@@ -328,6 +383,7 @@ class EngagementPlanner:
         """识别当前是否存在说话机会。
 
         主动文本发言必须有锚点，没有锚点时只能 IGNORE 或 EMOJI_REACT。
+        顺序：先检查负面过滤 -> 再检查锚点 -> 最后才到 emoji/react。
         """
         scope_id = state.scope_id
         silence_seconds = time.time() - state.last_message_time if state.last_message_time > 0 else 999
@@ -343,13 +399,16 @@ class EngagementPlanner:
                 anchor_text=trigger_text,
             )
 
+        if self._is_negative_filter(trigger_text, state):
+            return SpeechOpportunity.ignore(scope_id, reason="负面信号，不插嘴")
+
         if self._is_question_unanswered(trigger_text, state):
             return SpeechOpportunity(
                 scope_id=scope_id,
                 kind=OpportunityKind.ACTIVE_CONTINUATION,
                 anchor_type=AnchorType.QUESTION_UNANSWERED,
-                confidence=0.6,
-                reason="检测到未回答的问题",
+                confidence=0.55,
+                reason="检测到值得接话的真问题",
                 anchor_text=trigger_text,
             )
 
@@ -358,7 +417,7 @@ class EngagementPlanner:
                 scope_id=scope_id,
                 kind=OpportunityKind.TOPIC_HOOK,
                 anchor_type=AnchorType.PERSONA_HOOK,
-                confidence=0.7,
+                confidence=0.65,
                 reason="话题触发角色关注点",
                 anchor_text=trigger_text,
             )
@@ -368,7 +427,7 @@ class EngagementPlanner:
                 scope_id=scope_id,
                 kind=OpportunityKind.TOPIC_HOOK,
                 anchor_type=AnchorType.MEMORABLE_HOOK,
-                confidence=0.6,
+                confidence=0.55,
                 reason="触发值得接梗的内容",
                 anchor_text=trigger_text,
             )
@@ -378,7 +437,7 @@ class EngagementPlanner:
                 scope_id=scope_id,
                 kind=OpportunityKind.ACTIVE_CONTINUATION,
                 anchor_type=AnchorType.NATURAL_LANDING,
-                confidence=0.5,
+                confidence=0.4,
                 reason="存在自然落点",
                 anchor_text="",
             )
@@ -392,16 +451,76 @@ class EngagementPlanner:
 
         return SpeechOpportunity.ignore(scope_id, reason="无锚点，不主动插嘴")
 
-    def _is_question_unanswered(self, text: str, state: GroupSocialState) -> bool:
+    def _is_negative_filter(self, text: str, state: GroupSocialState) -> bool:
+        """负面信号：不该插嘴的情况。"""
         if not text:
             return False
-        for qw in QUESTION_WORDS:
-            if qw in text:
-                return True
+        text_stripped = text.strip()
+
+        if len(text_stripped) <= 2:
+            return True
+
+        if state.emotion_count_window >= 5 and state.message_count_window >= 8:
+            return True
+
+        if state.consecutive_bot_replies >= 1:
+            return True
+
+        emoji_dominant = self._is_emoji_heavy(text)
+        if emoji_dominant and state.emotion_count_window >= 3:
+            return True
+
         return False
+
+    def _is_emoji_heavy(self, text: str) -> bool:
+        emoji_pattern = re.compile(
+            r"[\U0001F000-\U0001FFFF]" r"|[\u2600-\u26FF]" r"|[\u2700-\u27BF]" r"|[\U0001F600-\U0001F64F]"
+        )
+        emoji_count = len(emoji_pattern.findall(text))
+        return emoji_count >= 3 and emoji_count / max(len(text), 1) > 0.2
+
+    def _is_question_unanswered(self, text: str, state: GroupSocialState) -> bool:
+        """检查是否是值得接话的真问题。"""
+        if not text:
+            return False
+        text_stripped = text.strip()
+        if len(text_stripped) < 4:
+            return False
+        if len(text_stripped) > 60:
+            return False
+
+        for pattern in RHETORICAL_PATTERNS:
+            if pattern.match(text_stripped):
+                return False
+
+        for pattern in GREETING_QUESTION_PATTERNS:
+            if pattern.match(text_stripped):
+                return False
+
+        for pattern in ACTION_OR_REACTION_PATTERNS:
+            if pattern.match(text_stripped):
+                return False
+
+        if text_stripped.count("?") + text_stripped.count("？") > 2:
+            return False
+
+        question_found = False
+        for qw in QUESTION_WORDS:
+            if qw in text_stripped:
+                question_found = True
+                break
+        if not question_found:
+            return False
+
+        if state.question_count_window == 0:
+            return False
+
+        return True
 
     def _is_persona_hook(self, text: str) -> bool:
         if not text:
+            return False
+        if len(text.strip()) < PERSONA_HOOK_MIN_LENGTH:
             return False
         persona_hooks = getattr(self.cfg, "persona_trigger_keywords", [])
         if not persona_hooks:
@@ -415,18 +534,33 @@ class EngagementPlanner:
     def _is_memorable_hook(self, text: str, state: GroupSocialState) -> bool:
         if not text:
             return False
-        memorable_keywords = {"笑死", "笑死我了", "哈哈", "笑死我了", "卧槽", "牛", "厉害", "离谱", "绝了"}
         text_lower = text.lower()
-        for kw in memorable_keywords:
+        text_stripped = text.strip()
+        if len(text_stripped) < 3:
+            return False
+
+        matched = False
+        for kw in MEMORABLE_KEYWORDS:
             if kw in text_lower:
-                return True
-        return False
+                matched = True
+                break
+        if not matched:
+            return False
+
+        if state.emotion_count_window < 1:
+            return False
+
+        return True
 
     def _is_natural_landing(self, state: GroupSocialState) -> bool:
-        if state.scene in (SceneType.HELP, SceneType.DEBATE):
-            if state.message_count_window >= 5:
-                return True
+        if state.scene == SceneType.HELP:
+            return False
+        if state.scene == SceneType.DEBATE:
+            return False
+
         if state.scene == SceneType.CASUAL:
-            if 2 <= state.message_count_window <= 4:
-                return True
+            if 2 <= state.message_count_window <= 3:
+                silence = time.time() - state.last_message_time
+                if silence >= 10:
+                    return True
         return False

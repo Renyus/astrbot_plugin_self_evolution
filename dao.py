@@ -213,6 +213,13 @@ class SelfEvolutionDAO:
                 PRIMARY KEY (group_id, created_at)
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS scope_stats (
+                scope_id TEXT PRIMARY KEY,
+                stats_json TEXT NOT NULL DEFAULT '{}',
+                updated_at TEXT NOT NULL
+            )
+        """)
 
     async def get_conn(self):
         """带有存活检测的全局连接获取器，兼顾长连接性能与雪崩恢复，防阻塞分离读写锁"""
@@ -793,3 +800,39 @@ class SelfEvolutionDAO:
                 ),
             )
             await db.commit()
+
+    @with_db_retry()
+    async def save_scope_stats(self, scope_id: str, stats_json: str):
+        """Save serialized scope engagement stats to DB."""
+        db = await self.get_conn()
+        now = datetime.now().isoformat()
+        async with self._write_lock:
+            await db.execute(
+                """INSERT OR REPLACE INTO scope_stats (scope_id, stats_json, updated_at)
+                   VALUES (?, ?, ?)""",
+                (scope_id, stats_json, now),
+            )
+            await db.commit()
+
+    @with_db_retry()
+    async def get_scope_stats(self, scope_id: str) -> Optional[str]:
+        """Load serialized scope engagement stats from DB. Returns JSON string or None."""
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute(
+                "SELECT stats_json FROM scope_stats WHERE scope_id = ?",
+                (scope_id,),
+            )
+            row = await cursor.fetchone()
+            if row:
+                return row[0]
+            return None
+
+    @with_db_retry()
+    async def list_scope_stats_ids(self) -> list[str]:
+        """Return all scope_ids that have stats records in DB."""
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute("SELECT scope_id FROM scope_stats")
+            rows = await cursor.fetchall()
+            return [row[0] for row in rows]

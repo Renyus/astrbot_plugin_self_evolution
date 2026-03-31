@@ -11,7 +11,7 @@ from astrbot.api.all import AstrMessageEvent, Context, Star, register
 from astrbot.api.event import filter
 from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import StarTools
-from astrbot.core.message.components import Plain
+from astrbot.core.message.components import Plain, WechatEmoji
 from astrbot.core.star.star_handler import EventType, star_handlers_registry
 
 from . import commands
@@ -667,11 +667,21 @@ class SelfEvolutionPlugin(Star):
             return
         await self.eavesdropping.sync_framework_reply_state(group_id, level="full")
 
+        has_text = False
+        has_emoji = False
         for comp in result.chain:
             if isinstance(comp, Plain) and comp.text:
                 cleaned = clean_result_text(comp.text)
                 if cleaned:
                     self.eavesdropping._output_guard._add_recent(cleaned)
+                    has_text = True
+            elif isinstance(comp, WechatEmoji):
+                has_emoji = True
+        if has_text:
+            self.eavesdropping._stats.record_passive_text(group_id)
+        elif has_emoji:
+            self.eavesdropping._stats.record_passive_emoji(group_id)
+        await self.eavesdropping.persist_stats(group_id)
 
     async def inject_and_chat(
         self,
@@ -1082,6 +1092,17 @@ class SelfEvolutionPlugin(Star):
             logger.warning(f"[SelfEvolution] 清空进化请求失败: {e}")
             event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result(f"清空审核列表时发生异常: {e}")
+
+    @evolution_group.command("stats")
+    async def evolution_stats(self, event: AstrMessageEvent, scope_id: str = ""):
+        """查看行为统计摘要。默认显示当前群组，可指定 scope_id。"""
+        event.set_extra("self_evolution_command_reply", True)
+        target_scope = scope_id.strip() if scope_id.strip() else (event.get_group_id() or "")
+        if not target_scope:
+            yield event.plain_result("[EngagementStats] 无效的作用域")
+            return
+        summary = await self.eavesdropping.get_stats_summary(target_scope)
+        yield event.plain_result(summary)
 
     @filter.llm_tool(name="list_tools")
     async def list_tools(self, event: AstrMessageEvent) -> str:

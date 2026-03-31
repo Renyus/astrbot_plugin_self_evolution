@@ -978,11 +978,23 @@ class AnchorRequirementRegressionTests(IsolatedAsyncioTestCase):
         self.assertIn(plan.level.value, ("full", "ignore"))
 
     def test_recognize_opportunity_question_unanswered(self):
-        """_is_question_unanswered 应正确识别问题."""
+        """_is_question_unanswered 应正确识别有上下文支撑的真问题。
+
+        收紧后：孤立问题（question_count_window=0）不触发锚点，
+        必须有至少一个问题在近期窗口内才认可这是真问题。
+        """
         state = self._make_state()
+        state.question_count_window = 1
         opp = self.planner.recognize_opportunity(state, False, False, "这个怎么弄？")
         self.assertEqual(opp.kind.value, "active_continuation")
         self.assertEqual(opp.anchor_type.value, "question_unanswered")
+
+    def test_recognize_opportunity_isolated_question_ignored(self):
+        """孤立问题（无上下文支撑）不触发锚点。"""
+        state = self._make_state()
+        state.question_count_window = 0
+        opp = self.planner.recognize_opportunity(state, False, False, "这个怎么弄？")
+        self.assertEqual(opp.kind.value, "ignore")
 
     def test_recognize_opportunity_no_anchor_ignore(self):
         """无锚点时返回 IGNORE.
@@ -1061,3 +1073,125 @@ class EngagementPlanToSpeechDecisionTests(IsolatedAsyncioTestCase):
         self.assertEqual(decision.delivery_mode, "text")
         self.assertEqual(decision.anchor_type, AnchorType.QUESTION_UNANSWERED)
         self.assertEqual(decision.anchor_text, "这个问题怎么解决？")
+
+
+class OutputGuardEnhancedTests(IsolatedAsyncioTestCase):
+    """OutputGuard 增强检查测试."""
+
+    def setUp(self):
+        install_aiosqlite_stub()
+        output_guard = load_engine_module("output_guard")
+        self.OutputGuard = output_guard.OutputGuard
+        self.OutputResult = load_engine_module("speech_types").OutputResult
+        self.plugin = SimpleNamespace(cfg=SimpleNamespace(), persona_name="黑塔")
+        self.guard = self.OutputGuard(self.plugin)
+
+    def _make_decision(self, **kwargs):
+        defaults = {"delivery_mode": "text", "max_chars": 200, "text_mode": "reply", "anchor_type": None}
+        defaults.update(kwargs)
+        return SimpleNamespace(**defaults)
+
+    def test_generic_explanatory_downgrade(self):
+        result = self.guard.check("首先，我们需要了解这个问题。", self._make_decision())
+        self.assertEqual(result.status, self.OutputResult.DOWNGRADE_TO_EMOJI)
+
+    def test_tool_like_pattern_downgrade(self):
+        result = self.guard.check("第一步，打开设置页面。", self._make_decision())
+        self.assertEqual(result.status, self.OutputResult.DOWNGRADE_TO_EMOJI)
+
+    def test_context_free_interject_downgrade(self):
+        result = self.guard.check("今天来聊聊这个话题吧。", self._make_decision(text_mode="interject"))
+        self.assertEqual(result.status, self.OutputResult.DOWNGRADE_TO_EMOJI)
+
+    def test_context_free_interject_pass_for_reply(self):
+        result = self.guard.check("今天来给大家介绍一个新话题。", self._make_decision(text_mode="reply"))
+        self.assertEqual(result.status, self.OutputResult.PASS)
+
+    def test_echo_starts_downgrade(self):
+        result = self.guard.check("没错，说得对。", self._make_decision())
+        self.assertEqual(result.status, self.OutputResult.DOWNGRADE_TO_EMOJI)
+
+    def test_ai_voice_expanded_downgrade(self):
+        texts = [
+            "从客观角度来看，这个问题很有意义。",
+            "从技术层面来说，这个方案是可行的。",
+        ]
+        for text in texts:
+            result = self.guard.check(text, self._make_decision())
+            self.assertEqual(result.status, self.OutputResult.DOWNGRADE_TO_EMOJI, f"文本不应通过: {text}")
+
+    def test_repetitive_chunk_detected(self):
+        self.guard._add_recent("正常的回复")
+        text = "今天天气真好，今天天气真好，今天天气真好，今天天气真好"
+        result = self.guard.check(text, self._make_decision())
+        self.assertEqual(result.status, self.OutputResult.RETRY_SHORTER)
+
+    def test_normal_text_still_passes(self):
+        texts = [
+            "黑塔：嗯，这个问题确实有点意思。",
+            "说起来，前几天那个项目后来怎么样了？",
+        ]
+        for text in texts:
+            result = self.guard.check(text, self._make_decision())
+            self.assertEqual(result.status, self.OutputResult.PASS, f"文本不应拦截: {text}")
+
+
+class EngagementStatsTests(IsolatedAsyncioTestCase):
+    """EngagementStats 行为观测测试."""
+
+    def test_stats_record_active_text(self):
+        stats = load_engine_module("engagement_stats").EngagementStats()
+        stats.record_active_text("5001", "question_unanswered")
+        s = stats.get_stats("5001")
+        self.assertEqual(s.active_text_count, 1)
+        self.assertEqual(s.anchor_type_counts["question_unanswered"], 1)
+
+    def test_stats_record_degraded(self):
+        stats = load_engine_module("engagement_stats").EngagementStats()
+        stats.record_degraded("5001", "AI语气")
+        s = stats.get_stats("5001")
+        self.assertEqual(s.degraded_to_emoji_count, 1)
+        self.assertEqual(s.degrade_reason_counts["AI语气"], 1)
+
+    def test_stats_record_guard_blocked(self):
+        stats = load_engine_module("engagement_stats").EngagementStats()
+        stats.record_guard_blocked("5001", "纯动作描写")
+        s = stats.get_stats("5001")
+        self.assertEqual(s.guard_blocked_count, 1)
+
+    def test_stats_record_skip(self):
+        stats = load_engine_module("engagement_stats").EngagementStats()
+        stats.record_skip("5001", "负面信号，不插嘴")
+        s = stats.get_stats("5001")
+        self.assertEqual(s.skip_reason_counts["负面信号，不插嘴"], 1)
+
+    def test_stats_summary_formats_correctly(self):
+        stats = load_engine_module("engagement_stats").EngagementStats()
+        stats.record_active_text("5001", "question_unanswered")
+        stats.record_guard_blocked("5001", "AI语气")
+        stats.record_degraded("5001", "AI语气")
+        summary = stats.get_summary("5001")
+        self.assertIn("主动", summary)
+        self.assertIn("降级表情", summary)
+        self.assertIn("审查拦截原因", summary)
+
+    def test_stats_no_data_returns_no_record(self):
+        stats = load_engine_module("engagement_stats").EngagementStats()
+        summary = stats.get_summary("5001")
+        self.assertEqual(summary, "[EngagementStats scope=5001] 无记录")
+
+    def test_stats_guard_blocked_shows_record(self):
+        stats = load_engine_module("engagement_stats").EngagementStats()
+        stats.record_guard_blocked("5001", "AI语气")
+        summary = stats.get_summary("5001")
+        self.assertNotIn("无记录", summary)
+        self.assertIn("审查拦截原因", summary)
+        self.assertIn("AI语气", summary)
+
+    def test_stats_passive_only_shows_record(self):
+        stats = load_engine_module("engagement_stats").EngagementStats()
+        stats.record_passive_text("5001")
+        stats.record_passive_emoji("5001")
+        summary = stats.get_summary("5001")
+        self.assertNotIn("无记录", summary)
+        self.assertIn("被动", summary)

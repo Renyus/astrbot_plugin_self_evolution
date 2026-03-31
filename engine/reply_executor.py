@@ -20,11 +20,12 @@ class ReplyExecutor:
     执行失败不影响状态（由 Recorder 统一处理）。
     """
 
-    def __init__(self, plugin, planner: EngagementPlanner, output_guard=None):
+    def __init__(self, plugin, planner: EngagementPlanner, output_guard=None, stats=None):
         self.plugin = plugin
         self.planner = planner
         self.cfg = plugin.cfg
         self.output_guard = output_guard if output_guard is not None else OutputGuard(plugin)
+        self._stats = stats
 
     async def execute(
         self,
@@ -41,6 +42,9 @@ class ReplyExecutor:
             self._debug(
                 f"[ReplyExecutor] scope={getattr(state, 'scope_id', '?')} level=IGNORE action=none reason={plan.reason}"
             )
+            scope_id = getattr(state, "scope_id", "unknown")
+            if self._stats and plan.reason:
+                self._stats.record_skip(scope_id, plan.reason)
             return EngagementExecutionResult(
                 executed=False,
                 level=plan.level,
@@ -49,7 +53,7 @@ class ReplyExecutor:
             )
 
         if plan.level == EngagementLevel.REACT:
-            return await self._execute_sticker(plan, state)
+            return await self._execute_sticker(plan, state, is_active_trigger)
 
         if plan.level == EngagementLevel.FULL:
             return await self._execute_text(
@@ -63,9 +67,17 @@ class ReplyExecutor:
             reason="未知级别",
         )
 
-    async def _execute_sticker(self, plan: EngagementPlan, state: GroupSocialState) -> EngagementExecutionResult:
+    async def _execute_sticker(
+        self, plan: EngagementPlan, state: GroupSocialState, is_active_trigger: bool
+    ) -> EngagementExecutionResult:
+        scope_id = getattr(state, "scope_id", "unknown")
         filename = await self._try_send_sticker(state.scope_id)
         if filename:
+            if self._stats:
+                if is_active_trigger:
+                    self._stats.record_active_emoji(scope_id)
+                else:
+                    self._stats.record_passive_emoji(scope_id)
             return EngagementExecutionResult(
                 executed=True,
                 level=EngagementLevel.REACT,
@@ -154,6 +166,13 @@ class ReplyExecutor:
                 if result.status == "pass":
                     success = await self._send_message(group_id, text)
                     if success:
+                        if self._stats:
+                            if is_active_trigger:
+                                self._stats.record_active_text(
+                                    group_id, anchor_type=getattr(plan, "anchor_type", None) or ""
+                                )
+                            else:
+                                self._stats.record_passive_text(group_id)
                         return EngagementExecutionResult(
                             executed=True,
                             level=EngagementLevel.FULL,
@@ -163,8 +182,16 @@ class ReplyExecutor:
                         )
                 elif result.status == "downgrade_to_emoji":
                     logger.debug(f"[ReplyExecutor] OutputGuard: {result.reason}，降级表情包")
+                    if self._stats:
+                        self._stats.record_guard_blocked(group_id, result.reason)
+                        self._stats.record_degraded(group_id, result.reason)
                     sticker = await self._try_send_sticker(state.scope_id)
                     if sticker:
+                        if self._stats:
+                            if is_active_trigger:
+                                self._stats.record_active_emoji(group_id)
+                            else:
+                                self._stats.record_passive_emoji(group_id)
                         return EngagementExecutionResult(
                             executed=True,
                             level=EngagementLevel.FULL,
@@ -172,13 +199,42 @@ class ReplyExecutor:
                             reason=f"内容审查降级: {result.reason}",
                             actual_text=sticker,
                         )
+                    return EngagementExecutionResult(
+                        executed=False,
+                        level=EngagementLevel.FULL,
+                        action="none",
+                        reason=f"内容审查降级但无表情包",
+                    )
+                elif result.status == "retry_shorter":
+                    logger.debug(f"[ReplyExecutor] OutputGuard RETRY: {result.reason}")
+                    if self._stats:
+                        self._stats.record_guard_blocked(group_id, result.reason)
+                    return EngagementExecutionResult(
+                        executed=False,
+                        level=EngagementLevel.FULL,
+                        action="none",
+                        reason=f"内容审查需缩短: {result.reason}",
+                    )
                 else:
-                    logger.debug(f"[ReplyExecutor] OutputGuard: {result.reason}")
+                    logger.debug(f"[ReplyExecutor] OutputGuard DROP: {result.reason}")
+                    if self._stats:
+                        self._stats.record_guard_blocked(group_id, result.reason)
+                    return EngagementExecutionResult(
+                        executed=False,
+                        level=EngagementLevel.FULL,
+                        action="none",
+                        reason=f"内容审查丢弃: {result.reason}",
+                    )
         except Exception as e:
             logger.warning(f"[ReplyExecutor] Full回复生成失败: {e}")
 
         sticker = await self._try_send_sticker(state.scope_id)
         if sticker:
+            if self._stats:
+                if is_active_trigger:
+                    self._stats.record_active_emoji(group_id)
+                else:
+                    self._stats.record_passive_emoji(group_id)
             return EngagementExecutionResult(
                 executed=True,
                 level=EngagementLevel.FULL,

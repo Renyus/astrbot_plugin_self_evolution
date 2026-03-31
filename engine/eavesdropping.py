@@ -5,6 +5,7 @@ from astrbot.api import logger
 from astrbot.api.all import AstrMessageEvent
 
 from .engagement_planner import EngagementPlanner
+from .engagement_stats import EngagementStats
 from .output_guard import OutputGuard
 from .reply_executor import ReplyExecutor
 from .reply_intent import IntentSource, ReplyIntent, process_intent
@@ -53,12 +54,48 @@ class EavesdroppingEngine:
         self._active_scopes = ActiveScopeStore()
         self._recorder = ReplyRecorder(plugin)
         self._output_guard = OutputGuard(plugin)
+        self._stats = EngagementStats()
 
     def record_activity(self, scope_id: str, user_id: str, now: float | None = None):
         self._active_scopes.record(scope_id, user_id, now)
 
     def get_active_scopes(self) -> list[str]:
         return self._active_scopes.get_active_scopes()
+
+    async def get_stats_summary(self, scope_id: str = "") -> str:
+        """返回行为统计摘要。空 scope_id 返回全局所有 scope 的摘要（从 DB 枚举，重启后仍有效）。"""
+        import json
+
+        if scope_id:
+            if not self._stats.is_loaded(scope_id):
+                stats_json = await self.plugin.dao.get_scope_stats(scope_id)
+                if stats_json:
+                    try:
+                        self._stats.from_dict(scope_id, json.loads(stats_json))
+                    except Exception:
+                        pass
+            return self._stats.get_summary(scope_id)
+        db_scope_ids = await self.plugin.dao.list_scope_stats_ids()
+        for sid in db_scope_ids:
+            if not self._stats.is_loaded(sid):
+                stats_json = await self.plugin.dao.get_scope_stats(sid)
+                if stats_json:
+                    try:
+                        self._stats.from_dict(sid, json.loads(stats_json))
+                    except Exception:
+                        pass
+        lines = []
+        for sid in self._stats._scope_stats:
+            lines.append(self._stats.get_summary(sid))
+        return "\n".join(lines) if lines else "[EngagementStats] 无数据"
+
+    async def persist_stats(self, scope_id: str):
+        """将指定 scope 的统计持久化到 DB。"""
+        import json
+
+        stats_dict = self._stats.to_dict(scope_id)
+        if stats_dict:
+            await self.plugin.dao.save_scope_stats(scope_id, json.dumps(stats_dict))
 
     async def sync_framework_reply_state(self, scope_id: str, level: str = "full") -> bool:
         """由框架正常回复链路调用，同步社交模块冷却状态。"""
@@ -94,10 +131,12 @@ class EavesdroppingEngine:
             )
 
             planner = EngagementPlanner(self.plugin)
-            executor = ReplyExecutor(self.plugin, planner, output_guard=self._output_guard)
+            executor = ReplyExecutor(self.plugin, planner, output_guard=self._output_guard, stats=self._stats)
             policy = ReplyPolicy(self.plugin)
 
-            return await process_intent(self.plugin, intent, momentum, planner, executor, policy, self._recorder)
+            result = await process_intent(self.plugin, intent, momentum, planner, executor, policy, self._recorder)
+            await self.persist_stats(group_id)
+            return result
         except Exception as e:
             logger.warning(f"[ActiveEngagement] 群 {group_id} 检查失败: {e}", exc_info=True)
             return False
@@ -145,7 +184,7 @@ class EavesdroppingEngine:
 
             messages_for_scene = [{"text": msg_text, "message": []}]
             planner = EngagementPlanner(self.plugin)
-            executor = ReplyExecutor(self.plugin, planner, output_guard=self._output_guard)
+            executor = ReplyExecutor(self.plugin, planner, output_guard=self._output_guard, stats=self._stats)
 
             momentum.message_count_window = max(int(momentum.message_count_window), 0) + 1
             computed = planner.compute_scene_windows(messages_for_scene, None)
@@ -173,5 +212,6 @@ class EavesdroppingEngine:
             policy = ReplyPolicy(self.plugin)
 
             await process_intent(self.plugin, intent, momentum, planner, executor, policy, self._recorder)
+            await self.persist_stats(group_id)
         except Exception as e:
             logger.warning(f"[PassiveEngagement] 群 {group_id} 处理失败: {e}", exc_info=True)
