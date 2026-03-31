@@ -4,6 +4,18 @@ from enum import Enum
 from typing import Optional
 
 
+class InteractionKind(Enum):
+    PASSIVE_TEXT = "passive_text"
+    PASSIVE_EMOJI = "passive_emoji"
+    PASSIVE_REACTION = "passive_reaction"
+    ACTIVE_TEXT = "active_text"
+    ACTIVE_EMOJI = "active_emoji"
+    ACTIVE_REACTION = "active_reaction"
+    SKIP = "skip"
+    GUARD_BLOCKED = "guard_blocked"
+    DEGRADED = "degraded"
+
+
 class OpportunityKind(Enum):
     DIRECT_REPLY = "direct_reply"
     MENTION_REPLY = "mention_reply"
@@ -156,6 +168,18 @@ class GenerationSpec:
     max_chars: int = 200
     strict_output_rules: bool = True
     decision: Optional[SpeechDecision] = None
+
+
+@dataclass
+class ThreadAnchor:
+    anchor_type: AnchorType
+    anchor_text: str
+    confidence: float
+    topic_keywords: set = field(default_factory=set)
+    message_ids: list = field(default_factory=list)
+
+    def is_sufficient(self) -> bool:
+        return self.confidence >= 0.4 and bool(self.topic_keywords or self.anchor_text)
 
 
 @dataclass

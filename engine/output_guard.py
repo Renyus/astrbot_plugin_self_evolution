@@ -60,9 +60,14 @@ ECHO_PATTERNS = [
 class OutputGuard:
     """输出审查层。
 
-    三种结果：PASS / DOWNGRADE_TO_EMOJI / DROP
-    只有长度问题走 RETRY_SHORTER（因为缩短是可执行的明确操作）。
-    其余内容问题统一降级表情包或直接丢弃。
+    按 text_mode 分流：
+    - interject: 最严格，主动发言脱离上下文/无意义附和/解释腔强化
+    - reply: 正常标准
+    - disengage: 放宽长度，允许更短
+    - correction: 允许略长，但仍禁工具味/AI味
+
+    四种结果语义：PASS / DOWNGRADE_TO_EMOJI / DROP / RETRY_SHORTER
+    RETRY_SHORTER 只在明确可执行场景保留。
     """
 
     def __init__(self, plugin):
@@ -82,36 +87,52 @@ class OutputGuard:
             return OutputResult(status=OutputResult.DROP, reason="空文本", fallback_action="emoji")
 
         stripped = text.strip()
+        text_mode = getattr(decision, "text_mode", "reply")
 
         if self._check_action_only(stripped):
             return OutputResult(status=OutputResult.RETRY_SHORTER, reason="纯动作描写", fallback_action="text")
 
-        if self._check_too_many_newlines(stripped):
+        if self._check_too_many_newlines(stripped, text_mode):
             return OutputResult(status=OutputResult.RETRY_SHORTER, reason="空行太多", fallback_action="text")
 
         if self._check_repetitive(stripped):
             return OutputResult(status=OutputResult.RETRY_SHORTER, reason="文本重复", fallback_action="emoji")
 
-        if self._check_ai_voice(stripped):
-            return OutputResult(status=OutputResult.DOWNGRADE_TO_EMOJI, reason="AI语气", fallback_action="emoji")
-
-        if self._check_generic_explanatory(stripped):
-            return OutputResult(status=OutputResult.DOWNGRADE_TO_EMOJI, reason="泛解释语气", fallback_action="emoji")
+        if text_mode == "interject":
+            if self._check_context_free_interject_strict(stripped):
+                return OutputResult(status=OutputResult.DROP, reason="主动发言脱离上下文", fallback_action="emoji")
+            if self._check_echo_starts_interject(stripped):
+                return OutputResult(status=OutputResult.DROP, reason="无意义附和(主动)", fallback_action="emoji")
+            if self._check_generic_explanatory_interject(stripped):
+                return OutputResult(status=OutputResult.DROP, reason="泛解释腔(主动)", fallback_action="emoji")
+            # interject 也走通用泛解释检查作为兆底，避免 strict 方法漏掉的 pattern
+            if self._check_generic_explanatory(stripped, text_mode):
+                return OutputResult(status=OutputResult.DROP, reason="泛解释腔(主动)", fallback_action="emoji")
+        else:
+            if self._check_context_free_interject(stripped, text_mode):
+                return OutputResult(
+                    status=OutputResult.DOWNGRADE_TO_EMOJI, reason="主动发言脱离上下文", fallback_action="emoji"
+                )
+            if self._check_echo_starts(stripped):
+                return OutputResult(
+                    status=OutputResult.DOWNGRADE_TO_EMOJI, reason="无意义附和", fallback_action="emoji"
+                )
+            if self._check_generic_explanatory(stripped, text_mode):
+                return OutputResult(
+                    status=OutputResult.DOWNGRADE_TO_EMOJI, reason="泛解释语气", fallback_action="emoji"
+                )
 
         if self._check_tool_like(stripped):
             return OutputResult(status=OutputResult.DOWNGRADE_TO_EMOJI, reason="工具语气", fallback_action="emoji")
 
-        if self._check_context_free_interject(stripped, decision):
-            return OutputResult(
-                status=OutputResult.DOWNGRADE_TO_EMOJI, reason="主动发言脱离上下文", fallback_action="emoji"
-            )
+        if self._check_ai_voice(stripped):
+            return OutputResult(status=OutputResult.DOWNGRADE_TO_EMOJI, reason="AI语气", fallback_action="emoji")
 
-        if self._check_echo_starts(stripped):
-            return OutputResult(status=OutputResult.DOWNGRADE_TO_EMOJI, reason="无意义附和", fallback_action="emoji")
-
-        if self._check_too_long(stripped, decision):
+        if self._check_too_long(stripped, decision, text_mode):
             return OutputResult(
-                status=OutputResult.RETRY_SHORTER, reason=f"超出最大长度({decision.max_chars})", fallback_action="text"
+                status=OutputResult.RETRY_SHORTER,
+                reason=f"超出最大长度({getattr(decision, 'max_chars', 200)})",
+                fallback_action="text",
             )
 
         self._add_recent(stripped)
@@ -124,8 +145,9 @@ class OutputGuard:
             return True
         return False
 
-    def _check_too_many_newlines(self, text: str) -> bool:
-        return text.count("\n\n") >= 2
+    def _check_too_many_newlines(self, text: str, text_mode: str) -> bool:
+        threshold = 1 if text_mode == "interject" else 2
+        return text.count("\n\n") >= threshold
 
     def _check_repetitive(self, text: str) -> bool:
         text_lower = text.lower().strip()
@@ -150,15 +172,32 @@ class OutputGuard:
                 return True
         return False
 
-    def _check_generic_explanatory(self, text: str) -> bool:
+    def _check_generic_explanatory(self, text: str, text_mode: str) -> bool:
+        if text_mode == "disengage":
+            return False
         lines = text.split("\n")
         if len(lines) == 1 and len(text) > 5:
             for pattern in GENERIC_EXPLANATORY:
                 if text.startswith(pattern):
                     return True
-        if len(text) > 80 and text.count("。") > 4:
+        if text_mode == "interject" and len(text) > 40:
+            for pattern in GENERIC_EXPLANATORY:
+                if pattern in text[:30]:
+                    return True
+        elif len(text) > 80 and text.count("。") > 4:
             for pattern in GENERIC_EXPLANATORY:
                 if pattern in text[:20]:
+                    return True
+        return False
+
+    def _check_generic_explanatory_interject(self, text: str) -> bool:
+        if len(text) > 20:
+            for pattern in GENERIC_EXPLANATORY:
+                if text.startswith(pattern):
+                    return True
+        if len(text) > 30:
+            for phrase in ("总的来说", "综上所述", "简单来说", "换句话说"):
+                if phrase in text[:30]:
                     return True
         return False
 
@@ -168,9 +207,8 @@ class OutputGuard:
                 return True
         return False
 
-    def _check_context_free_interject(self, text: str, decision) -> bool:
-        text_mode = getattr(decision, "text_mode", "")
-        if text_mode != "interject":
+    def _check_context_free_interject(self, text: str, text_mode: str) -> bool:
+        if text_mode not in ("interject", "correction"):
             return False
         for start in CONTEXT_FREE_STARTS:
             if text.startswith(start):
@@ -181,14 +219,45 @@ class OutputGuard:
                     return True
         return False
 
+    def _check_context_free_interject_strict(self, text: str) -> bool:
+        for start in CONTEXT_FREE_STARTS:
+            if text.startswith(start):
+                return True
+        if len(text) > 15:
+            for phrase in ("今天来", "我想说的", "让我来", "让我们来", "给大家介绍", "接下来"):
+                if text.startswith(phrase):
+                    return True
+        return False
+
     def _check_echo_starts(self, text: str) -> bool:
+        stripped = text.strip()
         for pattern in ECHO_PATTERNS:
-            if pattern.match(text.strip()):
+            match = pattern.match(stripped)
+            if match:
+                rest = stripped[match.end() :]
+                if len(rest) > 10:
+                    return False
                 return True
         return False
 
-    def _check_too_long(self, text: str, decision) -> bool:
+    def _check_echo_starts_interject(self, text: str) -> bool:
+        stripped = text.strip()
+        for pattern in ECHO_PATTERNS:
+            match = pattern.match(stripped)
+            if match:
+                rest = stripped[match.end() :]
+                if len(rest) > 5:
+                    return False
+                return True
+        return False
+
+    def _check_too_long(self, text: str, decision, text_mode: str) -> bool:
         max_chars = getattr(decision, "max_chars", 200)
+        if text_mode == "disengage":
+            # disengage 放宽正常长度限制，但设 500 字极端上限防止 LLM 失控
+            return len(text) > 500
+        if text_mode == "correction":
+            max_chars = int(max_chars * 1.5)
         return len(text) > max_chars
 
     def _add_recent(self, text: str) -> None:

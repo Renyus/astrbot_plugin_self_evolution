@@ -177,11 +177,37 @@ class ContextBuilder:
                 if sticker_injection:
                     parts.append(sticker_injection)
 
+        # 时间感知注入
+        time_hint = self._build_time_awareness()
+        if time_hint:
+            parts.append(time_hint)
+
+        # 好感度驱动语气注入
+        affinity = getattr(ctx, "affinity", 50)
+        tone_hint = self._build_affinity_tone(affinity)
+        if tone_hint:
+            parts.append(tone_hint)
+
         reply_format = self._get_reply_format()
         if reply_format:
             parts.append(reply_format)
 
         return "\n\n" + "\n\n".join(parts) + "\n" if parts else ""
+
+    def _build_time_awareness(self) -> str:
+        """根据当前时段从配置注入行为提示。"""
+        from datetime import datetime
+
+        hour = datetime.now().hour
+        if hasattr(self.plugin, "_get_time_profile_hint"):
+            return self.plugin._get_time_profile_hint(hour)
+        return ""
+
+    def _build_affinity_tone(self, affinity: int) -> str:
+        """基于好感度从配置注入语气提示。"""
+        if hasattr(self.plugin, "_get_affinity_profile_hint"):
+            return self.plugin._get_affinity_profile_hint(affinity)
+        return ""
 
     def _get_reply_format(self) -> str:
         if hasattr(self.plugin, "_get_reply_format"):

@@ -10,7 +10,7 @@ from .social_state import (
     GroupSocialState,
     SceneType,
 )
-from .speech_types import AnchorType, OpportunityKind, SpeechOpportunity
+from .speech_types import AnchorType, OpportunityKind, SpeechOpportunity, ThreadAnchor
 
 
 QUESTION_WORDS = {"吗", "呢", "怎么", "如何", "为什么", "啥", "什么", "是不是", "能不能", "要不要", "?", "？"}
@@ -384,6 +384,7 @@ class EngagementPlanner:
 
         主动文本发言必须有锚点，没有锚点时只能 IGNORE 或 EMOJI_REACT。
         顺序：先检查负面过滤 -> 再检查锚点 -> 最后才到 emoji/react。
+        线程锚点（thread_anchor）已在 plan_engagement 中构建并传入 state。
         """
         scope_id = state.scope_id
         silence_seconds = time.time() - state.last_message_time if state.last_message_time > 0 else 999
@@ -401,6 +402,8 @@ class EngagementPlanner:
 
         if self._is_negative_filter(trigger_text, state):
             return SpeechOpportunity.ignore(scope_id, reason="负面信号，不插嘴")
+
+        thread_anchor = getattr(state, "thread_anchor", None)
 
         if self._is_question_unanswered(trigger_text, state):
             return SpeechOpportunity(
@@ -430,6 +433,17 @@ class EngagementPlanner:
                 confidence=0.55,
                 reason="触发值得接梗的内容",
                 anchor_text=trigger_text,
+            )
+
+        if thread_anchor and thread_anchor.is_sufficient() and self._is_natural_landing(state):
+            combined_confidence = min(0.4 + thread_anchor.confidence * 0.3, 0.7)
+            return SpeechOpportunity(
+                scope_id=scope_id,
+                kind=OpportunityKind.ACTIVE_CONTINUATION,
+                anchor_type=thread_anchor.anchor_type,
+                confidence=combined_confidence,
+                reason=f"线程锚点支撑: {thread_anchor.anchor_text[:30]}",
+                anchor_text=thread_anchor.anchor_text,
             )
 
         if self._is_natural_landing(state):
@@ -463,7 +477,7 @@ class EngagementPlanner:
         if state.emotion_count_window >= 5 and state.message_count_window >= 8:
             return True
 
-        if state.consecutive_bot_replies >= 1:
+        if state.consecutive_bot_replies >= 2:
             return True
 
         emoji_dominant = self._is_emoji_heavy(text)
@@ -564,3 +578,83 @@ class EngagementPlanner:
                 if silence >= 10:
                     return True
         return False
+
+    async def _analyze_thread(self, scope_id: str, count: int = 10) -> ThreadAnchor:
+        """轻量线程分析：复用 context_injection 的缓存，
+        从原始消息提取关键词集合、问句特征和 message_ids。不用 LLM。
+        """
+        import re
+
+        try:
+            from .context_injection import get_group_history_raw
+
+            raw_messages = await get_group_history_raw(self.plugin, scope_id, count)
+        except Exception:
+            raw_messages = []
+
+        if not raw_messages:
+            return ThreadAnchor(
+                anchor_type=AnchorType.NONE,
+                anchor_text="",
+                confidence=0.0,
+                topic_keywords=set(),
+            )
+
+        # 从原始消息提取文本和 message_ids
+        texts: list[str] = []
+        msg_ids: list[str] = []
+        for msg in raw_messages:
+            mid = str(msg.get("message_id", ""))
+            if mid:
+                msg_ids.append(mid)
+            # 拼接消息段文本
+            segments = msg.get("message", [])
+            parts = []
+            for seg in segments:
+                if isinstance(seg, dict) and seg.get("type") == "text":
+                    parts.append(seg.get("data", {}).get("text", ""))
+            if parts:
+                texts.append("".join(parts))
+
+        # 过滤虚词/功能词，避免 confidence 虚高
+        _STOPWORDS = {
+            "什么", "怎么", "为什么", "如何", "是不是", "能不能", "要不要",
+            "的是", "一个", "这个", "那个", "就是", "可以", "不是", "没有",
+            "我们", "你们", "他们", "自己", "现在", "已经", "还是", "但是",
+            "因为", "所以", "如果", "虽然", "而且", "或者", "不过", "然后",
+            "知道", "觉得", "时候", "问题", "东西",
+        }
+
+        keywords: set[str] = set()
+        question_in_thread = False
+
+        topic_word_pattern = re.compile(r"[\u4e00-\u9fa5]{2,}")
+        for text in texts[-6:]:
+            found = topic_word_pattern.findall(text)
+            for word in found:
+                if word not in _STOPWORDS:
+                    keywords.add(word)
+
+        for text in texts[-4:]:
+            text_lower = text.lower()
+            if "?" in text_lower or "？" in text_lower or any(qw in text_lower for qw in QUESTION_WORDS):
+                question_in_thread = True
+                break
+
+        confidence = 0.0
+        if len(keywords) >= 3:
+            confidence = min(0.3 + (len(keywords) - 3) * 0.05, 0.6)
+        if question_in_thread:
+            confidence = min(confidence + 0.15, 0.7)
+        if len(texts) >= 3:
+            confidence = min(confidence + 0.1, 0.7)
+
+        anchor_type = AnchorType.TOPIC_CONCLUSION if confidence >= 0.5 else AnchorType.NONE
+
+        return ThreadAnchor(
+            anchor_type=anchor_type,
+            anchor_text=" ".join(list(keywords)[:10]),
+            confidence=confidence,
+            topic_keywords=keywords,
+            message_ids=msg_ids[-6:],  # 保留最近 6 条的 message_id
+        )

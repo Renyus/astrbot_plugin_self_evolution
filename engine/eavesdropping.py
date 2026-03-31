@@ -71,7 +71,15 @@ class EavesdroppingEngine:
                 stats_json = await self.plugin.dao.get_scope_stats(scope_id)
                 if stats_json:
                     try:
-                        self._stats.from_dict(scope_id, json.loads(stats_json))
+                        data = json.loads(stats_json)
+                        # 兼容旧版扁平格式（无 lifetime/windowed 键）
+                        if "lifetime" in data:
+                            self._stats.from_dict(scope_id, data["lifetime"])
+                            self._stats.from_windowed_dict(scope_id, data.get("windowed", {}))
+                        elif "active_text_count" in data:
+                            self._stats.from_dict(scope_id, data)
+                        else:
+                            self._stats.from_dict(scope_id, data)
                     except Exception:
                         pass
             return self._stats.get_summary(scope_id)
@@ -81,21 +89,30 @@ class EavesdroppingEngine:
                 stats_json = await self.plugin.dao.get_scope_stats(sid)
                 if stats_json:
                     try:
-                        self._stats.from_dict(sid, json.loads(stats_json))
+                        data = json.loads(stats_json)
+                        if "lifetime" in data:
+                            self._stats.from_dict(sid, data["lifetime"])
+                            self._stats.from_windowed_dict(sid, data.get("windowed", {}))
+                        elif "active_text_count" in data:
+                            self._stats.from_dict(sid, data)
+                        else:
+                            self._stats.from_dict(sid, data)
                     except Exception:
                         pass
         lines = []
-        for sid in self._stats._scope_stats:
+        for sid in self._stats._lifetime:
             lines.append(self._stats.get_summary(sid))
         return "\n".join(lines) if lines else "[EngagementStats] 无数据"
 
     async def persist_stats(self, scope_id: str):
-        """将指定 scope 的统计持久化到 DB。"""
+        """将指定 scope 的 lifetime + rolling_24h 统计持久化到 DB。"""
         import json
 
         stats_dict = self._stats.to_dict(scope_id)
-        if stats_dict:
-            await self.plugin.dao.save_scope_stats(scope_id, json.dumps(stats_dict))
+        windowed_dict = self._stats.to_windowed_dict(scope_id)
+        combined = {"lifetime": stats_dict, "windowed": windowed_dict}
+        if stats_dict or windowed_dict:
+            await self.plugin.dao.save_scope_stats(scope_id, json.dumps(combined))
 
     async def sync_framework_reply_state(self, scope_id: str, level: str = "full") -> bool:
         """由框架正常回复链路调用，同步社交模块冷却状态。"""
@@ -124,13 +141,15 @@ class EavesdroppingEngine:
             if not momentum.is_wave_active(now, _MESSAGE_WINDOW_SECONDS):
                 momentum.reset_wave(now)
 
+            planner = EngagementPlanner(self.plugin)
+            thread_anchor = await planner._analyze_thread(group_id)
+
             intent = ReplyIntent(
                 source=IntentSource.ACTIVE,
                 scope_id=group_id,
                 is_active_trigger=True,
+                thread_anchor=thread_anchor,
             )
-
-            planner = EngagementPlanner(self.plugin)
             executor = ReplyExecutor(self.plugin, planner, output_guard=self._output_guard, stats=self._stats)
             policy = ReplyPolicy(self.plugin)
 
@@ -174,6 +193,17 @@ class EavesdroppingEngine:
             if not msg_text.strip():
                 msg_text = "[图片]"
 
+            # 提取 message_id 供 emoji reaction 和 reply 引用使用
+            message_id = ""
+            try:
+                raw_msg = getattr(getattr(event, "message_obj", None), "raw_message", None)
+                if raw_msg and isinstance(raw_msg, dict):
+                    message_id = str(raw_msg.get("message_id", ""))
+                if not message_id:
+                    message_id = str(getattr(event, "message_id", ""))
+            except Exception:
+                pass
+
             interaction = extract_interaction_context(
                 event.get_messages(),
                 persona_name=getattr(self.plugin, "persona_name", "黑塔"),
@@ -206,6 +236,7 @@ class EavesdroppingEngine:
                 at_info=at_info,
                 has_mention=has_mention,
                 has_reply_to_bot=has_reply,
+                message_id=message_id,
                 is_passive_trigger=False,
             )
 

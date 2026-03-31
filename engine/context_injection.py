@@ -120,30 +120,20 @@ async def parse_message_chain(msg: dict, plugin=None) -> str:
     return f"{nickname}: {content}"
 
 
-async def get_group_history(plugin, group_id: str, count: int = 10) -> str:
-    """
-    获取群消息历史（使用 NapCat API）
-
-    Args:
-        plugin: 插件实例
-        group_id: 群号
-        count: 获取消息数量
-
-    Returns:
-        格式化的群消息历史字符串
-    """
+async def _fetch_cached_messages(plugin, group_id: str, count: int = 10) -> list:
+    """获取群消息历史原始数据（带缓存）。"""
     try:
         platform_insts = plugin.context.platform_manager.platform_insts
         if not platform_insts:
-            return ""
+            return []
 
         platform = platform_insts[0]
         if not hasattr(platform, "get_client"):
-            return ""
+            return []
 
         bot = platform.get_client()
         if not bot:
-            return ""
+            return []
 
         cache_key = (group_id, count)
         now = time.time()
@@ -170,14 +160,43 @@ async def get_group_history(plugin, group_id: str, count: int = 10) -> str:
                 del _group_history_cache[oldest_key]
             _group_history_cache[cache_key] = (now, messages)
 
-        if not messages:
-            return ""
+        return messages
+    except Exception as e:
+        logger.debug(f"[ContextInjection] 获取群消息历史失败: {e}")
+        return []
 
+
+async def get_group_history(plugin, group_id: str, count: int = 10) -> str:
+    """
+    获取群消息历史（格式化文本）
+
+    Args:
+        plugin: 插件实例
+        group_id: 群号
+        count: 获取消息数量
+
+    Returns:
+        格式化的群消息历史字符串
+    """
+    messages = await _fetch_cached_messages(plugin, group_id, count)
+    if not messages:
+        return ""
+    try:
         results = await asyncio.gather(*[parse_message_chain(msg, plugin) for msg in messages])
         return "\n".join(results)
     except Exception as e:
-        logger.debug(f"[ContextInjection] 获取群消息历史失败: {e}")
+        logger.debug(f"[ContextInjection] 格式化群消息历史失败: {e}")
         return ""
+
+
+async def get_group_history_raw(plugin, group_id: str, count: int = 10) -> list:
+    """
+    获取群消息历史（原始 NapCat message 对象列表）。
+
+    每个元素是 dict，包含 message_id, sender, message 等字段。
+    与 get_group_history 共享缓存，不会额外调 API。
+    """
+    return await _fetch_cached_messages(plugin, group_id, count)
 
 
 def build_identity_context(

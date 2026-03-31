@@ -12,6 +12,16 @@ from astrbot.api.event import filter
 from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import StarTools
 from astrbot.core.message.components import Plain, WechatEmoji
+
+# 可选组件：不是所有 AstrBot 版本都有，按需 import
+try:
+    from astrbot.core.message.components import Image as AstrImage
+except ImportError:
+    AstrImage = None
+try:
+    from astrbot.core.message.components import Face as AstrFace
+except ImportError:
+    AstrFace = None
 from astrbot.core.star.star_handler import EventType, star_handlers_registry
 
 from . import commands
@@ -503,6 +513,19 @@ class SelfEvolutionPlugin(Star):
             if sticker_injection:
                 parts.append(sticker_injection)
 
+        # 时间感知注入
+        from datetime import datetime
+
+        hour = datetime.now().hour
+        time_hint = self._get_time_profile_hint(hour)
+        if time_hint:
+            parts.append(time_hint)
+
+        # 好感度驱动语气
+        affinity_hint = self._get_affinity_profile_hint(ctx.affinity)
+        if affinity_hint:
+            parts.append(affinity_hint)
+
         reply_format = self._get_reply_format()
         if reply_format:
             parts.append(reply_format)
@@ -573,6 +596,34 @@ class SelfEvolutionPlugin(Star):
         try:
             if self._prompts_injection:
                 return self._prompts_injection.get("reply_format", {}).get("rules", "") or ""
+        except Exception:
+            pass
+        return ""
+
+    def _get_time_profile_hint(self, hour: int) -> str:
+        try:
+            if not self._prompts_injection:
+                return ""
+            profiles = self._prompts_injection.get("time_profiles", {})
+            if 23 <= hour or hour < 6:
+                return profiles.get("late_night", {}).get("hint", "")
+            elif 6 <= hour < 9:
+                return profiles.get("morning", {}).get("hint", "")
+        except Exception:
+            pass
+        return ""
+
+    def _get_affinity_profile_hint(self, affinity: int) -> str:
+        try:
+            if not self._prompts_injection:
+                return ""
+            profiles = self._prompts_injection.get("affinity_profiles", {})
+            if affinity >= 80:
+                return profiles.get("high", {}).get("hint", "")
+            elif affinity >= 60:
+                return profiles.get("normal", {}).get("hint", "")
+            elif affinity < 30:
+                return profiles.get("low", {}).get("hint", "")
         except Exception:
             pass
         return ""
@@ -676,6 +727,10 @@ class SelfEvolutionPlugin(Star):
                     self.eavesdropping._output_guard._add_recent(cleaned)
                     has_text = True
             elif isinstance(comp, WechatEmoji):
+                has_emoji = True
+            elif AstrImage and isinstance(comp, AstrImage):
+                has_emoji = True
+            elif AstrFace and isinstance(comp, AstrFace):
                 has_emoji = True
         if has_text:
             self.eavesdropping._stats.record_passive_text(group_id)

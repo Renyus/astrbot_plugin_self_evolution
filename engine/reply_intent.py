@@ -12,6 +12,7 @@ from .reply_policy import ReplyPolicy
 from .reply_recorder import ReplyRecorder
 from .reply_state import BotMessageKind, ConversationMomentum
 from .social_state import EngagementLevel, GroupSocialState, SceneType
+from .speech_types import ThreadAnchor
 
 
 class IntentSource(Enum):
@@ -36,11 +37,13 @@ class ReplyIntent:
     at_info: str = ""
     has_mention: bool = False
     has_reply_to_bot: bool = False
+    message_id: str = ""
     scene: str = "casual"
     reason: str = ""
     is_passive_trigger: bool = False
     is_active_trigger: bool = False
     created_at: float = 0.0
+    thread_anchor: Optional[ThreadAnchor] = None
 
     def __post_init__(self):
         if self.created_at == 0.0:
@@ -71,12 +74,14 @@ async def process_intent(
     is_active = intent.is_active_trigger
 
     require_new_user_after_bot = not is_active and momentum.consecutive_bot_replies > 0
+    is_direct = intent.has_mention or intent.has_reply_to_bot
     policy_decision = policy.check(
         momentum,
         cooldown_seconds=cfg.interject_cooldown,
         min_new_messages=1,
         require_new_user_after_bot=require_new_user_after_bot,
         allow_active=is_active,
+        is_direct_addressed=is_direct,
     )
 
     if not policy_decision.allow:
@@ -97,6 +102,7 @@ async def process_intent(
         question_count_window=momentum.question_count_window,
         emotion_count_window=momentum.emotion_count_window,
         consecutive_bot_replies=momentum.consecutive_bot_replies,
+        thread_anchor=intent.thread_anchor,
     )
 
     if intent.is_passive_trigger:
@@ -148,6 +154,9 @@ async def process_intent(
         quoted_info=intent.quoted_info,
         at_info=intent.at_info,
         is_active_trigger=intent.is_active_trigger,
+        message_id=intent.message_id,
+        has_reply_to_bot=intent.has_reply_to_bot,
+        has_mention=intent.has_mention,
     )
 
     momentum.message_count_window = state.message_count_window

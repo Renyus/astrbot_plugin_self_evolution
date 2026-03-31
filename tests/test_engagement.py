@@ -1101,7 +1101,7 @@ class OutputGuardEnhancedTests(IsolatedAsyncioTestCase):
 
     def test_context_free_interject_downgrade(self):
         result = self.guard.check("今天来聊聊这个话题吧。", self._make_decision(text_mode="interject"))
-        self.assertEqual(result.status, self.OutputResult.DOWNGRADE_TO_EMOJI)
+        self.assertEqual(result.status, self.OutputResult.DROP)
 
     def test_context_free_interject_pass_for_reply(self):
         result = self.guard.check("今天来给大家介绍一个新话题。", self._make_decision(text_mode="reply"))
@@ -1142,27 +1142,27 @@ class EngagementStatsTests(IsolatedAsyncioTestCase):
     def test_stats_record_active_text(self):
         stats = load_engine_module("engagement_stats").EngagementStats()
         stats.record_active_text("5001", "question_unanswered")
-        s = stats.get_stats("5001")
+        s = stats.get_lifetime("5001")
         self.assertEqual(s.active_text_count, 1)
         self.assertEqual(s.anchor_type_counts["question_unanswered"], 1)
 
     def test_stats_record_degraded(self):
         stats = load_engine_module("engagement_stats").EngagementStats()
         stats.record_degraded("5001", "AI语气")
-        s = stats.get_stats("5001")
+        s = stats.get_lifetime("5001")
         self.assertEqual(s.degraded_to_emoji_count, 1)
         self.assertEqual(s.degrade_reason_counts["AI语气"], 1)
 
     def test_stats_record_guard_blocked(self):
         stats = load_engine_module("engagement_stats").EngagementStats()
         stats.record_guard_blocked("5001", "纯动作描写")
-        s = stats.get_stats("5001")
+        s = stats.get_lifetime("5001")
         self.assertEqual(s.guard_blocked_count, 1)
 
     def test_stats_record_skip(self):
         stats = load_engine_module("engagement_stats").EngagementStats()
         stats.record_skip("5001", "负面信号，不插嘴")
-        s = stats.get_stats("5001")
+        s = stats.get_lifetime("5001")
         self.assertEqual(s.skip_reason_counts["负面信号，不插嘴"], 1)
 
     def test_stats_summary_formats_correctly(self):
