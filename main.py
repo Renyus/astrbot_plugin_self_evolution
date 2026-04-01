@@ -67,6 +67,7 @@ from .engine.moderation_classifier import (
     RiskLevel,
 )
 from .engine.moderation_enforcer import enforce_moderation
+from .engine.moderation_executor import _is_bot_admin_in_group
 from .scheduler.register import register_tasks
 
 PROTECTED_TOOLS = frozenset(
@@ -109,7 +110,7 @@ class PromptContext:
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "CognitionCore 7.0 数字生命。",
-    "Ver 4.1.0",
+    "Ver 4.1.1",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
@@ -662,6 +663,9 @@ class SelfEvolutionPlugin(Star):
     async def on_media_extraction_listener(self, event: AstrMessageEvent):
         """Phase 1+2+4: 消息媒体目标抽取 -> Caption -> 审核分类。"""
         group_id = event.get_group_id() or ""
+        if not await _is_bot_admin_in_group(event, group_id):
+            return
+
         user_id = str(event.get_sender_id() or "")
         message_id = ""
         try:

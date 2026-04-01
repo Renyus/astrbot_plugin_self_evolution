@@ -24,6 +24,30 @@ def _unwrap_action_response(ret):
     return ret
 
 
+async def _is_bot_admin_in_group(event, group_id: str | int) -> bool:
+    """检查 bot 是否是群管理员或群主。"""
+    try:
+        from astrbot.core.utils.quoted_message.onebot_client import OneBotClient
+
+        client = OneBotClient(event)
+        if client._call_action is None:
+            return False
+
+        bot_user_id = str(event.get_self_id())
+        result = await client._call_action(
+            "get_group_member_info",
+            group_id=int(group_id),
+            user_id=int(bot_user_id),
+        )
+        if not result:
+            return False
+        data = result.get("data", result) if isinstance(result, dict) else result
+        role = data.get("role", "member") if isinstance(data, dict) else "member"
+        return role in ("admin", "owner")
+    except Exception:
+        return False
+
+
 async def _get_ob_client(event) -> Optional[callable]:
     """从 event 解析 OneBotClient。"""
     try:
