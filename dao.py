@@ -241,6 +241,16 @@ class SelfEvolutionDAO:
                 created_at TEXT NOT NULL
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS caption_cache (
+                cache_key TEXT PRIMARY KEY,
+                caption_text TEXT NOT NULL DEFAULT '',
+                provider_id TEXT NOT NULL DEFAULT '',
+                model_name TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                expires_at REAL NOT NULL DEFAULT 0
+            )
+        """)
 
     async def get_conn(self):
         """带有存活检测的全局连接获取器，兼顾长连接性能与雪崩恢复，防阻塞分离读写锁"""
@@ -889,10 +899,22 @@ class SelfEvolutionDAO:
                     caption_text, reasons, action_taken, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    group_id, user_id, message_id, category, confidence, risk_level,
-                    nsfw_category, nsfw_confidence, nsfw_risk,
-                    promo_category, promo_confidence, promo_risk,
-                    caption_text, reasons, action_taken, now,
+                    group_id,
+                    user_id,
+                    message_id,
+                    category,
+                    confidence,
+                    risk_level,
+                    nsfw_category,
+                    nsfw_confidence,
+                    nsfw_risk,
+                    promo_category,
+                    promo_confidence,
+                    promo_risk,
+                    caption_text,
+                    reasons,
+                    action_taken,
+                    now,
                 ),
             )
             await db.commit()
@@ -931,3 +953,43 @@ class SelfEvolutionDAO:
             )
             row = await cursor.fetchone()
             return row[0] if row else 0
+
+    @with_db_retry()
+    async def get_caption_cache(self, cache_key: str) -> tuple[str, str, str] | None:
+        """返回 (caption_text, provider_id, model_name) 或 None。"""
+        if not cache_key:
+            return None
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute(
+                "SELECT caption_text, provider_id, model_name FROM caption_cache WHERE cache_key = ?",
+                (cache_key,),
+            )
+            row = await cursor.fetchone()
+            if row:
+                return (row[0], row[1], row[2])
+            return None
+
+    @with_db_retry()
+    async def set_caption_cache(
+        self,
+        cache_key: str,
+        caption_text: str,
+        provider_id: str,
+        model_name: str,
+        ttl_seconds: int = 86400,
+    ) -> None:
+        """写入 caption 缓存。ttl_seconds=0 表示永久缓存。"""
+        if not cache_key:
+            return
+        db = await self.get_conn()
+        now = datetime.now().isoformat()
+        expires_at = time.time() + ttl_seconds if ttl_seconds > 0 else 0
+        async with self._write_lock:
+            await db.execute(
+                """INSERT OR REPLACE INTO caption_cache
+                   (cache_key, caption_text, provider_id, model_name, created_at, expires_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (cache_key, caption_text, provider_id, model_name, now, expires_at),
+            )
+            await db.commit()

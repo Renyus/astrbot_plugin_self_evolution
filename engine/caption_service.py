@@ -18,12 +18,20 @@ Phase 2: 图片理解服务（Caption Service）
 - cache_hit: bool
 """
 
+import asyncio
 import dataclasses
+import hashlib
+import os
 import uuid
 
 from astrbot.api import logger
 
 from .media_extractor import MediaKind, MediaOrigin, MediaTarget
+
+try:
+    from astrbot.core.utils.io import download_image_by_url
+except ImportError:
+    download_image_by_url = None
 
 
 @dataclasses.dataclass
@@ -52,53 +60,63 @@ class CaptionResult:
         }
 
 
-def _build_cache_key(target: MediaTarget) -> str:
-    """Build cache key from MediaTarget.
+async def _download_and_hash(target: MediaTarget) -> tuple[str, str]:
+    """下载图片/视频封面并计算内容hash。
 
-    Priority: file_id > file_unique > url > file
-    Only permanent identifiers get TTL=0 (permanent cache).
+    Returns (content_hash, local_path)。
+    content_hash 用于做缓存key，不管URL怎么变，相同内容产生相同hash。
     """
-    for c in target.resource_candidates:
-        if c.file_id:
-            return f"fid:{c.file_id}"
-        if c.file_unique:
-            return f"fuid:{c.file_unique}"
-    for c in target.resource_candidates:
-        if c.url:
-            return f"url:{c.url}"
-    for c in target.resource_candidates:
-        if c.file and (
-            c.file.startswith("http")
-            or c.file.startswith("file:///")
-            or c.file.startswith("base64://")
-            or len(c.file) >= 32
-        ):
-            return f"file:{c.file[:128]}"
-    return ""
+    url_to_download = None
 
-
-def _pick_best_url(target: MediaTarget) -> tuple[str, str]:
-    """从 MediaTarget 的 resource_candidates 里挑最优的 URL。
-
-    优先级：url > cover > file（如果是 http）
-    返回 (url, resource_key)
-    """
     for c in target.resource_candidates:
         if c.url and (c.url.startswith("http://") or c.url.startswith("https://")):
-            return c.url, "url"
-        if c.cover and (c.cover.startswith("http://") or c.cover.startswith("https://")):
-            return c.cover, "cover"
-        if c.file and (c.file.startswith("http://") or c.file.startswith("https://")):
-            return c.file, "file"
+            url_to_download = c.url
+            break
 
-    for c in target.resource_candidates:
-        if c.file and not any(
-            ext in c.file.lower() for ext in ("mp4", "mov", "avi", "mkv", "wmv", "webm", "flv", "m4v")
-        ):
-            if len(c.file) < 256:
-                return c.file, "file"
+    if not url_to_download:
+        for c in target.resource_candidates:
+            if c.cover and (c.cover.startswith("http://") or c.cover.startswith("https://")):
+                url_to_download = c.cover
+                break
 
-    return "", ""
+    local_path = None
+    if url_to_download and download_image_by_url:
+        try:
+            local_path = await asyncio.wait_for(
+                download_image_by_url(url_to_download),
+                timeout=30,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"[CaptionService] 下载超时: {url_to_download[:50]}")
+        except Exception as e:
+            logger.warning(f"[CaptionService] 下载失败: {e} {url_to_download[:50]}")
+
+    if not local_path:
+        for c in target.resource_candidates:
+            f = c.file or ""
+            if f.startswith("file:///"):
+                local_path = f[8:]
+                break
+            elif f.startswith("/") and len(f) < 256:
+                if os.path.exists(f):
+                    local_path = f
+                    break
+
+    if not local_path:
+        for c in target.resource_candidates:
+            if c.url:
+                return f"url_hash:{hashlib.md5(c.url.encode()).hexdigest()}", ""
+
+    if not local_path:
+        return "", ""
+
+    try:
+        with open(local_path, "rb") as f:
+            content_hash = hashlib.md5(f.read()).hexdigest()
+        return content_hash, local_path
+    except Exception as e:
+        logger.warning(f"[CaptionService] 计算文件hash失败: {e} {local_path}")
+        return "", local_path
 
 
 async def get_caption_for_target(
@@ -110,6 +128,8 @@ async def get_caption_for_target(
 
     Caption service 只负责取描述，不管审核。
     text 字段是"中立描述"，即使包含 NSFW 暗示也不在此层处理。
+
+    缓存策略：使用图片内容hash作为缓存key，URL变化不影响缓存命中。
     """
     result = CaptionResult(
         kind=target.kind,
@@ -120,12 +140,7 @@ async def get_caption_for_target(
         result.reason = target.reason or "missing_resource"
         return result
 
-    url, resource_key = _pick_best_url(target)
-    if not url:
-        result.reason = "no_processable_url"
-        return result
-
-    cache_key = _build_cache_key(target)
+    cache_key, local_path = await _download_and_hash(target)
     cached = None
     if dao and cache_key:
         try:
@@ -141,6 +156,10 @@ async def get_caption_for_target(
             result.reason = "cache_hit"
             result.cache_hit = True
             return result
+
+    if not local_path:
+        result.reason = "no_processable_url"
+        return result
 
     cfg = getattr(plugin_context, "_cfg", None)
     if cfg is None:
@@ -170,7 +189,7 @@ async def get_caption_for_target(
         return result
 
     result.provider_id = prov_id
-    result.resource_key = resource_key
+    result.resource_key = local_path
 
     try:
         model_name = getattr(provider, "model", "") or getattr(provider, "model_name", "") or ""
@@ -182,7 +201,7 @@ async def get_caption_for_target(
         resp = await provider.text_chat(
             prompt=caption_prompt,
             session_id=uuid.uuid4().hex,
-            image_urls=[url],
+            image_urls=[local_path],
             persist=False,
         )
         result.text = resp.completion_text or ""
@@ -190,7 +209,7 @@ async def get_caption_for_target(
         if not result.success:
             result.reason = "provider_returned_empty"
         if result.success and dao and cache_key:
-            ttl = 0 if (":" in cache_key and cache_key.startswith(("fid:", "fuid:"))) else 86400
+            ttl = 0
             try:
                 await dao.set_caption_cache(cache_key, result.text, result.provider_id, result.model_name, ttl)
             except Exception:
