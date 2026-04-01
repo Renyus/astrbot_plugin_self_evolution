@@ -213,6 +213,34 @@ class SelfEvolutionDAO:
                 PRIMARY KEY (group_id, created_at)
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS scope_stats (
+                scope_id TEXT PRIMARY KEY,
+                stats_json TEXT NOT NULL DEFAULT '{}',
+                updated_at TEXT NOT NULL
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS moderation_violations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                message_id TEXT NOT NULL DEFAULT '',
+                category TEXT NOT NULL DEFAULT 'uncertain',
+                confidence REAL NOT NULL DEFAULT 0.0,
+                risk_level TEXT NOT NULL DEFAULT 'low',
+                nsfw_category TEXT NOT NULL DEFAULT '',
+                nsfw_confidence REAL NOT NULL DEFAULT 0.0,
+                nsfw_risk TEXT NOT NULL DEFAULT '',
+                promo_category TEXT NOT NULL DEFAULT '',
+                promo_confidence REAL NOT NULL DEFAULT 0.0,
+                promo_risk TEXT NOT NULL DEFAULT '',
+                caption_text TEXT NOT NULL DEFAULT '',
+                reasons TEXT NOT NULL DEFAULT '',
+                action_taken TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            )
+        """)
 
     async def get_conn(self):
         """带有存活检测的全局连接获取器，兼顾长连接性能与雪崩恢复，防阻塞分离读写锁"""
@@ -793,3 +821,113 @@ class SelfEvolutionDAO:
                 ),
             )
             await db.commit()
+
+    @with_db_retry()
+    async def save_scope_stats(self, scope_id: str, stats_json: str):
+        """Save serialized scope engagement stats to DB."""
+        db = await self.get_conn()
+        now = datetime.now().isoformat()
+        async with self._write_lock:
+            await db.execute(
+                """INSERT OR REPLACE INTO scope_stats (scope_id, stats_json, updated_at)
+                   VALUES (?, ?, ?)""",
+                (scope_id, stats_json, now),
+            )
+            await db.commit()
+
+    @with_db_retry()
+    async def get_scope_stats(self, scope_id: str) -> Optional[str]:
+        """Load serialized scope engagement stats from DB. Returns JSON string or None."""
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute(
+                "SELECT stats_json FROM scope_stats WHERE scope_id = ?",
+                (scope_id,),
+            )
+            row = await cursor.fetchone()
+            if row:
+                return row[0]
+            return None
+
+    @with_db_retry()
+    async def list_scope_stats_ids(self) -> list[str]:
+        """Return all scope_ids that have stats records in DB."""
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute("SELECT scope_id FROM scope_stats")
+            rows = await cursor.fetchall()
+            return [row[0] for row in rows]
+
+    @with_db_retry()
+    async def add_moderation_violation(
+        self,
+        group_id: str,
+        user_id: str,
+        message_id: str,
+        category: str,
+        confidence: float,
+        risk_level: str,
+        nsfw_category: str,
+        nsfw_confidence: float,
+        nsfw_risk: str,
+        promo_category: str,
+        promo_confidence: float,
+        promo_risk: str,
+        caption_text: str,
+        action_taken: str,
+        reasons: str,
+    ) -> int:
+        """Write a moderation violation record. Returns the row id."""
+        db = await self.get_conn()
+        now = datetime.now().isoformat()
+        async with self._write_lock:
+            cursor = await db.execute(
+                """INSERT INTO moderation_violations
+                   (group_id, user_id, message_id, category, confidence, risk_level,
+                    nsfw_category, nsfw_confidence, nsfw_risk,
+                    promo_category, promo_confidence, promo_risk,
+                    caption_text, reasons, action_taken, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    group_id, user_id, message_id, category, confidence, risk_level,
+                    nsfw_category, nsfw_confidence, nsfw_risk,
+                    promo_category, promo_confidence, promo_risk,
+                    caption_text, reasons, action_taken, now,
+                ),
+            )
+            await db.commit()
+            return cursor.lastrowid or 0
+
+    @with_db_retry()
+    async def update_moderation_violation_action(self, violation_id: int, action_taken: str):
+        """Update the action_taken field of an existing violation record."""
+        if violation_id <= 0:
+            return
+        db = await self.get_conn()
+        async with self._write_lock:
+            await db.execute(
+                "UPDATE moderation_violations SET action_taken = ? WHERE id = ?",
+                (action_taken, violation_id),
+            )
+            await db.commit()
+
+    @with_db_retry()
+    async def count_user_violations_since(
+        self,
+        group_id: str,
+        user_id: str,
+        timestamp: str,
+    ) -> int:
+        """统计指定用户在指定时间之后产生的违规次数（ban/kick/delete，不含 dryrun）。"""
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute(
+                """SELECT COUNT(*) FROM moderation_violations
+                   WHERE group_id = ? AND user_id = ?
+                     AND created_at > ?
+                     AND action_taken NOT LIKE 'dryrun_%'
+                     AND action_taken NOT LIKE 'ignore'""",
+                (group_id, user_id, timestamp),
+            )
+            row = await cursor.fetchone()
+            return row[0] if row else 0

@@ -386,13 +386,25 @@
             "meal_eat_keywords": {
                 "description": "吃啥触发关键词",
                 "type": "list",
-                "default": ["吃啥", "吃什么", "今天吃啥", "今天吃什么", "吃点啥"],
+                "default": [
+                    "吃啥",
+                    "吃什么",
+                    "今天吃啥",
+                    "今天吃什么",
+                    "吃点啥"
+                ],
                 "hint": "触发随机推荐单道菜的关键词。"
             },
             "meal_banquet_keywords": {
                 "description": "摆酒席触发关键词",
                 "type": "list",
-                "default": ["摆酒席", "开席", "整一桌", "来一桌", "上菜"],
+                "default": [
+                    "摆酒席",
+                    "开席",
+                    "整一桌",
+                    "来一桌",
+                    "上菜"
+                ],
                 "hint": "触发随机抽取多道菜的关键词。"
             },
             "meal_banquet_count": {
@@ -447,7 +459,12 @@
             "surprise_boost_keywords": {
                 "description": "惊奇关键词表",
                 "type": "list",
-                "default": ["突然", "惊讶", "没想到", "居然"],
+                "default": [
+                    "突然",
+                    "惊讶",
+                    "没想到",
+                    "居然"
+                ],
                 "hint": "命中这些关键词时提升惊奇加成。"
             },
             "dropout_enabled": {
@@ -492,6 +509,132 @@
                 "type": "bool",
                 "default": false,
                 "hint": "开启后记录信号命中、限流、积分变更原因。"
+            }
+        }
+    },
+    "moderation": {
+        "type": "object",
+        "description": "图片审核与处罚",
+        "hint": "图片 caption、NSFW/Promo 分类与执行处罚配置。",
+        "items": {
+            "enabled": {
+                "type": "bool",
+                "default": true,
+                "hint": "是否启用图片审核功能。"
+            },
+            "enforcement_enabled": {
+                "type": "bool",
+                "default": false,
+                "hint": "是否执行真实处罚（delete/ban/kick）。False 时为 dry-run 模式，仅记录日志和 evidence。"
+            },
+            "nsfw_keywords": {
+                "type": "list",
+                "default": ["nsfw", "nude", "naked", "porn", "explicit", "色情", "裸体", "成人内容", "成人向", "露点", "性交", " AV ", "色情内容", "羞红", "sm ", "擦边", "软色情", "肉体", "肌肤", "身材", "诱惑", "挑逗", "性感"],
+                "description": "NSFW 关键词",
+                "hint": "检测到这些关键词则触发 NSFW 审核。多值用 | 分隔，留空用默认值。"
+            },
+            "promo_keywords": {
+                "type": "list",
+                "default": ["二维码", "加群", "加我", "联系方式", "扫码", "邀请", "入群", "群二维码", "QQ号", "微信号", "TG", "Telegram", "引流", "推广", "宣传", "广告"],
+                "description": "引流推广关键词",
+                "hint": "检测到这些关键词则触发引流推广审核。多值用 | 分隔，留空用默认值。"
+            },
+            "refusal_keywords": {
+                "type": "list",
+                "default": ["无法提供", "无法描述", "无法对此", "无法为", "不适合提供", "不适宜提供", "拒绝", "拒绝传播", "无法总结", "色情", "低俗", "不符合", "不遵守", "无法处理", "无法进行", "不当信息", "不当内容"],
+                "description": "模型拒绝描述关键词",
+                "hint": "命中≥2个则判定为模型拒绝描述（说明图片有问题）。多值用 | 分隔，留空用默认值。"
+            },
+            "nsfw_refusal_confidence": {
+                "type": "float",
+                "default": 0.9,
+                "description": "NSFW 拒绝描述置信度",
+                "hint": "拒绝描述被判定为 NSFW 时的置信度。0.0~1.0，越高越严格。"
+            },
+            "promo_refusal_confidence": {
+                "type": "float",
+                "default": 0.7,
+                "description": "引流推广拒绝描述置信度",
+                "hint": "拒绝描述被判定为引流推广时的置信度。0.0~1.0。"
+            },
+            "weak_keyword_confidence": {
+                "type": "float",
+                "default": 0.5,
+                "description": "关键词匹配置信度",
+                "hint": "命中关键词时的置信度。0.0~1.0。"
+            },
+            "confidence_threshold": {
+                "type": "float",
+                "default": 0.6,
+                "description": "置信度门槛",
+                "hint": "低于此值则忽略不处罚。0.0~1.0，越低越严格。"
+            },
+            "escalation_threshold": {
+                "type": "int",
+                "default": 2,
+                "description": "踢人阈值",
+                "hint": "24小时内触发多少次处罚后升级为踢人。"
+            },
+            "ban_duration_minutes": {
+                "type": "int",
+                "default": 60,
+                "description": "禁言时长",
+                "hint": "禁言时长（分钟），设为0则不解禁。"
+            },
+            "nsfw_warning_message": {
+                "type": "list",
+                "default": ["我草，色图", "我靠，这啥", "离谱"],
+                "description": "NSFW 反应消息",
+                "hint": "检测到 NSFW 内容后发送的反应消息，随机选一条。"
+            },
+            "nsfw_ban_reason_message": {
+                "type": "string",
+                "default": "检测到不当内容，已处理",
+                "description": "NSFW 处罚理由消息",
+                "hint": "禁言/踢人后发送的理由消息。"
+            },
+            "promo_warning_message": {
+                "type": "list",
+                "default": ["二维码？引流是吧", "加群？爬", "引流司马"],
+                "description": "引流推广反应消息",
+                "hint": "检测到引流推广内容后发送的反应消息，随机选一条。"
+            },
+            "promo_ban_reason_message": {
+                "type": "string",
+                "default": "检测到引流内容，已处理",
+                "description": "引流推广处罚理由消息",
+                "hint": "禁言/踢人后发送的理由消息。"
+            }
+        }
+    },
+    "sticker_reply": {
+        "type": "object",
+        "description": "回复表情包",
+        "hint": "Bot 回复时随机附加表情包。",
+        "items": {
+            "enabled": {
+                "type": "bool",
+                "default": false,
+                "description": "开启回复表情包",
+                "hint": "开启后 Bot 回复时有一定概率附加随机表情包。"
+            },
+            "chance": {
+                "type": "int",
+                "default": 20,
+                "description": "触发概率",
+                "hint": "1~100，roll 1d100 ≤ 此值时触发。"
+            },
+            "max_per_hour": {
+                "type": "int",
+                "default": 10,
+                "description": "每小时上限",
+                "hint": "每小时最多附加表情包的次数，防止刷屏。"
+            },
+            "min_text_length": {
+                "type": "int",
+                "default": 5,
+                "description": "最低文字长度",
+                "hint": "回复文字长度 ≥ 此值时才触发表情包，短回复不触发。"
             }
         }
     }

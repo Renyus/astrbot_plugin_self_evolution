@@ -1,4 +1,5 @@
 import time
+import re
 
 from astrbot.api import logger
 
@@ -9,34 +10,70 @@ from .social_state import (
     GroupSocialState,
     SceneType,
 )
+from .speech_types import AnchorType, OpportunityKind, SpeechOpportunity, ThreadAnchor
 
 
-QUESTION_WORDS = {"吗", "呢", "怎么", "如何", "为什么", "啥", "什么", "是不是", "能不能", "要不要", "?"}
+QUESTION_WORDS = {"吗", "呢", "怎么", "如何", "为什么", "啥", "什么", "是不是", "能不能", "要不要", "?", "？"}
 EMOTION_WORDS = {"哈哈", "哈哈哈", "笑死", "卧槽", "牛逼", "厉害", "赞", "哭", "笑", "怒", "生气", "烦"}
 DEBATE_INDICATORS = {"不对", "不是", "但是", "可是", "虽然", "然而", "错的", "胡说", "滚", "傻"}
 HELP_INDICATORS = {"帮", "帮我", "请问", "请教", "求助", "救命", "急", "在线等"}
 
+RHETORICAL_PATTERNS = [
+    re.compile(r"^真的吗[？?。.]?$"),
+    re.compile(r"^不是吧[。.]?$"),
+    re.compile(r"^不会吧[。.]?$"),
+    re.compile(r"^真的假的[？?。.]?$"),
+    re.compile(r"^我去[，,]?这也能"),
+    re.compile(r"^说实话[，,]?"),
+    re.compile(r"^讲真[，,]?"),
+    re.compile(r"^话说[，,]?"),
+    re.compile(r"^话说回来"),
+]
+GREETING_QUESTION_PATTERNS = [
+    re.compile(r"^[吃喝睡在去哪好没].{0,4}[吗呢嘛]$"),
+    re.compile(r"^吃了没"),
+    re.compile(r"^在吗$"),
+    re.compile(r"^在不在$"),
+    re.compile(r"^还好吗$"),
+]
+ACTION_OR_REACTION_PATTERNS = [
+    re.compile(r"^[卧我噢哦诶唉呃哈嘿]+[。,]?"),
+    re.compile(r"^笑死我了[。]?$"),
+    re.compile(r"^[太真可]?[很就都还挺]"),
+    re.compile(r"^无语[，,]?"),
+    re.compile(r"^离谱[。]?$"),
+    re.compile(r"^绝了[。]?$"),
+    re.compile(r"^牛[。]?[年月日]?$"),
+]
+MEMORABLE_KEYWORDS = {
+    "笑死我了",
+    "笑死",
+    "笑不活",
+    "笑到",
+    "卧槽",
+    "我擦",
+    "我天",
+    "我去",
+    "牛逼",
+    "牛啊",
+    "太牛了",
+    "离谱",
+    "太离谱",
+    "真离谱",
+    "绝了",
+    "太绝了",
+    "绝绝子",
+    "芭比q",
+    "完了完了",
+    "救命",
+    "救命啊",
+    "哭死",
+    "哭唧唧",
+}
+PERSONA_HOOK_MIN_LENGTH = 3
+
 
 class EngagementPlanner:
-    REACT_TEMPLATES = [
-        "嗯",
-        "哦",
-        "有点意思",
-        "继续",
-        "哈",
-        "是嘛",
-        "哦对",
-        "好吧",
-    ]
-
-    BRIEF_TEMPLATES = [
-        "这问题有意思",
-        "确实",
-        "可以这么理解",
-        "值得想想",
-        "有道理",
-    ]
-
     def __init__(self, plugin):
         self.plugin = plugin
         self.cfg = plugin.cfg
@@ -208,6 +245,7 @@ class EngagementPlanner:
         eligibility: EngagementEligibility,
         has_mention: bool = False,
         has_reply_to_bot: bool = False,
+        trigger_text: str = "",
     ) -> EngagementPlan:
         scene = self.classify_scene_from_state(state)
         confidence = min(eligibility.silence_seconds / 120.0, 1.0) * 0.5 + 0.5
@@ -283,20 +321,29 @@ class EngagementPlanner:
                     scene=scene,
                 )
             else:
-                react_prob = getattr(self.cfg, "engagement_react_probability", 0.15)
-                import random as _random
-
-                if _random.random() < react_prob:
+                opportunity = self.recognize_opportunity(state, False, False, trigger_text)
+                if opportunity.kind == OpportunityKind.EMOJI_REACT:
                     plan = EngagementPlan(
                         level=EngagementLevel.REACT,
-                        reason="casual场景随机react",
-                        confidence=0.5,
+                        reason=f"emoji参与: {opportunity.reason}",
+                        confidence=opportunity.confidence,
                         scene=scene,
+                        anchor_type=opportunity.anchor_type,
+                        anchor_text=opportunity.anchor_text,
+                    )
+                elif opportunity.kind in (OpportunityKind.ACTIVE_CONTINUATION, OpportunityKind.TOPIC_HOOK):
+                    plan = EngagementPlan(
+                        level=EngagementLevel.FULL,
+                        reason=f"主动文本: {opportunity.reason}",
+                        confidence=opportunity.confidence,
+                        scene=scene,
+                        anchor_type=opportunity.anchor_type,
+                        anchor_text=opportunity.anchor_text,
                     )
                 else:
                     plan = EngagementPlan(
                         level=EngagementLevel.IGNORE,
-                        reason="casual场景不参与",
+                        reason=f"无锚点不参与: {opportunity.reason}",
                         confidence=0.7,
                         scene=scene,
                     )
@@ -325,3 +372,289 @@ class EngagementPlanner:
 
     def _high_relevance_check(self, state: GroupSocialState) -> bool:
         return state.mention_bot_recently
+
+    def recognize_opportunity(
+        self,
+        state: GroupSocialState,
+        has_mention: bool = False,
+        has_reply_to_bot: bool = False,
+        trigger_text: str = "",
+    ) -> SpeechOpportunity:
+        """识别当前是否存在说话机会。
+
+        主动文本发言必须有锚点，没有锚点时只能 IGNORE 或 EMOJI_REACT。
+        顺序：先检查负面过滤 -> 再检查锚点 -> 最后才到 emoji/react。
+        线程锚点（thread_anchor）已在 plan_engagement 中构建并传入 state。
+        """
+        scope_id = state.scope_id
+        silence_seconds = time.time() - state.last_message_time if state.last_message_time > 0 else 999
+
+        if has_mention or has_reply_to_bot:
+            anchor_type = AnchorType.REPLY_TO_BOT if has_reply_to_bot else AnchorType.MENTION
+            return SpeechOpportunity(
+                scope_id=scope_id,
+                kind=OpportunityKind.DIRECT_REPLY if has_reply_to_bot else OpportunityKind.MENTION_REPLY,
+                anchor_type=anchor_type,
+                confidence=0.9,
+                reason=f"被明确唤醒（{anchor_type.value}）",
+                anchor_text=trigger_text,
+            )
+
+        if self._is_negative_filter(trigger_text, state):
+            return SpeechOpportunity.ignore(scope_id, reason="负面信号，不插嘴")
+
+        thread_anchor = getattr(state, "thread_anchor", None)
+
+        if self._is_question_unanswered(trigger_text, state):
+            return SpeechOpportunity(
+                scope_id=scope_id,
+                kind=OpportunityKind.ACTIVE_CONTINUATION,
+                anchor_type=AnchorType.QUESTION_UNANSWERED,
+                confidence=0.55,
+                reason="检测到值得接话的真问题",
+                anchor_text=trigger_text,
+            )
+
+        if self._is_persona_hook(trigger_text):
+            return SpeechOpportunity(
+                scope_id=scope_id,
+                kind=OpportunityKind.TOPIC_HOOK,
+                anchor_type=AnchorType.PERSONA_HOOK,
+                confidence=0.65,
+                reason="话题触发角色关注点",
+                anchor_text=trigger_text,
+            )
+
+        if self._is_memorable_hook(trigger_text, state):
+            return SpeechOpportunity(
+                scope_id=scope_id,
+                kind=OpportunityKind.TOPIC_HOOK,
+                anchor_type=AnchorType.MEMORABLE_HOOK,
+                confidence=0.55,
+                reason="触发值得接梗的内容",
+                anchor_text=trigger_text,
+            )
+
+        if thread_anchor and thread_anchor.is_sufficient() and self._is_natural_landing(state):
+            combined_confidence = min(0.4 + thread_anchor.confidence * 0.3, 0.7)
+            return SpeechOpportunity(
+                scope_id=scope_id,
+                kind=OpportunityKind.ACTIVE_CONTINUATION,
+                anchor_type=thread_anchor.anchor_type,
+                confidence=combined_confidence,
+                reason=f"线程锚点支撑: {thread_anchor.anchor_text[:30]}",
+                anchor_text=thread_anchor.anchor_text,
+            )
+
+        if self._is_natural_landing(state):
+            return SpeechOpportunity(
+                scope_id=scope_id,
+                kind=OpportunityKind.ACTIVE_CONTINUATION,
+                anchor_type=AnchorType.NATURAL_LANDING,
+                confidence=0.4,
+                reason="存在自然落点",
+                anchor_text="",
+            )
+
+        if state.emotion_count_window >= 2:
+            return SpeechOpportunity.emoji_react(
+                scope_id,
+                reason="情绪活跃，可发表情包",
+                confidence=0.4,
+            )
+
+        return SpeechOpportunity.ignore(scope_id, reason="无锚点，不主动插嘴")
+
+    def _is_negative_filter(self, text: str, state: GroupSocialState) -> bool:
+        """负面信号：不该插嘴的情况。"""
+        if not text:
+            return False
+        text_stripped = text.strip()
+
+        if len(text_stripped) <= 2:
+            return True
+
+        if state.emotion_count_window >= 5 and state.message_count_window >= 8:
+            return True
+
+        if state.consecutive_bot_replies >= 2:
+            return True
+
+        emoji_dominant = self._is_emoji_heavy(text)
+        if emoji_dominant and state.emotion_count_window >= 3:
+            return True
+
+        return False
+
+    def _is_emoji_heavy(self, text: str) -> bool:
+        emoji_pattern = re.compile(
+            r"[\U0001F000-\U0001FFFF]" r"|[\u2600-\u26FF]" r"|[\u2700-\u27BF]" r"|[\U0001F600-\U0001F64F]"
+        )
+        emoji_count = len(emoji_pattern.findall(text))
+        return emoji_count >= 3 and emoji_count / max(len(text), 1) > 0.2
+
+    def _is_question_unanswered(self, text: str, state: GroupSocialState) -> bool:
+        """检查是否是值得接话的真问题。"""
+        if not text:
+            return False
+        text_stripped = text.strip()
+        if len(text_stripped) < 4:
+            return False
+        if len(text_stripped) > 60:
+            return False
+
+        for pattern in RHETORICAL_PATTERNS:
+            if pattern.match(text_stripped):
+                return False
+
+        for pattern in GREETING_QUESTION_PATTERNS:
+            if pattern.match(text_stripped):
+                return False
+
+        for pattern in ACTION_OR_REACTION_PATTERNS:
+            if pattern.match(text_stripped):
+                return False
+
+        if text_stripped.count("?") + text_stripped.count("？") > 2:
+            return False
+
+        question_found = False
+        for qw in QUESTION_WORDS:
+            if qw in text_stripped:
+                question_found = True
+                break
+        if not question_found:
+            return False
+
+        if state.question_count_window == 0:
+            return False
+
+        return True
+
+    def _is_persona_hook(self, text: str) -> bool:
+        if not text:
+            return False
+        if len(text.strip()) < PERSONA_HOOK_MIN_LENGTH:
+            return False
+        persona_hooks = getattr(self.cfg, "persona_trigger_keywords", [])
+        if not persona_hooks:
+            return False
+        text_lower = text.lower()
+        for hook in persona_hooks:
+            if hook.lower() in text_lower:
+                return True
+        return False
+
+    def _is_memorable_hook(self, text: str, state: GroupSocialState) -> bool:
+        if not text:
+            return False
+        text_lower = text.lower()
+        text_stripped = text.strip()
+        if len(text_stripped) < 3:
+            return False
+
+        matched = False
+        for kw in MEMORABLE_KEYWORDS:
+            if kw in text_lower:
+                matched = True
+                break
+        if not matched:
+            return False
+
+        if state.emotion_count_window < 1:
+            return False
+
+        return True
+
+    def _is_natural_landing(self, state: GroupSocialState) -> bool:
+        if state.scene == SceneType.HELP:
+            return False
+        if state.scene == SceneType.DEBATE:
+            return False
+
+        if state.scene == SceneType.CASUAL:
+            if 2 <= state.message_count_window <= 3:
+                silence = time.time() - state.last_message_time
+                if silence >= 10:
+                    return True
+        return False
+
+    async def _analyze_thread(self, scope_id: str, count: int = 10) -> ThreadAnchor:
+        """轻量线程分析：复用 context_injection 的缓存，
+        从原始消息提取关键词集合、问句特征和 message_ids。不用 LLM。
+        """
+        import re
+
+        try:
+            from .context_injection import get_group_history_raw
+
+            raw_messages = await get_group_history_raw(self.plugin, scope_id, count)
+        except Exception:
+            raw_messages = []
+
+        if not raw_messages:
+            return ThreadAnchor(
+                anchor_type=AnchorType.NONE,
+                anchor_text="",
+                confidence=0.0,
+                topic_keywords=set(),
+            )
+
+        # 从原始消息提取文本和 message_ids
+        texts: list[str] = []
+        msg_ids: list[str] = []
+        for msg in raw_messages:
+            mid = str(msg.get("message_id", ""))
+            if mid:
+                msg_ids.append(mid)
+            # 拼接消息段文本
+            segments = msg.get("message", [])
+            parts = []
+            for seg in segments:
+                if isinstance(seg, dict) and seg.get("type") == "text":
+                    parts.append(seg.get("data", {}).get("text", ""))
+            if parts:
+                texts.append("".join(parts))
+
+        # 过滤虚词/功能词，避免 confidence 虚高
+        _STOPWORDS = {
+            "什么", "怎么", "为什么", "如何", "是不是", "能不能", "要不要",
+            "的是", "一个", "这个", "那个", "就是", "可以", "不是", "没有",
+            "我们", "你们", "他们", "自己", "现在", "已经", "还是", "但是",
+            "因为", "所以", "如果", "虽然", "而且", "或者", "不过", "然后",
+            "知道", "觉得", "时候", "问题", "东西",
+        }
+
+        keywords: set[str] = set()
+        question_in_thread = False
+
+        topic_word_pattern = re.compile(r"[\u4e00-\u9fa5]{2,}")
+        for text in texts[-6:]:
+            found = topic_word_pattern.findall(text)
+            for word in found:
+                if word not in _STOPWORDS:
+                    keywords.add(word)
+
+        for text in texts[-4:]:
+            text_lower = text.lower()
+            if "?" in text_lower or "？" in text_lower or any(qw in text_lower for qw in QUESTION_WORDS):
+                question_in_thread = True
+                break
+
+        confidence = 0.0
+        if len(keywords) >= 3:
+            confidence = min(0.3 + (len(keywords) - 3) * 0.05, 0.6)
+        if question_in_thread:
+            confidence = min(confidence + 0.15, 0.7)
+        if len(texts) >= 3:
+            confidence = min(confidence + 0.1, 0.7)
+
+        anchor_type = AnchorType.TOPIC_CONCLUSION if confidence >= 0.5 else AnchorType.NONE
+
+        return ThreadAnchor(
+            anchor_type=anchor_type,
+            anchor_text=" ".join(list(keywords)[:10]),
+            confidence=confidence,
+            topic_keywords=keywords,
+            message_ids=msg_ids[-6:],  # 保留最近 6 条的 message_id
+        )

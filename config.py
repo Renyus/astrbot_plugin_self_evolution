@@ -30,6 +30,26 @@ class PluginConfig:
         val = self._get_nested(group, key, default)
         return self._parse_bool(val, default)
 
+    def _get_nested_float(self, group: str, key: str, default=0.0):
+        val = self._get_nested(group, key, default)
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return default
+
+    def _get_nested_int(self, group: str, key: str, default=0):
+        val = self._get_nested(group, key, default)
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return default
+
+    def _get_nested_str(self, group: str, key: str, default=""):
+        val = self._get_nested(group, key, default)
+        if val is None:
+            return default
+        return str(val)
+
     def _get_nested_list(self, group: str, key: str, default=None):
         """读取 list 类型配置项。兼容旧 string（| 或 , 分割）后返回清洗后的 list。
 
@@ -363,3 +383,149 @@ class PluginConfig:
     @property
     def affinity_debug_enabled(self):
         return self._get_nested_bool("debug", "affinity_debug_enabled", False)
+
+    # moderation
+    @property
+    def moderation_enforcement_enabled(self):
+        return self._get_nested_bool("moderation", "enforcement_enabled", False)
+
+    @property
+    def moderation_enabled(self):
+        return self._get_nested_bool("moderation", "enabled", True)
+
+    @property
+    def moderation_nsfw_keywords(self):
+        default = [
+            "nsfw",
+            "nude",
+            "naked",
+            "porn",
+            "explicit",
+            "色情",
+            "裸体",
+            "成人内容",
+            "成人向",
+            "露点",
+            "性交",
+            " AV ",
+            "色情内容",
+            "羞红",
+            "sm ",
+            "擦边",
+            "软色情",
+            "肉体",
+            "肌肤",
+            "身材",
+            "诱惑",
+            "挑逗",
+            "性感",
+        ]
+        val = self._get_nested_list("moderation", "nsfw_keywords", default)
+        return val if val else default
+
+    @property
+    def moderation_promo_keywords(self):
+        default = [
+            "二维码",
+            "加群",
+            "加我",
+            "联系方式",
+            "扫码",
+            "邀请",
+            "入群",
+            "群二维码",
+            "QQ号",
+            "微信号",
+            "TG",
+            "Telegram",
+            "引流",
+            "推广",
+            "宣传",
+            "广告",
+        ]
+        val = self._get_nested_list("moderation", "promo_keywords", default)
+        return val if val else default
+
+    @property
+    def moderation_refusal_keywords(self):
+        default = [
+            "无法提供",
+            "无法描述",
+            "无法对此",
+            "无法为",
+            "不适合提供",
+            "不适宜提供",
+            "拒绝",
+            "拒绝传播",
+            "无法总结",
+            "色情",
+            "低俗",
+            "不符合",
+            "不遵守",
+            "无法处理",
+            "无法进行",
+            "不当信息",
+            "不当内容",
+        ]
+        val = self._get_nested_list("moderation", "refusal_keywords", default)
+        return val if val else default
+
+    @property
+    def moderation_nsfw_refusal_confidence(self):
+        return self._get_nested_float("moderation", "nsfw_refusal_confidence", 0.9)
+
+    @property
+    def moderation_promo_refusal_confidence(self):
+        return self._get_nested_float("moderation", "promo_refusal_confidence", 0.7)
+
+    @property
+    def moderation_weak_keyword_confidence(self):
+        return self._get_nested_float("moderation", "weak_keyword_confidence", 0.5)
+
+    @property
+    def moderation_confidence_threshold(self):
+        return self._get_nested_float("moderation", "confidence_threshold", 0.6)
+
+    @property
+    def moderation_escalation_threshold(self):
+        return self._get_nested_int("moderation", "escalation_threshold", 2)
+
+    @property
+    def moderation_ban_duration_minutes(self):
+        return self._get_nested_int("moderation", "ban_duration_minutes", 60)
+
+    # moderation messages
+    @property
+    def moderation_nsfw_warning_message(self):
+        return self._get_nested_list("moderation", "nsfw_warning_message", ["我草，色图", "我靠，这啥", "离谱"])
+
+    @property
+    def moderation_nsfw_ban_reason_message(self):
+        return self._get_nested_str("moderation", "nsfw_ban_reason_message", "检测到不当内容，已处理")
+
+    @property
+    def moderation_promo_warning_message(self):
+        return self._get_nested_list(
+            "moderation", "promo_warning_message", ["二维码？引流是吧", "加群？爬", "引流司马"]
+        )
+
+    @property
+    def moderation_promo_ban_reason_message(self):
+        return self._get_nested_str("moderation", "promo_ban_reason_message", "检测到引流内容，已处理")
+
+    # sticker_reply
+    @property
+    def sticker_reply_enabled(self):
+        return self._get_nested_bool("sticker_reply", "enabled", False)
+
+    @property
+    def sticker_reply_chance(self):
+        return self._get_nested_int("sticker_reply", "chance", 20)
+
+    @property
+    def sticker_reply_max_per_hour(self):
+        return self._get_nested_int("sticker_reply", "max_per_hour", 10)
+
+    @property
+    def sticker_reply_min_text_length(self):
+        return self._get_nested_int("sticker_reply", "min_text_length", 5)

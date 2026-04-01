@@ -77,6 +77,10 @@ def install_aiosqlite_stub() -> None:
         def rowcount(self):
             return self._cursor.rowcount
 
+        @property
+        def lastrowid(self):
+            return getattr(self._cursor, "lastrowid", None)
+
     class ExecuteContext:
         def __init__(self, connection, sql: str, params=()):
             self._connection = connection
@@ -130,6 +134,16 @@ def install_aiosqlite_stub() -> None:
     aiosqlite_module.Row = sqlite3.Row
     aiosqlite_module.Error = sqlite3.Error
     aiosqlite_module.IntegrityError = sqlite3.IntegrityError
+    aiosqlite_module.DatabaseError = sqlite3.DatabaseError
+    aiosqlite_module.NotSupportedError = sqlite3.NotSupportedError
+    aiosqlite_module.OperationalError = sqlite3.OperationalError
+    aiosqlite_module.Warning = sqlite3.Warning
+    aiosqlite_module.InterfaceError = sqlite3.InterfaceError
+    aiosqlite_module.DataError = sqlite3.DataError
+    aiosqlite_module.InternalError = sqlite3.InternalError
+    aiosqlite_module.ProgrammingError = sqlite3.ProgrammingError
+    aiosqlite_module.sqlite_version = sqlite3.sqlite_version
+    aiosqlite_module.sqlite_version_info = sqlite3.sqlite_version_info
     sys.modules["aiosqlite"] = aiosqlite_module
 
 

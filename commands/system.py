@@ -33,7 +33,7 @@ async def handle_help(event, plugin):
 /system help          - 查看当前指令帮助
 /system version       - 查看插件版本
 /reflect              - 手动触发一次自我反省
-/affinity             - 查看 AI 对你的好感度评分
+/affinity show        - 查看 AI 对你的好感度评分
 /san show             - 查看当前 SAN 状态
 /今日老婆             - 查看今日老婆
 /addmeal <菜名>        - 添加菜品到群菜单（仅群聊）
@@ -56,14 +56,23 @@ async def handle_help(event, plugin):
 /profile delete <用户ID>     - 删除指定用户的画像
 /profile stats              - 查看画像系统统计信息
 /sticker list [页码]         - 分页查看表情包
+/sticker preview <UUID>     - 预览指定表情包
 /sticker delete <UUID>      - 删除指定表情包
+/sticker disable <UUID>     - 禁用指定表情包
+/sticker enable <UUID>      - 启用指定表情包
 /sticker clear              - 清空所有表情包
 /sticker stats              - 查看表情包统计
+/sticker sync               - 同步本地表情包文件
+/sticker add                - 添加表情包（发送图片后使用）
+/sticker migrate            - 从旧数据库迁移表情包
 /evolution review [页码]    - 查看待审人格进化
 /evolution approve <ID>     - 批准人格进化
 /evolution reject <ID>      - 拒绝人格进化
 /evolution clear            - 清空待审人格进化
 /shut <分钟>                 - 让AI在当前群闭嘴（0取消）
-/db                          - 数据库管理（show/reset/rebuild）"""
+/db show                     - 查看数据库统计
+/db reset                    - 清空所有数据（需确认）
+/db rebuild                  - 删除数据库文件并重建（需确认）
+/db confirm                  - 确认执行 reset/rebuild"""
 
     return help_text

@@ -33,6 +33,7 @@ class ReplyPolicy:
         min_new_messages: int = 1,
         require_new_user_after_bot: bool = False,
         allow_active: bool = True,
+        is_direct_addressed: bool = False,
     ) -> ReplyPolicyDecision:
         """统一仲裁入口。
 
@@ -42,9 +43,20 @@ class ReplyPolicy:
             min_new_messages: 最小新消息条数
             require_new_user_after_bot: 是否要求"bot 发言后有新用户消息"（用于主动插话）
             allow_active: 是否允许主动插话（被动入口为 False）
+            is_direct_addressed: 用户是否直接寻址（@bot、回复bot、私聊）
         """
+        from datetime import datetime
+
         now = time.time()
         scope_id = momentum.scope_id
+
+        # 深夜时段（23:00-06:00）：延长冷却，非直接寻址还提高消息门槛
+        hour = datetime.now().hour
+        if 23 <= hour or hour < 6:
+            cooldown_seconds = int(cooldown_seconds * 3)
+            # 直接寻址（@bot / reply bot / 私聊）不提高消息门槛，避免用户叫不醒 bot
+            if not is_direct_addressed:
+                min_new_messages = max(min_new_messages, 3)
 
         if require_new_user_after_bot and not momentum.new_user_message_after_bot:
             return ReplyPolicyDecision(

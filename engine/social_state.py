@@ -4,11 +4,12 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
+from .speech_types import AnchorType, OpportunityKind, SpeechDecision, SpeechOpportunity, ThreadAnchor
+
 
 class EngagementLevel(Enum):
     IGNORE = "ignore"
     REACT = "react"
-    BRIEF = "brief"
     FULL = "full"
 
 
@@ -33,6 +34,7 @@ class GroupSocialState:
     mention_bot_recently: bool = False
     scene: SceneType = SceneType.CASUAL
     consecutive_bot_replies: int = 0
+    thread_anchor: Optional[ThreadAnchor] = None
 
 
 @dataclass
@@ -53,6 +55,36 @@ class EngagementPlan:
     suggested_text: str = ""
     use_sticker: bool = False
     sticker_id: Optional[str] = None
+    anchor_type: AnchorType = AnchorType.NONE
+    anchor_text: str = ""
+
+    def to_speech_decision(self) -> SpeechDecision:
+        if self.level == EngagementLevel.IGNORE:
+            return SpeechDecision.ignore(self.reason)
+        if self.level == EngagementLevel.REACT:
+            return SpeechDecision.emoji(self.reason, self.confidence)
+
+        import random
+
+        # 根据场景动态设置 max_chars，模拟真人消息长度分布
+        if self.scene == SceneType.CASUAL:
+            max_chars = random.choices([30, 60, 120], weights=[60, 30, 10])[0]
+        elif self.scene == SceneType.HELP:
+            max_chars = random.choices([60, 120, 200], weights=[30, 50, 20])[0]
+        elif self.scene == SceneType.DEBATE:
+            max_chars = random.choices([30, 80, 150], weights=[50, 35, 15])[0]
+        else:
+            max_chars = 100
+
+        return SpeechDecision.text(
+            text_mode="reply",
+            anchor_type=self.anchor_type,
+            confidence=self.confidence,
+            reason=self.reason,
+            max_chars=max_chars,
+            must_follow_thread=True,
+            anchor_text=self.anchor_text,
+        )
 
 
 @dataclass

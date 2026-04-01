@@ -235,12 +235,11 @@
 
 互动系统现在已经重构成分层社交参与模型。
 
-它不再只有“插嘴 / 不插嘴”两种状态，而是会根据群态和上下文规划参与等级：
+它不再只有"插嘴 / 不插嘴"两种状态，而是会根据群态和上下文规划参与等级：
 
-- `IGNORE`
-- `REACT`
-- `BRIEF`
-- `FULL`
+- `IGNORE` — 不发言
+- `REACT` — 发表情包
+- `FULL` — 文本回复
 
 同时会识别群态：
 
@@ -249,12 +248,23 @@
 - `HELP`
 - `DEBATE`
 
+决策时会检测锚点（anchor）来决定是否允许文本发言：无锚点时只能 IGNORE 或 REACT。
+
+统一生成链路使用 `ContextBuilder` 复用同一套 prompt 注入逻辑（persona、identity、history、profile、memory、behavior），输出经 `OutputGuard` 审查，不合格自动降级表情包。
+
 相关文件：
 
 - [engine/eavesdropping.py](engine/eavesdropping.py)
 - [engine/social_state.py](engine/social_state.py)
 - [engine/engagement_planner.py](engine/engagement_planner.py)
-- [engine/engagement_executor.py](engine/engagement_executor.py)
+- [engine/reply_executor.py](engine/reply_executor.py)
+- [engine/generation_context.py](engine/generation_context.py)
+- [engine/output_guard.py](engine/output_guard.py)
+- [engine/speech_types.py](engine/speech_types.py)
+- [engine/engagement_stats.py](engine/engagement_stats.py)
+
+行为统计命令：
+- `/evolution stats [scope_id]` — 查看行为统计摘要（默认当前群组，支持跨重启恢复）
 
 ## 情感积分
 
@@ -348,6 +358,8 @@
 - `/affinity show`
 - `/san show`
 - `/今日老婆`
+- `/addmeal <菜名>`
+- `/delmeal <菜名>`
 - `/profile view [用户ID]`
 - `/profile create [用户ID]`
 - `/profile update [用户ID]`
@@ -370,6 +382,7 @@
 - `/evolution approve <ID>`
 - `/evolution reject <ID>`
 - `/evolution clear`
+- `/evolution stats [scope_id]`
 - `/sticker list [页码]`
 - `/sticker preview <UUID>`
 - `/sticker delete <UUID>`
@@ -380,7 +393,10 @@
 - `/sticker sync`
 - `/sticker add`
 - `/sticker migrate`
-- `/db <操作>`
+- `/db show`
+- `/db reset`
+- `/db rebuild`
+- `/db confirm`
 
 ## LLM 工具
 

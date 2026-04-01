@@ -95,7 +95,7 @@ class PersonaManager:
                 result.append(f"ID: {row['id']} | Persona: {row['persona_id']}\n理由: {row['reason'][:200]}")
 
             result.append(
-                "\n如需批准，请调用 '/approve_evolution <ID>'。如需翻看下一页，请调用 '/review_evolutions <页码>'"
+                "\n如需批准，请调用 '/evolution approve <ID>'。如需翻看下一页，请调用 '/evolution review <页码>'"
             )
             return "\n".join(result)
         except aiosqlite.Error as e:
