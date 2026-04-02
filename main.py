@@ -42,6 +42,8 @@ from .engine.eavesdropping import EavesdroppingEngine
 from .engine.affinity import AffinityEngine
 from .engine.entertainment import EntertainmentEngine
 from .engine.event_context import extract_interaction_context
+from .engine.persona_sim_engine import PersonaSimEngine
+from .engine.persona_sim_injection import snapshot_to_debug_str, snapshot_to_prompt
 from .engine.message_normalization import ensure_event_message_text
 from .engine.memory import MemoryManager
 from .engine.memory_router import MemoryRouter
@@ -185,6 +187,8 @@ class SelfEvolutionPlugin(Star):
             self.profile_summary_service = ProfileSummaryService(self, self.profile)
             # 娱乐功能模块
             self.entertainment = EntertainmentEngine(self)
+            # Persona 生活模拟引擎
+            self.persona_sim = PersonaSimEngine(self)
             # 关系温度引擎
             self.affinity = AffinityEngine(self)
             # 认知系统模块
@@ -663,6 +667,12 @@ class SelfEvolutionPlugin(Star):
     async def on_media_extraction_listener(self, event: AstrMessageEvent):
         """Phase 1+2+4: 消息媒体目标抽取 -> Caption -> 审核分类。"""
         group_id = event.get_group_id() or ""
+        if group_id:
+            try:
+                asyncio.create_task(self.persona_sim.tick(group_id))
+            except Exception:
+                pass
+
         if not await _is_bot_admin_in_group(event, group_id):
             return
 
@@ -2026,3 +2036,45 @@ class SelfEvolutionPlugin(Star):
         result = await commands.handle_db(event, self, action, param)
         event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
+
+    @filter.command_group("persona")
+    def persona_group(self):
+        """人格生活模拟"""
+        pass
+
+    @persona_group.command("status")
+    async def persona_status_cmd(self, event: AstrMessageEvent, scope: str = ""):
+        """查看当前人格状态快照（手动 tick）"""
+        target_scope = scope or event.get_group_id() or str(event.get_sender_id())
+        if not target_scope:
+            yield event.plain_result("无法确定 scope，请传入 scope 参数。")
+            return
+        try:
+            snapshot = await self.persona_sim.tick(target_scope)
+            debug_str = snapshot_to_debug_str(snapshot)
+            injection = snapshot_to_prompt(snapshot)
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(f"[PersonaSim]\n{debug_str}\n\n[注入片段] {injection}")
+        except Exception as e:
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(f"[PersonaSim] 出错: {e}")
+
+    @persona_group.command("state")
+    async def persona_state_cmd(self, event: AstrMessageEvent, scope: str = ""):
+        """只读取当前状态，不 tick"""
+        target_scope = scope or event.get_group_id() or str(event.get_sender_id())
+        if not target_scope:
+            yield event.plain_result("无法确定 scope，请传入 scope 参数。")
+            return
+        try:
+            snapshot = await self.persona_sim.get_snapshot(target_scope)
+            if not snapshot:
+                event.set_extra("self_evolution_command_reply", True)
+                yield event.plain_result(f"[PersonaSim] scope={target_scope} 还没有状态记录。")
+                return
+            debug_str = snapshot_to_debug_str(snapshot)
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(f"[PersonaSim]\n{debug_str}")
+        except Exception as e:
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(f"[PersonaSim] 出错: {e}")

@@ -251,6 +251,56 @@ class SelfEvolutionDAO:
                 expires_at REAL NOT NULL DEFAULT 0
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS persona_state (
+                scope_id TEXT PRIMARY KEY,
+                energy REAL NOT NULL DEFAULT 80.0,
+                mood REAL NOT NULL DEFAULT 70.0,
+                social_need REAL NOT NULL DEFAULT 50.0,
+                satiety REAL NOT NULL DEFAULT 80.0,
+                last_tick_at REAL NOT NULL DEFAULT 0.0,
+                last_interaction_at REAL NOT NULL DEFAULT 0.0
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS persona_effects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scope_id TEXT NOT NULL,
+                effect_id TEXT NOT NULL,
+                effect_type TEXT NOT NULL DEFAULT 'debuff',
+                name TEXT NOT NULL DEFAULT '',
+                source TEXT NOT NULL DEFAULT '',
+                intensity INTEGER NOT NULL DEFAULT 1,
+                started_at REAL NOT NULL DEFAULT 0.0,
+                expires_at REAL NOT NULL DEFAULT 0.0,
+                prompt_hint TEXT NOT NULL DEFAULT '',
+                tags TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS persona_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scope_id TEXT NOT NULL,
+                event_type TEXT NOT NULL DEFAULT 'natural',
+                summary TEXT NOT NULL DEFAULT '',
+                causes TEXT NOT NULL DEFAULT '',
+                effects_applied TEXT NOT NULL DEFAULT '',
+                timestamp REAL NOT NULL DEFAULT 0.0
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS persona_todos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scope_id TEXT NOT NULL,
+                todo_type TEXT NOT NULL DEFAULT 'internal',
+                title TEXT NOT NULL DEFAULT '',
+                reason TEXT NOT NULL DEFAULT '',
+                priority INTEGER NOT NULL DEFAULT 5,
+                mood_bias REAL NOT NULL DEFAULT 0.0,
+                expires_at REAL NOT NULL DEFAULT 0.0,
+                created_at REAL NOT NULL DEFAULT 0.0
+            )
+        """)
 
     async def get_conn(self):
         """带有存活检测的全局连接获取器，兼顾长连接性能与雪崩恢复，防阻塞分离读写锁"""
@@ -993,3 +1043,141 @@ class SelfEvolutionDAO:
                 (cache_key, caption_text, provider_id, model_name, now, expires_at),
             )
             await db.commit()
+
+    @with_db_retry()
+    async def get_persona_state(self, scope_id: str) -> dict | None:
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute("SELECT * FROM persona_state WHERE scope_id = ?", (scope_id,))
+            row = await cursor.fetchone()
+            if row:
+                cols = [desc[0] for desc in cursor.description]
+                return dict(zip(cols, row))
+            return None
+
+    @with_db_retry()
+    async def upsert_persona_state(self, scope_id: str, state) -> None:
+        db = await self.get_conn()
+        async with self._write_lock:
+            await db.execute(
+                """INSERT OR REPLACE INTO persona_state
+                   (scope_id, energy, mood, social_need, satiety, last_tick_at, last_interaction_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    scope_id,
+                    state.energy,
+                    state.mood,
+                    state.social_need,
+                    state.satiety,
+                    state.last_tick_at,
+                    state.last_interaction_at,
+                ),
+            )
+            await db.commit()
+
+    @with_db_retry()
+    async def get_active_persona_effects(self, scope_id: str) -> list[dict]:
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute("SELECT * FROM persona_effects WHERE scope_id = ?", (scope_id,))
+            rows = await cursor.fetchall()
+            cols = [desc[0] for desc in cursor.description]
+            return [dict(zip(cols, row)) for row in rows]
+
+    @with_db_retry()
+    async def add_persona_effect(self, scope_id: str, effect) -> None:
+        db = await self.get_conn()
+        tags = ",".join(effect.tags) if effect.tags else ""
+        async with self._write_lock:
+            await db.execute(
+                """INSERT OR REPLACE INTO persona_effects
+                   (scope_id, effect_id, effect_type, name, source, intensity, started_at, expires_at, prompt_hint, tags)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    scope_id,
+                    effect.effect_id,
+                    effect.effect_type.value,
+                    effect.name,
+                    effect.source,
+                    effect.intensity,
+                    effect.started_at,
+                    effect.expires_at,
+                    effect.prompt_hint,
+                    tags,
+                ),
+            )
+            await db.commit()
+
+    @with_db_retry()
+    async def deactivate_persona_effects(self, scope_id: str, effect_ids: list[str]) -> None:
+        if not effect_ids:
+            return
+        db = await self.get_conn()
+        async with self._write_lock:
+            placeholders = ",".join("?" * len(effect_ids))
+            await db.execute(
+                f"DELETE FROM persona_effects WHERE scope_id = ? AND effect_id IN ({placeholders})",
+                [scope_id] + effect_ids,
+            )
+            await db.commit()
+
+    @with_db_retry()
+    async def add_persona_event(self, scope_id: str, event) -> None:
+        db = await self.get_conn()
+        causes = "|".join(event.causes) if event.causes else ""
+        effects = "|".join(event.effects_applied) if event.effects_applied else ""
+        async with self._write_lock:
+            await db.execute(
+                """INSERT INTO persona_events
+                   (scope_id, event_type, summary, causes, effects_applied, timestamp)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (scope_id, event.event_type.value, event.summary, causes, effects, event.timestamp),
+            )
+            await db.commit()
+
+    @with_db_retry()
+    async def get_recent_persona_events(self, scope_id: str, limit: int = 5) -> list[dict]:
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute(
+                "SELECT * FROM persona_events WHERE scope_id = ? ORDER BY timestamp DESC LIMIT ?",
+                (scope_id, limit),
+            )
+            rows = await cursor.fetchall()
+            cols = [desc[0] for desc in cursor.description]
+            return [dict(zip(cols, row)) for row in rows]
+
+    @with_db_retry()
+    async def add_persona_todo(self, scope_id: str, todo) -> None:
+        db = await self.get_conn()
+        now = time.time()
+        async with self._write_lock:
+            await db.execute(
+                """INSERT INTO persona_todos
+                   (scope_id, todo_type, title, reason, priority, mood_bias, expires_at, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    scope_id,
+                    todo.todo_type.value,
+                    todo.title,
+                    todo.reason,
+                    todo.priority,
+                    todo.mood_bias,
+                    todo.expires_at,
+                    now,
+                ),
+            )
+            await db.commit()
+
+    @with_db_retry()
+    async def get_active_persona_todos(self, scope_id: str) -> list[dict]:
+        db = await self.get_conn()
+        now = time.time()
+        async with self._db_lock:
+            cursor = await db.execute(
+                "SELECT * FROM persona_todos WHERE scope_id = ? AND (expires_at <= 0 OR expires_at > ?)",
+                (scope_id, now),
+            )
+            rows = await cursor.fetchall()
+            cols = [desc[0] for desc in cursor.description]
+            return [dict(zip(cols, row)) for row in rows]
