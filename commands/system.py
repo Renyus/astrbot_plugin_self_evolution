@@ -2,6 +2,7 @@
 System Commands - 系统命令实现
 """
 
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -15,19 +16,29 @@ except ImportError:
     from engine.help_catalog import format_text_help
 
 
+async def _read_metadata_version() -> str:
+    """Read version from metadata.yaml asynchronously."""
+
+    async def _read():
+        metadata_path = Path(__file__).resolve().parents[1] / "metadata.yaml"
+        if metadata_path.exists():
+            try:
+                with open(metadata_path, encoding="utf-8") as f:
+                    for line in f:
+                        if line.startswith("version:"):
+                            return line.split(":", 1)[1].strip()
+            except Exception:
+                pass
+        return None
+
+    return await asyncio.to_thread(_read) or "未知"
+
+
 async def handle_version(event, plugin):
     """显示插件版本"""
     version = getattr(plugin, "_cached_version", None)
     if version is None:
-        metadata_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "metadata.yaml")
-        if os.path.exists(metadata_path):
-            with open(metadata_path, encoding="utf-8") as f:
-                for line in f:
-                    if line.startswith("version:"):
-                        version = line.split(":", 1)[1].strip()
-                        break
-        if not version:
-            version = "未知"
+        version = await _read_metadata_version()
         plugin._cached_version = version
     return f"【Self-Evolution】版本: {version}"
 

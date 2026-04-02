@@ -315,6 +315,7 @@ class SelfEvolutionPlugin(Star):
 
     async def initialize(self) -> None:
         await self.dao.init_db()
+        await self.help_theme_store.init()
         self.san_system.initialize()
         self._load_prompts_injection()
 
@@ -1118,7 +1119,7 @@ class SelfEvolutionPlugin(Star):
             sub = args[0]
 
             if sub == "list":
-                backgrounds = self.help_theme_store.list_backgrounds()
+                backgrounds = await self.help_theme_store.list_backgrounds()
                 current = self.help_theme_store.theme.bg_name
                 lines = ["【可用背景】"]
                 for bg in backgrounds:
@@ -1136,7 +1137,7 @@ class SelfEvolutionPlugin(Star):
                     yield event.plain_result("请提供背景名称：/system help bg set <名称>")
                     return
                 bg_name = args[1]
-                success, msg = self.help_theme_store.set_background(bg_name)
+                success, msg = await self.help_theme_store.set_background(bg_name)
                 event.set_extra("self_evolution_command_reply", True)
                 yield event.plain_result(msg)
                 return
@@ -1152,19 +1153,19 @@ class SelfEvolutionPlugin(Star):
                     event.set_extra("self_evolution_command_reply", True)
                     yield event.plain_result(f"无效的模糊值: {args[1]}，请输入 0-30 之间的整数")
                     return
-                success, msg = self.help_theme_store.set_blur(blur_val)
+                success, msg = await self.help_theme_store.set_blur(blur_val)
                 event.set_extra("self_evolution_command_reply", True)
                 yield event.plain_result(msg)
                 return
 
             if sub == "reset":
-                success, msg = self.help_theme_store.reset()
+                success, msg = await self.help_theme_store.reset()
                 event.set_extra("self_evolution_command_reply", True)
                 yield event.plain_result(msg)
                 return
 
             if sub == "preview":
-                img_path, success = render_help_image(self.help_theme_store, is_admin=True)
+                img_path, success = await render_help_image(self.help_theme_store, is_admin=True)
                 if success and img_path and img_path.exists():
                     try:
                         import base64
@@ -1186,7 +1187,7 @@ class SelfEvolutionPlugin(Star):
             yield event.plain_result(f"未知子命令: {sub}，可用: list, set, blur, reset, preview")
             return
 
-        img_path, success = render_help_image(self.help_theme_store, is_admin=is_admin)
+        img_path, success = await render_help_image(self.help_theme_store, is_admin=is_admin)
         if success and img_path and img_path.exists():
             try:
                 import base64

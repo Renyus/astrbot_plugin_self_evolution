@@ -6,8 +6,11 @@ Creates a navigation poster style help image with:
 - Semi-transparent overlay
 - Glass card layout for command groups
 - Clean typography
+
+All file I/O is async-safe via asyncio.to_thread().
 """
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Optional
@@ -16,7 +19,6 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .help_catalog import (
     HELP_CATALOG_VERSION,
-    CommandGroup,
     HelpCommand,
     get_commands_by_group,
 )
@@ -24,7 +26,6 @@ from .help_theme_store import HelpThemeStore
 
 logger = logging.getLogger("astrbot")
 
-CARD_COLOR = (255, 255, 255, 40)
 TITLE_COLOR = (255, 255, 255)
 TEXT_COLOR = (220, 220, 230)
 CMD_COLOR = (255, 255, 255)
@@ -38,28 +39,32 @@ GROUP_NAMES = {
     "persona": "Persona",
 }
 
-try:
-    _FONT_PATHS = [
+_DEFAULT_FONT: Optional[ImageFont.FreeTypeFont] = None
+
+
+def _init_fonts():
+    """Initialize default fonts at module load time."""
+    global _DEFAULT_FONT
+    if _DEFAULT_FONT is not None:
+        return
+    font_paths = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
         "C:\\Windows\\Fonts\\consola.ttf",
         "C:\\Windows\\Fonts\\msgothic.ttc",
     ]
-    _DEFAULT_FONT: Optional[ImageFont.FreeTypeFont] = None
-    for fp in _FONT_PATHS:
+    for fp in font_paths:
         try:
             _DEFAULT_FONT = ImageFont.truetype(fp, 18)
-            break
+            return
         except Exception:
             continue
-    if _DEFAULT_FONT is None:
-        _DEFAULT_FONT = ImageFont.load_default()
-except Exception:
     _DEFAULT_FONT = ImageFont.load_default()
 
 
 def _get_font(size: int) -> ImageFont.FreeTypeFont:
     """Try to get a font of the specified size."""
+    _init_fonts()
     font_paths = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
@@ -71,16 +76,16 @@ def _get_font(size: int) -> ImageFont.FreeTypeFont:
             return ImageFont.truetype(fp, size)
         except Exception:
             continue
-    return _DEFAULT_FONT
+    return _DEFAULT_FONT or ImageFont.load_default()
 
 
 class HelpRenderer:
     def __init__(self, theme_store: HelpThemeStore):
         self.theme_store = theme_store
 
-    def render(self, is_admin: bool = False) -> tuple[Optional[Path], bool]:
+    async def render(self, is_admin: bool = False) -> tuple[Optional[Path], bool]:
         """
-        Render the help image.
+        Render the help image asynchronously.
 
         Returns (path, success). path is None if rendering failed.
         """
@@ -95,18 +100,18 @@ class HelpRenderer:
         if cache_path and cache_path.exists():
             return cache_path, True
 
-        bg_path = self.theme_store.get_bg_path()
+        bg_path = await self.theme_store.get_bg_path()
         if bg_path is None:
             logger.error("[HelpRenderer] No background image found")
             return None, False
 
         try:
-            img = self._create_image(bg_path, theme.blur, is_admin)
+            img = await self._create_image(bg_path, theme.blur, is_admin)
             if img is None:
                 return None, False
 
             if cache_path:
-                img.save(cache_path, "PNG")
+                await asyncio.to_thread(self._save_image, img, cache_path)
                 logger.info(f"[HelpRenderer] Saved help image to cache: {cache_path}")
 
             return cache_path, True
@@ -114,9 +119,14 @@ class HelpRenderer:
             logger.error(f"[HelpRenderer] Failed to render help image: {e}")
             return None, False
 
-    def _create_image(self, bg_path: Path, blur_radius: int, is_admin: bool) -> Optional[Image.Image]:
+    def _save_image(self, img: Image.Image, path: Path) -> None:
+        """Save image to file (sync, runs in thread)."""
+        img.save(path, "PNG")
+
+    async def _create_image(self, bg_path: Path, blur_radius: int, is_admin: bool) -> Optional[Image.Image]:
         """Create the help image with glass card layout."""
-        try:
+
+        def _create():
             from PIL import ImageFilter
 
             bg = Image.open(bg_path).convert("RGBA")
@@ -139,9 +149,7 @@ class HelpRenderer:
 
             return canvas.convert("RGB")
 
-        except Exception as e:
-            logger.error(f"[HelpRenderer] Image creation failed: {e}")
-            return None
+        return await asyncio.to_thread(_create)
 
     def _draw_title(self, draw: ImageDraw.ImageDraw, is_admin: bool) -> None:
         """Draw the title section."""
@@ -175,7 +183,6 @@ class HelpRenderer:
 
         col = 0
         row = 0
-        max_height = 0
 
         for group_key in ["base", "user", "admin", "persona"]:
             if group_key == "admin" and not is_admin:
@@ -193,7 +200,6 @@ class HelpRenderer:
             x = card_x + col * (card_width + card_spacing)
             self._draw_card(draw, x, card_y, card_width, card_height, group_key, cmds)
 
-            max_height = max(max_height, card_height)
             col += 1
 
     def _draw_card(
@@ -265,7 +271,7 @@ class HelpRenderer:
             draw.text((x, 1550), hint2, font=footer_font, fill=DESC_COLOR)
 
 
-def render_help_image(theme_store: HelpThemeStore, is_admin: bool = False) -> tuple[Optional[Path], bool]:
-    """Convenience function to render help image."""
+async def render_help_image(theme_store: HelpThemeStore, is_admin: bool = False) -> tuple[Optional[Path], bool]:
+    """Convenience function to render help image asynchronously."""
     renderer = HelpRenderer(theme_store)
-    return renderer.render(is_admin)
+    return await renderer.render(is_admin)
