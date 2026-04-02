@@ -1168,15 +1168,11 @@ class SelfEvolutionPlugin(Star):
                 img_path, success = await render_help_image(self.help_theme_store, is_admin=True)
                 if success and img_path and img_path.exists():
                     try:
-                        import base64
-
-                        data = await asyncio.to_thread(_read_file_sync, img_path)
-                        bs64 = base64.b64encode(data).decode()
-                        from astrbot.core.message.components import Image
-
-                        event.set_extra("self_evolution_command_reply", True)
-                        yield event.chain_result([Image(f"base64://{bs64}")])
-                        return
+                        if AstrImage:
+                            result = AstrImage.fromFileSystem(str(img_path))
+                            event.set_extra("self_evolution_command_reply", True)
+                            yield event.chain_result([result])
+                            return
                     except Exception as e:
                         logger.warning(f"[HelpRenderer] Preview failed: {e}")
                 event.set_extra("self_evolution_command_reply", True)
@@ -1190,15 +1186,11 @@ class SelfEvolutionPlugin(Star):
         img_path, success = await render_help_image(self.help_theme_store, is_admin=is_admin)
         if success and img_path and img_path.exists():
             try:
-                import base64
-
-                data = await asyncio.to_thread(_read_file_sync, img_path)
-                bs64 = base64.b64encode(data).decode()
-                from astrbot.core.message.components import Image
-
-                event.set_extra("self_evolution_command_reply", True)
-                yield event.chain_result([Image(f"base64://{bs64}")])
-                return
+                if AstrImage:
+                    result = AstrImage.fromFileSystem(str(img_path))
+                    event.set_extra("self_evolution_command_reply", True)
+                    yield event.chain_result([result])
+                    return
             except Exception as e:
                 logger.warning(f"[HelpRenderer] Failed to send image: {e}")
 
