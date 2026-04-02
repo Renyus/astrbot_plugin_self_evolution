@@ -32,7 +32,7 @@ class SessionMemoryStore:
             return f"{memory_kb_name}__scope__p_{self._get_private_scope_user_id(scope_id)}"
         return f"{memory_kb_name}__scope__g_{scope_id}"
 
-    async def _ensure_scope_kb(self, scope_id: str):
+    async def _ensure_scope_kb(self, scope_id: str, umo: str | None = None):
         """确保 scope 对应的知识库存在并绑定"""
         try:
             kb_manager = getattr(self.plugin.context, "kb_manager", None)
@@ -49,11 +49,14 @@ class SessionMemoryStore:
                 pass
 
             try:
-                await kb_manager.create_kb_if_not_exists(
-                    kb_name=scope_kb_name,
-                    kb_description=f"会话记忆 scope={scope_id}",
-                    umo=umo,
-                )
+                create_kwargs = {
+                    "kb_name": scope_kb_name,
+                    "kb_description": f"会话记忆 scope={scope_id}",
+                }
+                if umo is not None:
+                    create_kwargs["umo"] = umo
+
+                await kb_manager.create_kb_if_not_exists(**create_kwargs)
                 kb_helper = await asyncio.wait_for(kb_manager.get_kb_by_name(scope_kb_name), timeout=5.0)
                 return kb_helper
             except Exception as e:
@@ -449,7 +452,7 @@ class SessionMemoryStore:
             return ""
 
     async def clear_summary(self, scope_id: str, confirm: bool = False) -> str:
-        """清空指定 scope 的所有总结"""
+        """清空指定 scope 的所有总结（只删 memory_ 文档，保留 event_ 文档）"""
         if not confirm:
             return "操作已取消"
 
@@ -468,22 +471,23 @@ class SessionMemoryStore:
             if not kb_helper:
                 return "知识库不存在"
 
-            if hasattr(kb_helper, "delete_all_documents"):
-                await kb_helper.delete_all_documents()
-                return f"已清空 scope={scope_id} 的所有总结"
-            elif hasattr(kb_helper, "list_documents"):
-                docs = await kb_helper.list_documents()
-                deleted = 0
-                for doc in docs:
-                    if isinstance(doc, str) and doc.startswith(f"summary_{scope_id}_"):
-                        try:
-                            await kb_helper.delete_document(doc)
-                            deleted += 1
-                        except Exception:
-                            pass
-                return f"已删除 {deleted} 份总结"
-            else:
+            if not hasattr(kb_helper, "list_documents"):
                 return "知识库不支持清空操作"
+
+            docs = await kb_helper.list_documents()
+            deleted = 0
+            summary_prefix = f"memory_{scope_id}_"
+            for doc in docs:
+                doc_name = getattr(doc, "doc_name", "") if not isinstance(doc, str) else doc
+                if not doc_name.startswith(summary_prefix):
+                    continue
+                doc_id = getattr(doc, "doc_id", None) or doc
+                try:
+                    await kb_helper.delete_document(doc_id)
+                    deleted += 1
+                except Exception:
+                    pass
+            return f"已删除 {deleted} 份总结"
 
         except Exception as e:
             logger.warning(f"[MemoryStore] clear_summary 失败: {e}")
