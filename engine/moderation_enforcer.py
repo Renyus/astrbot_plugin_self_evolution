@@ -21,7 +21,6 @@ from .caption_service import CaptionResult
 from .moderation_classifier import (
     ModerationCategory,
     ModerationResult,
-    RiskLevel,
     SuggestedAction,
 )
 from .moderation_executor import (
