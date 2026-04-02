@@ -669,7 +669,7 @@ class SelfEvolutionPlugin(Star):
         group_id = event.get_group_id() or ""
         if group_id:
             try:
-                asyncio.create_task(self.persona_sim.tick(group_id))
+                asyncio.create_task(self.persona_sim.tick_time_only(group_id))
             except Exception:
                 pass
 

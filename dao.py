@@ -1181,3 +1181,10 @@ class SelfEvolutionDAO:
             rows = await cursor.fetchall()
             cols = [desc[0] for desc in cursor.description]
             return [dict(zip(cols, row)) for row in rows]
+
+    @with_db_retry()
+    async def clear_persona_todos(self, scope_id: str) -> None:
+        db = await self.get_conn()
+        async with self._write_lock:
+            await db.execute("DELETE FROM persona_todos WHERE scope_id = ?", (scope_id,))
+            await db.commit()

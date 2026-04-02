@@ -43,6 +43,10 @@ class PersonaSimEngine:
         self.plugin = plugin
         self._dao = getattr(plugin, "dao", None)
 
+    async def tick_time_only(self, scope_id: str, now: float | None = None) -> PersonaSnapshot:
+        """只推进时间，不应用真实互动。用于被动观察消息时的自动 tick。"""
+        return await self.tick(scope_id, now=now, interaction_quality="none")
+
     async def tick(
         self,
         scope_id: str,
@@ -96,6 +100,8 @@ class PersonaSimEngine:
         triggered = eval_effect_triggers(state, active_ids, now)
         effect_events: list[PersonaEvent] = []
         for e in triggered:
+            active_effects.append(e)
+            active_ids.add(e.effect_id)
             effect_events.append(
                 PersonaEvent(
                     event_type=EventType.EFFECT_TRIGGER,
@@ -111,6 +117,8 @@ class PersonaSimEngine:
             state = apply_interaction(state, interaction_quality)
 
         pending_todos = generate_todos(state, active_effects)
+        if self._dao:
+            await self._dao.clear_persona_todos(scope_id)
         for td in pending_todos:
             if self._dao:
                 await self._dao.add_persona_todo(scope_id, td)
