@@ -32,6 +32,22 @@ class SessionMemoryStore:
             return f"{memory_kb_name}__scope__p_{self._get_private_scope_user_id(scope_id)}"
         return f"{memory_kb_name}__scope__g_{scope_id}"
 
+    def _get_default_embedding_provider_id(self) -> str | None:
+        """从 provider_manager 获取默认 embedding provider ID。"""
+        try:
+            kb_manager = getattr(self.plugin.context, "kb_manager", None)
+            if not kb_manager:
+                return None
+            provider_manager = getattr(kb_manager, "provider_manager", None)
+            if not provider_manager:
+                return None
+            insts = getattr(provider_manager, "embedding_provider_insts", [])
+            if insts:
+                return insts[0].provider_config.get("id")
+        except Exception:
+            pass
+        return None
+
     async def _ensure_scope_kb(self, scope_id: str, umo: str | None = None):
         """确保 scope 对应的知识库存在并绑定"""
         try:
@@ -48,15 +64,17 @@ class SessionMemoryStore:
             except Exception:
                 pass
 
-            try:
-                create_kwargs = {
-                    "kb_name": scope_kb_name,
-                    "kb_description": f"会话记忆 scope={scope_id}",
-                }
-                if umo is not None:
-                    create_kwargs["umo"] = umo
+            embedding_provider_id = self._get_default_embedding_provider_id()
+            if not embedding_provider_id:
+                logger.warning(f"[MemoryStore] 没有可用的 embedding provider，无法创建知识库")
+                return None
 
-                await kb_manager.create_kb_if_not_exists(**create_kwargs)
+            try:
+                await kb_manager.create_kb(
+                    kb_name=scope_kb_name,
+                    description=f"会话记忆 scope={scope_id}",
+                    embedding_provider_id=embedding_provider_id,
+                )
                 kb_helper = await asyncio.wait_for(kb_manager.get_kb_by_name(scope_kb_name), timeout=5.0)
                 return kb_helper
             except Exception as e:
@@ -114,10 +132,14 @@ class SessionMemoryStore:
                 pass
 
             try:
-                await kb_manager.create_kb_if_not_exists(
+                embedding_provider_id = self._get_default_embedding_provider_id()
+                if not embedding_provider_id:
+                    self._debug(f"[MemoryStore] scope={scope_id} kb_bind=失败: 没有可用的embedding provider")
+                    return
+                await kb_manager.create_kb(
                     kb_name=scope_kb_name,
-                    kb_description=f"会话记忆 scope={scope_id}",
-                    umo=umo,
+                    description=f"会话记忆 scope={scope_id}",
+                    embedding_provider_id=embedding_provider_id,
                 )
             except Exception as e:
                 self._debug(f"[MemoryStore] scope={scope_id} kb_bind=失败: {e}")

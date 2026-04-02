@@ -35,39 +35,45 @@ class EnsureScopeKbTests(IsolatedAsyncioTestCase):
         result = await store._ensure_scope_kb("g_123")
 
         self.assertEqual(result, fake_helper)
-        plugin.context.kb_manager.create_kb_if_not_exists.assert_not_called()
+        plugin.context.kb_manager.create_kb.assert_not_called()
 
     async def test_kb_missing_creates_it_without_umo(self):
-        """KB missing → calls create_kb_if_not_exists without error (umo=None)."""
+        """KB missing → calls create_kb (via _get_default_embedding_provider_id)."""
         plugin = MagicMock()
         plugin.context.kb_manager = MagicMock()
         plugin.context.kb_manager.get_kb_by_name = AsyncMock(side_effect=[None, _fake_kb_helper()])
-        plugin.context.kb_manager.create_kb_if_not_exists = AsyncMock()
+        plugin.context.kb_manager.create_kb = AsyncMock()
         plugin.cfg.memory_kb_name = "self_evolution_memory"
+        mock_pm = MagicMock()
+        mock_pm.embedding_provider_insts = [MagicMock(provider_config={"id": "embed_provider"})]
+        plugin.context.kb_manager.provider_manager = mock_pm
 
         store = SessionMemoryStore(plugin)
         result = await store._ensure_scope_kb("g_456")
 
         self.assertIsNotNone(result)
-        plugin.context.kb_manager.create_kb_if_not_exists.assert_called_once()
-        call_args = plugin.context.kb_manager.create_kb_if_not_exists.call_args
+        plugin.context.kb_manager.create_kb.assert_called_once()
+        call_args = plugin.context.kb_manager.create_kb.call_args
         kb_name_arg = call_args.kwargs.get("kb_name") if call_args.kwargs else None
         self.assertIn("__scope__g_g_456", kb_name_arg or "")
+        self.assertEqual(call_args.kwargs.get("embedding_provider_id"), "embed_provider")
 
-    async def test_kb_missing_creates_it_with_umo(self):
-        """KB missing with umo provided → passes umo to create_kb_if_not_exists."""
+    async def test_kb_missing_no_embedding_provider_returns_none(self):
+        """KB missing but no embedding provider → returns None without calling create_kb."""
         plugin = MagicMock()
         plugin.context.kb_manager = MagicMock()
         plugin.context.kb_manager.get_kb_by_name = AsyncMock(side_effect=[None, _fake_kb_helper()])
-        plugin.context.kb_manager.create_kb_if_not_exists = AsyncMock()
+        plugin.context.kb_manager.create_kb = AsyncMock()
+        plugin.cfg.memory_kb_name = "self_evolution_memory"
+        mock_pm = MagicMock()
+        mock_pm.embedding_provider_insts = []
+        plugin.context.kb_manager.provider_manager = mock_pm
 
         store = SessionMemoryStore(plugin)
-        result = await store._ensure_scope_kb("g_789", umo="test_umo")
+        result = await store._ensure_scope_kb("g_789")
 
-        self.assertIsNotNone(result)
-        plugin.context.kb_manager.create_kb_if_not_exists.assert_called_once()
-        call_args = plugin.context.kb_manager.create_kb_if_not_exists.call_args
-        self.assertEqual(call_args.kwargs.get("umo"), "test_umo")
+        self.assertIsNone(result)
+        plugin.context.kb_manager.create_kb.assert_not_called()
 
     async def test_no_kb_manager_returns_none(self):
         """No kb_manager → returns None without error."""
@@ -84,12 +90,15 @@ class SaveDailySummaryKbCreationTests(IsolatedAsyncioTestCase):
     """Tests for save_daily_summary using KB creation path."""
 
     async def test_save_daily_summary_works_when_kb_missing_and_created(self):
-        """KB missing initially → _ensure_scope_kb creates it → summary saved."""
+        """KB missing initially → _ensure_scope_kb creates it via create_kb → summary saved."""
         plugin = MagicMock()
         plugin.context.kb_manager = MagicMock()
         created_helper = _fake_kb_helper()
         plugin.context.kb_manager.get_kb_by_name = AsyncMock(side_effect=[None, created_helper])
-        plugin.context.kb_manager.create_kb_if_not_exists = AsyncMock()
+        plugin.context.kb_manager.create_kb = AsyncMock()
+        mock_pm = MagicMock()
+        mock_pm.embedding_provider_insts = [MagicMock(provider_config={"id": "embed_provider"})]
+        plugin.context.kb_manager.provider_manager = mock_pm
 
         store = SessionMemoryStore(plugin)
         result = await store.save_daily_summary(
@@ -98,7 +107,7 @@ class SaveDailySummaryKbCreationTests(IsolatedAsyncioTestCase):
             summary_date="2025-01-01",
         )
 
-        plugin.context.kb_manager.create_kb_if_not_exists.assert_called_once()
+        plugin.context.kb_manager.create_kb.assert_called_once()
         self.assertIn("已保存", result)
 
 
@@ -106,12 +115,15 @@ class SaveSessionEventKbCreationTests(IsolatedAsyncioTestCase):
     """Tests for save_session_event using KB creation path."""
 
     async def test_save_session_event_works_when_kb_missing_and_created(self):
-        """KB missing initially → _ensure_scope_kb creates it → event saved."""
+        """KB missing initially → _ensure_scope_kb creates it via create_kb → event saved."""
         plugin = MagicMock()
         plugin.context.kb_manager = MagicMock()
         created_helper = _fake_kb_helper()
         plugin.context.kb_manager.get_kb_by_name = AsyncMock(side_effect=[None, created_helper])
-        plugin.context.kb_manager.create_kb_if_not_exists = AsyncMock()
+        plugin.context.kb_manager.create_kb = AsyncMock()
+        mock_pm = MagicMock()
+        mock_pm.embedding_provider_insts = [MagicMock(provider_config={"id": "embed_provider"})]
+        plugin.context.kb_manager.provider_manager = mock_pm
 
         store = SessionMemoryStore(plugin)
         result = await store.save_session_event(
@@ -119,7 +131,7 @@ class SaveSessionEventKbCreationTests(IsolatedAsyncioTestCase):
             session_event={"content": "测试事件", "source": "test", "date": "2025-01-01"},
         )
 
-        plugin.context.kb_manager.create_kb_if_not_exists.assert_called_once()
+        plugin.context.kb_manager.create_kb.assert_called_once()
         self.assertTrue(result)
 
 
