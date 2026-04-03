@@ -267,21 +267,6 @@ class SelfEvolutionDAO:
         if "thought_process" not in persona_state_cols:
             await db.execute("ALTER TABLE persona_state ADD COLUMN thought_process TEXT NOT NULL DEFAULT ''")
         await db.execute("""
-            CREATE TABLE IF NOT EXISTS persona_effects (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                scope_id TEXT NOT NULL,
-                effect_id TEXT NOT NULL,
-                effect_type TEXT NOT NULL DEFAULT 'debuff',
-                name TEXT NOT NULL DEFAULT '',
-                source TEXT NOT NULL DEFAULT '',
-                intensity INTEGER NOT NULL DEFAULT 1,
-                started_at REAL NOT NULL DEFAULT 0.0,
-                expires_at REAL NOT NULL DEFAULT 0.0,
-                prompt_hint TEXT NOT NULL DEFAULT '',
-                tags TEXT NOT NULL DEFAULT ''
-            )
-        """)
-        await db.execute("""
             CREATE TABLE IF NOT EXISTS persona_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 scope_id TEXT NOT NULL,
@@ -333,6 +318,19 @@ class SelfEvolutionDAO:
                 energy_before REAL NOT NULL DEFAULT 0.0,
                 energy_after REAL NOT NULL DEFAULT 0.0,
                 created_at TEXT NOT NULL
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS persona_todos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scope_id TEXT NOT NULL,
+                todo_type TEXT NOT NULL DEFAULT 'internal',
+                title TEXT NOT NULL DEFAULT '',
+                reason TEXT NOT NULL DEFAULT '',
+                priority INTEGER NOT NULL DEFAULT 5,
+                mood_bias REAL NOT NULL DEFAULT 0.0,
+                expires_at REAL NOT NULL DEFAULT 0.0,
+                created_at REAL NOT NULL DEFAULT 0.0
             )
         """)
 
