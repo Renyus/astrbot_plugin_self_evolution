@@ -1138,7 +1138,7 @@ class SelfEvolutionPlugin(Star):
             event.set_extra("self_evolution_command_reply", True)
             yield event.chain_result([Image.fromURL(result[1]), Plain(result[0])])
 
-    @filter.command("meal")
+    @filter.command_group("meal")
     def meal_group(self):
         """群菜单管理"""
         pass
