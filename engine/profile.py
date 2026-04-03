@@ -1047,12 +1047,7 @@ class ProfileManager:
                 f"会话范围：{scope_id}\n"
                 f"{'旧笔记：' + existing_note + chr(10) if mode == 'update' else ''}"
                 f"{'私聊消息' if is_private_scope else '群聊消息'}：" + "\n" + "\n".join(user_messages) + "\n"
-                "请以Markdown格式输出用户画像，包含以下章节（每个章节不少于3个要点）：\n"
-                "## identity - 用户身份背景（职业、年龄、地区、教育等）\n"
-                "## preferences - 用户兴趣爱好（喜欢什么、讨厌什么）\n"
-                "## traits - 性格特征和行为习惯\n"
-                "## recent_updates - 最近发生的事件或变化\n"
-                "## long_term_notes - 长期稳定的特质或重要经历\n"
+                "用Markdown格式写几段关于这个用户的描述，语言自然像朋友聊天，不用列点不用打分：\n"
             )
 
             llm_provider = self.plugin.context.get_using_provider(umo=umo)
@@ -1062,7 +1057,7 @@ class ProfileManager:
             res = await llm_provider.text_chat(
                 prompt=prompt,
                 contexts=[],
-                system_prompt="你是一个专业的用户画像分析师。根据用户消息分析其身份背景、性格特征、兴趣爱好、沟通方式，工作学习习惯等，每个结论必须标注置信度。",
+                system_prompt="你是一个善于观察的AI。根据对话内容自然地描述这个用户是什么样的人，用聊天式的语言，不用打分，不用列置信度。",
             )
 
             new_note = res.completion_text.strip() if res.completion_text else ""
@@ -1238,24 +1233,18 @@ class ProfileManager:
                 interested_tag = "\n\n> ⭐ 该用户被AI标记为'感兴趣'" if interested else ""
 
                 profile_prompt = (
-                    f"你是记忆助手。请根据对话分析用户特征。\n"
                     f"目标用户：{nickname} (QQ: {user_id})\n"
                     f"构建原因：{reason}\n"
                     f"{'旧笔记：' + existing_note + chr(10) if existing_note != '(暂无)' else ''}"
                     f"用户消息：\n" + "\n".join(user_messages) + "\n"
                     f"{interested_tag}\n"
-                    "请以Markdown格式输出用户画像，包含以下章节（每个章节不少于3个要点）：\n"
-                    "## identity - 用户身份背景（职业、年龄、地区、教育等）\n"
-                    "## preferences - 用户兴趣爱好（喜欢什么、讨厌什么）\n"
-                    "## traits - 性格特征和行为习惯\n"
-                    "## recent_updates - 最近发生的事件或变化\n"
-                    "## long_term_notes - 长期稳定的特质或重要经历\n"
+                    "用Markdown格式写几段关于这个用户的描述，语言自然像朋友聊天，不用列点不用打分：\n"
                 )
 
                 res = await llm_provider.text_chat(
                     prompt=profile_prompt,
                     contexts=[],
-                    system_prompt="你是一个专业的用户画像分析师。根据用户消息分析其身份背景、性格特征、兴趣爱好、沟通方式等。",
+                    system_prompt="你是一个善于观察的AI。根据对话内容自然地描述这个用户是什么样的人，用聊天式的语言，不用打分，不用列置信度。",
                 )
 
                 new_note = res.completion_text.strip() if res.completion_text else ""

@@ -309,30 +309,6 @@
                 "type": "int",
                 "default": 50,
                 "hint": "每次群氛围分析读取的消息条数。"
-            },
-            "san_high_activity_boost": {
-                "description": "高活跃加成",
-                "type": "int",
-                "default": 5,
-                "hint": "高活跃群对 SAN 的额外正向影响。"
-            },
-            "san_low_activity_drain": {
-                "description": "低活跃扣减",
-                "type": "int",
-                "default": -3,
-                "hint": "低活跃群对 SAN 的额外负向影响。"
-            },
-            "san_positive_vibe_bonus": {
-                "description": "正氛围加成",
-                "type": "int",
-                "default": 3,
-                "hint": "正向群氛围对 SAN 的额外加成。"
-            },
-            "san_negative_vibe_penalty": {
-                "description": "负氛围惩罚",
-                "type": "int",
-                "default": -5,
-                "hint": "负向群氛围对 SAN 的额外惩罚。"
             }
         }
     },

@@ -507,3 +507,253 @@ class PersonaSimEngine:
             recent_events=recent_events,
             snapshot_at=now,
         )
+
+    async def eat(self, food_data: dict, scope_id: str, user_id: str) -> PersonaSnapshot:
+        """处理喂食事件，根据食物数据更新角色状态。
+
+        Args:
+            food_data: 包含 food_name, is_food, category, calories, tastiness 的字典
+            scope_id: 作用域ID（群ID或private_用户ID）
+            user_id: 喂食者ID
+
+        Returns:
+            更新后的 PersonaSnapshot
+        """
+        now = time.time()
+
+        state_row = await self._dao.get_persona_state(scope_id) if self._dao else None
+        if state_row:
+            state = PersonaState(
+                energy=float(state_row["energy"]),
+                mood=float(state_row["mood"]),
+                social_need=float(state_row["social_need"]),
+                satiety=float(state_row["satiety"]),
+                last_tick_at=float(state_row["last_tick_at"]),
+                last_interaction_at=float(state_row["last_interaction_at"]),
+                thought_process=state_row.get("thought_process", ""),
+            )
+        else:
+            state = PersonaState()
+
+        is_food = food_data.get("is_food", False)
+        category = food_data.get("category", "non_food")
+        calories = int(food_data.get("calories", 0))
+        tastiness = int(food_data.get("tastiness", 0))
+        food_name = food_data.get("food_name", "未知食物")
+
+        new_effects: list[PersonaEffect] = []
+        new_todos: list[PersonaTodo] = []
+        satiety_delta = 0.0
+        mood_delta = 0.0
+        energy_delta = 0.0
+
+        if not is_food or category == "dark_cuisine":
+            mood_delta = -40.0
+            satiety_delta = -10.0
+            source_detail = f"被试图投喂不可描述的东西（{food_name}），感到极度恶心和愤怒"
+            effect_type = EffectType.DEBUFF
+            effect_id = f"bad_food_{int(now)}"
+            new_effects.append(
+                PersonaEffect(
+                    effect_id=effect_id,
+                    effect_type=effect_type,
+                    name="摄入异常",
+                    source="feed",
+                    intensity=90,
+                    started_at=now,
+                    expires_at=now + 3600,
+                    prompt_hint="被试图投喂恶心至极的东西，非常愤怒，想骂人",
+                    tags=["negative", "food", "disgusting"],
+                    source_detail=source_detail,
+                    decay_style="gradual",
+                    recovery_style="passive",
+                )
+            )
+            new_todos.append(
+                PersonaTodo(
+                    todo_type=TodoType.INTERNAL,
+                    title="想骂人",
+                    reason="被试图喂恶心东西，非常不爽",
+                    priority=9,
+                    mood_bias=-15.0,
+                    expires_at=now + 3600,
+                )
+            )
+
+        elif state.satiety > 90:
+            mood_delta = -10.0
+            satiety_delta = 5.0
+            source_detail = f"已经吃撑了还被硬塞了{food_name}，很难受"
+            effect_id = f"overfed_{int(now)}"
+            new_effects.append(
+                PersonaEffect(
+                    effect_id=effect_id,
+                    effect_type=EffectType.DEBUFF,
+                    name="过饱",
+                    source="feed",
+                    intensity=40,
+                    started_at=now,
+                    expires_at=now + 2400,
+                    prompt_hint="已经吃撑了，很难受",
+                    tags=["negative", "food"],
+                    source_detail=source_detail,
+                    decay_style="gradual",
+                    recovery_style="passive",
+                )
+            )
+            new_todos.append(
+                PersonaTodo(
+                    todo_type=TodoType.INTERNAL,
+                    title="想安静消化",
+                    reason="吃太多了，需要休息消化",
+                    priority=8,
+                    mood_bias=-3.0,
+                    expires_at=now + 2400,
+                )
+            )
+
+        else:
+            satiety_delta = calories * 0.4
+            mood_delta = tastiness * 0.15
+
+            if category == "dessert":
+                energy_delta = 10.0
+                source_detail = f"品尝了甜点{food_name}，心情不错，还获得了短暂的能量加成~"
+            else:
+                source_detail = f"品尝了{food_name}，心情不错"
+
+            effect_type = EffectType.BUFF
+            effect_id = f"ate_{category}_{int(now)}"
+
+            if category == "dessert":
+                prompt_hint = f"刚吃了甜点{food_name}，甜甜的心情"
+                tags = ["positive", "food", "dessert"]
+                intensity = min(60, 30 + tastiness // 2)
+            else:
+                prompt_hint = f"刚吃了{food_name}，满足"
+                tags = ["positive", "food"]
+                intensity = min(50, 20 + tastiness // 3)
+
+            new_effects.append(
+                PersonaEffect(
+                    effect_id=effect_id,
+                    effect_type=effect_type,
+                    name="进食满足",
+                    source="feed",
+                    intensity=intensity,
+                    started_at=now,
+                    expires_at=now + 3600,
+                    prompt_hint=prompt_hint,
+                    tags=tags,
+                    source_detail=source_detail,
+                    decay_style="gradual",
+                    recovery_style="passive",
+                )
+            )
+
+            if category == "dessert":
+                energy_effect_id = f"dessert_energy_{int(now)}"
+                new_effects.append(
+                    PersonaEffect(
+                        effect_id=energy_effect_id,
+                        effect_type=EffectType.BUFF,
+                        name="甜点能量",
+                        source="feed",
+                        intensity=30,
+                        started_at=now,
+                        expires_at=now + 1800,
+                        prompt_hint="甜点带来的短暂能量boost",
+                        tags=["positive", "energy", "dessert"],
+                        source_detail="甜点带来的能量加成",
+                        decay_style="quick",
+                        recovery_style="passive",
+                    )
+                )
+
+        state.satiety = max(0.0, min(100.0, state.satiety + satiety_delta))
+        state.mood = max(0.0, min(100.0, state.mood + mood_delta))
+        state.energy = max(0.0, min(100.0, state.energy + energy_delta))
+        state.last_interaction_at = now
+
+        eat_event = PersonaEvent(
+            event_type=EventType.INTERACTION,
+            summary=f"喂食: {food_name} is_food={is_food} category={category}",
+            causes=[f"food_name={food_name}", f"calories={calories}", f"tastiness={tastiness}"],
+            effects_applied=[e.effect_id for e in new_effects],
+            timestamp=now,
+            interaction_mode="passive",
+            interaction_outcome="connected",
+        )
+
+        active_rows = await self._dao.get_active_persona_effects(scope_id) if self._dao else []
+        active_effects: list[PersonaEffect] = []
+        active_ids: set[str] = set()
+        for row in active_rows:
+            e = PersonaEffect(
+                effect_id=row["effect_id"],
+                effect_type=EffectType(row["effect_type"]),
+                name=row["name"],
+                source=row["source"],
+                intensity=int(row["intensity"]),
+                started_at=float(row["started_at"]),
+                expires_at=float(row["expires_at"]),
+                prompt_hint=row.get("prompt_hint", ""),
+                tags=row.get("tags", "").split(",") if row.get("tags") else [],
+                source_detail=row.get("source_detail", ""),
+                decay_style=row.get("decay_style", "gradual"),
+                recovery_style=row.get("recovery_style", "passive"),
+            )
+            if e.is_active(now):
+                active_effects.append(e)
+                active_ids.add(e.effect_id)
+
+        for e in new_effects:
+            active_effects.append(e)
+            active_ids.add(e.effect_id)
+            if self._dao:
+                await self._dao.add_persona_effect(scope_id, e)
+
+        event_rows = await self._dao.get_recent_persona_events(scope_id, limit=5) if self._dao else []
+        recent_events: list[PersonaEvent] = [
+            PersonaEvent(
+                event_type=EventType(e.get("event_type", "natural")),
+                summary=e.get("summary", ""),
+                causes=e.get("causes", "").split("|") if e.get("causes") else [],
+                effects_applied=e.get("effects_applied", "").split("|") if e.get("effects_applied") else [],
+                timestamp=float(e.get("timestamp", 0)),
+                interaction_mode=e.get("interaction_mode", ""),
+                interaction_outcome=e.get("interaction_outcome", ""),
+            )
+            for e in event_rows
+        ]
+
+        triggered = eval_effect_triggers(state, active_ids, recent_events + [eat_event], now)
+        for e in triggered:
+            if e.effect_id not in active_ids:
+                active_effects.append(e)
+                active_ids.add(e.effect_id)
+                if self._dao:
+                    await self._dao.add_persona_effect(scope_id, e)
+
+        all_todos = generate_todos(state, active_effects, recent_events + [eat_event])
+        for td in new_todos:
+            if not any(t.title == td.title for t in all_todos):
+                all_todos.insert(0, td)
+
+        if self._dao:
+            await self._dao.clear_persona_todos(scope_id)
+        for td in all_todos:
+            if self._dao:
+                await self._dao.add_persona_todo(scope_id, td)
+
+        if self._dao:
+            await self._dao.add_persona_event(scope_id, eat_event)
+            await self._dao.upsert_persona_state(scope_id, state)
+
+        return PersonaSnapshot(
+            state=state,
+            active_effects=active_effects,
+            pending_todos=all_todos[:5],
+            recent_events=recent_events + [eat_event],
+            snapshot_at=now,
+        )

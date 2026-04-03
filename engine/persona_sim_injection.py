@@ -13,7 +13,7 @@ def _build_recent_context(snapshot) -> str:
     """从 snapshot 中提取最近的显著事件，用于近因感注入。
 
     风格：像人在心里怎么想这件事，而不是描述事件本身。
-    会根据 mood 对齐，避免矛盾。
+    去掉 mood gate，让情绪信息自己说话。
     """
     recent = snapshot.recent_events
     if not recent:
@@ -23,7 +23,6 @@ def _build_recent_context(snapshot) -> str:
     if not interaction_events:
         return ""
 
-    state = snapshot.state
     last = interaction_events[-1]
     quality = None
     mode = getattr(last, "interaction_mode", "")
@@ -34,25 +33,17 @@ def _build_recent_context(snapshot) -> str:
             break
 
     if quality == "bad":
-        if state.mood < 60:
-            if outcome == "missed" and mode == "active":
-                return "刚主动说了话但被冷落，还有点堵着"
-            return "刚才那下有点受挫"
-        return ""
+        if outcome == "missed" and mode == "active":
+            return "刚主动说了话但被冷落，还有点堵着"
+        return "刚才那下有点受挫"
     elif quality == "awkward":
-        if state.mood < 55:
-            return "那通聊得有点别扭"
-        return ""
+        return "那通聊得有点别扭"
     elif quality == "good":
-        if state.mood > 55:
-            if outcome == "connected" and mode == "active":
-                return "刚才那通聊得挺顺的，还想继续"
-            return "最近聊得挺开心的"
-        return ""
+        if outcome == "connected" and mode == "active":
+            return "刚才那通聊得挺顺的，还想继续"
+        return "最近聊得挺开心的"
     elif quality == "relief":
-        if state.mood > 50:
-            return "终于有人把话接上了，轻松了不少"
-        return ""
+        return "终于有人把话接上了，轻松了不少"
     elif quality == "brief":
         return "就那么一来一回，没说上什么"
     elif quality == "normal":
@@ -62,17 +53,15 @@ def _build_recent_context(snapshot) -> str:
 
 
 def _build_top_effect_desc(snapshot) -> str:
-    """提取最主导的 effect，用感受型语言描述（而非 effect 名字）。"""
-    active = snapshot.active_effects
+    """提取最主导的 effect，用感受型语言描述（而非 effect 名字）。
+
+    选择 intensity 最高的 active effect，让 LLM 感知最强的状态信号。
+    """
+    active = [e for e in snapshot.active_effects if e.prompt_hint]
     if not active:
         return ""
-    debuffs = [e for e in active if e.prompt_hint and e.effect_type.value == "debuff"]
-    if debuffs:
-        return debuffs[0].prompt_hint
-    buffs = [e for e in active if e.prompt_hint and e.effect_type.value == "buff"]
-    if buffs:
-        return buffs[0].prompt_hint
-    return ""
+    strongest = max(active, key=lambda e: e.intensity)
+    return strongest.prompt_hint
 
 
 def _build_top_todo_desc(snapshot) -> str:
@@ -96,7 +85,7 @@ def snapshot_to_prompt(snapshot) -> str:
     """
     thought = getattr(snapshot.state, "thought_process", "")
     if thought:
-        return f"[内心] {thought}"
+        return f"[角色心态]\n{thought}"
 
     parts: list[str] = []
 
@@ -114,7 +103,7 @@ def snapshot_to_prompt(snapshot) -> str:
 
     if not parts:
         return ""
-    return "；".join(parts)
+    return "\n".join(parts)
 
 
 def snapshot_to_persona_system_context(snapshot) -> str:
@@ -123,25 +112,25 @@ def snapshot_to_persona_system_context(snapshot) -> str:
     在生成内心独白后，state/effects/todos 通过此函数注入到 persona_prompt，
     随 system_prompt 一起发给 LLM，作为背景信息不显式输出。
 
-    格式：生活化描述，用"|"分隔，不堆砌状态词。
+    格式：生活化描述，用换行分隔，不堆砌状态词。
     """
     parts: list[str] = []
 
     effect_desc = _build_top_effect_desc(snapshot)
     if effect_desc:
-        parts.append(f"当前状态：{effect_desc}")
+        parts.append(effect_desc)
 
     todo_desc = _build_top_todo_desc(snapshot)
     if todo_desc:
-        parts.append(f"心里挂着：{todo_desc}")
+        parts.append(todo_desc)
 
     recent_ctx = _build_recent_context(snapshot)
     if recent_ctx:
-        parts.append(f"最近：{recent_ctx}")
+        parts.append(recent_ctx)
 
     if not parts:
         return ""
-    return " | ".join(parts)
+    return "\n".join(parts)
 
 
 def snapshot_to_debug_str(snapshot) -> str:

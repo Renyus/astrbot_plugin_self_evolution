@@ -65,22 +65,6 @@ class SANSystem:
     def msg_count_per_group(self):
         return self.plugin.cfg.san_msg_count_per_group
 
-    @property
-    def high_activity_boost(self):
-        return self.plugin.cfg.san_high_activity_boost
-
-    @property
-    def low_activity_drain(self):
-        return self.plugin.cfg.san_low_activity_drain
-
-    @property
-    def positive_vibe_bonus(self):
-        return self.plugin.cfg.san_positive_vibe_bonus
-
-    @property
-    def negative_vibe_penalty(self):
-        return self.plugin.cfg.san_negative_vibe_penalty
-
     def initialize(self):
         if not self.enabled:
             return

@@ -123,6 +123,7 @@ async def get_caption_for_target(
     target: MediaTarget,
     plugin_context,
     dao=None,
+    prompt_override: str | None = None,
 ) -> CaptionResult:
     """对单个 MediaTarget 调用图片理解 provider，返回 CaptionResult。
 
@@ -130,6 +131,10 @@ async def get_caption_for_target(
     text 字段是"中立描述"，即使包含 NSFW 暗示也不在此层处理。
 
     缓存策略：使用图片内容hash作为缓存key，URL变化不影响缓存命中。
+
+    Args:
+        prompt_override: 如果提供，使用此 prompt 而非配置文件中的 image_caption_prompt。
+                        用于需要特定格式输出的场景（如 feed 食物分类）。
     """
     result = CaptionResult(
         kind=target.kind,
@@ -169,7 +174,7 @@ async def get_caption_for_target(
             cfg = {}
 
     prov_id = cfg.get("default_image_caption_provider_id", "")
-    caption_prompt = cfg.get(
+    caption_prompt = prompt_override or cfg.get(
         "image_caption_prompt",
         "Please describe the image using Chinese.",
     )

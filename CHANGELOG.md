@@ -21,6 +21,10 @@
 - **`get_prompt_injection()`**：当 persona_sim 可用时返回空串，Prompt 注入完全由 Persona Sim 提供，解除左右脑互搏
 - **向后兼容**：当 persona_sim 不可用时，SAN 自身能量管理逻辑保留，降级为独立系统
 
+#### Removed
+
+- **`san_high_activity_boost` / `san_low_activity_drain` / `san_positive_vibe_bonus` / `san_negative_vibe_penalty`**：四个歧义配置项删除，quality 映射逻辑已在 `_analysis_to_quality()` 硬编码，不再依赖配置；`_conf_schema.json` 和 `config.py` 中同步移除；测试 `test_schema_contains_newly_exposed_runtime_configs` 同步清理
+
 ### Persona Sim 2.0 — Bug Fix & Clean up
 
 #### Fixed

@@ -259,22 +259,6 @@ class PluginConfig:
     def san_msg_count_per_group(self):
         return int(self._get_nested("san", "san_msg_count_per_group", 50))
 
-    @property
-    def san_high_activity_boost(self):
-        return int(self._get_nested("san", "san_high_activity_boost", 5))
-
-    @property
-    def san_low_activity_drain(self):
-        return int(self._get_nested("san", "san_low_activity_drain", -3))
-
-    @property
-    def san_positive_vibe_bonus(self):
-        return int(self._get_nested("san", "san_positive_vibe_bonus", 3))
-
-    @property
-    def san_negative_vibe_penalty(self):
-        return int(self._get_nested("san", "san_negative_vibe_penalty", -5))
-
     # dropout
     @property
     def dropout_enabled(self):

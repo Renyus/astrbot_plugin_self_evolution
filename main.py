@@ -113,7 +113,7 @@ class PromptContext:
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "CognitionCore 7.0 数字生命。",
-    "Ver 5.0.1",
+    "Ver 5.1.0",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
@@ -441,25 +441,37 @@ class SelfEvolutionPlugin(Star):
         return self.enable_kb_memory_recall
 
     def _build_identity_injection(self, ctx: PromptContext) -> str:
+        affinity = ctx.affinity
+        if affinity >= 80:
+            affinity_desc = "很熟"
+        elif affinity >= 60:
+            affinity_desc = "还行"
+        elif affinity >= 30:
+            affinity_desc = "一般"
+        else:
+            affinity_desc = "陌生"
+
+        role_str = f"（{ctx.role_info}）" if ctx.role_info else ""
+
         parts = [
-            f"- 发送者ID: {ctx.user_id}",
-            f"- 发送者昵称: {ctx.sender_name}{ctx.role_info}",
-            f"- 情感积分: {ctx.affinity}/100",
+            f"用户：{ctx.sender_name}{role_str}",
+            f"你们的关系：{affinity_desc}",
         ]
         if ctx.is_group:
+            parts.append("场景：群聊")
             ctx_parts = []
             if ctx.quoted_info:
-                ctx_parts.append(ctx.quoted_info)
+                ctx_parts.append(f"引用了「{ctx.quoted_info}」")
             if ctx.at_info:
-                ctx_parts.append(ctx.at_info)
-            parts.append("- 来源：群聊")
+                ctx_parts.append("有人@了你")
             if ctx_parts:
-                parts.append(f"- 交互上下文: {' + '.join(ctx_parts)}")
+                parts.append("当前：" + "，".join(ctx_parts))
         else:
-            parts.append("- 来源：私聊")
+            parts.append("场景：私聊")
         if ctx.ai_context_info:
             parts.append(ctx.ai_context_info)
-        return "\n\n【内部参考信息 - 不要输出】\n" + "\n".join(parts) + "\n"
+
+        return "\n\n[背景信息]\n" + "\n".join(parts) + "\n"
 
     async def _build_group_history_injection(self, ctx: PromptContext) -> str:
         if not ctx.group_id:
@@ -467,7 +479,7 @@ class SelfEvolutionPlugin(Star):
         hist_str = await get_group_history(self, ctx.group_id, self.cfg.group_history_count)
         if not hist_str:
             return ""
-        return f"\n\n【群消息历史】\n{hist_str}\n"
+        return f"\n\n[最近群消息]\n{hist_str}\n"
 
     async def _build_profile_injection(self, ctx: PromptContext) -> str:
         result = await self.memory_tools.query_service.query(
@@ -481,7 +493,7 @@ class SelfEvolutionPlugin(Star):
         )
         if not result.text:
             return ""
-        return f"\n\n[用户印象]\n{result.text}\n"
+        return f"\n\n[对该用户的了解]\n{result.text}\n"
 
     async def _build_kb_memory_injection(self, ctx: PromptContext) -> str:
         if not getattr(self.cfg, "memory_enabled", True):
@@ -497,7 +509,7 @@ class SelfEvolutionPlugin(Star):
         )
         if not result.text:
             return ""
-        return f"\n\n{result.text}\n"
+        return f"\n\n[知识库记忆]\n{result.text}\n"
 
     async def _build_reflection_injection(self, ctx: PromptContext) -> tuple[str, list[str]]:
         if not getattr(self.cfg, "reflection_enabled", True):
@@ -516,13 +528,13 @@ class SelfEvolutionPlugin(Star):
         bias = reflection.get("bias", "")
 
         if note:
-            parts.append(f"【自我校准】{note[:100]}")
+            parts.append(f"[自我校准] {note[:100]}")
         if bias:
-            parts.append(f"【认知偏差纠正】{bias[:80]}")
+            parts.append(f"[认知纠偏] {bias[:80]}")
         if facts_str and len(facts_str) > 3:
             explicit_facts = [f.strip() for f in facts_str.split("|") if f.strip()][:3]
             if explicit_facts:
-                parts.append("【已知事实】\n" + "\n".join(f"- {f[:50]}" for f in explicit_facts))
+                parts.append("[已知事实]\n" + "\n".join(f"- {f[:50]}" for f in explicit_facts))
             all_facts = [f.strip() for f in facts_str.split("|") if f.strip()]
         else:
             all_facts = []
@@ -536,17 +548,13 @@ class SelfEvolutionPlugin(Star):
 
         if is_active_trigger:
             parts.append(
-                "[主动发言模式]\n"
-                "你是主动加入群聊讨论的。请基于上下文自然接话，不要开启新话题，"
-                "不要过度打断，保持简短（50字以内），只输出回复正文。"
+                "[当前场景]\n"
+                "你正在主动参与群聊。看到有意思的话题就自然插一句，不用等被问。\n"
+                "短一点，像平时跟朋友聊天那样。"
             )
 
         if self._should_inject_preference_hints(ctx):
-            parts.append(
-                "[即时画像更新提示]\n"
-                "用户在表达偏好或身份信息变化，请主动调用 upsert_cognitive_memory 工具更新该用户的印象笔记，"
-                "确保当天的记忆准确无误。"
-            )
+            parts.append("[记忆]\n用户透露了个人信息可以顺手记下来，调用 upsert_cognitive_memory 即可。")
 
         if self._should_inject_surprise_detection(ctx):
             if any(kw in ctx.msg_text for kw in self.surprise_boost_keywords):
@@ -564,7 +572,7 @@ class SelfEvolutionPlugin(Star):
         if self.cfg.sticker_learning_enabled:
             sticker_injection = await self.entertainment.get_prompt_injection()
             if sticker_injection:
-                parts.append(sticker_injection)
+                parts.append("[表情包]\n" + sticker_injection)
 
         # 时间感知注入
         from datetime import datetime
@@ -984,8 +992,8 @@ class SelfEvolutionPlugin(Star):
                         from .engine.persona_sim_injection import snapshot_to_prompt
 
                         sim_block = snapshot_to_prompt(snapshot)
-                        if sim_block:
-                            req.system_prompt += "\n\n[当前状态]\n" + sim_block
+                    if sim_block:
+                        req.system_prompt += "\n\n" + sim_block
                 except Exception:
                     pass
 
@@ -2362,3 +2370,21 @@ class SelfEvolutionPlugin(Star):
         except Exception as e:
             event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result(f"[PersonaSim] 出错: {e}")
+
+    @filter.command("feed")
+    async def feed_cmd(self, event: AstrMessageEvent):
+        """喂食指令 - 发送图片后使用 /feed 来喂食角色。
+
+        图片会被识别并分析是否为食物，然后更新角色的饱腹感和心情状态。
+        """
+        from .commands.feed_handler import handle_feed
+
+        group_id = event.get_group_id()
+        if not group_id:
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result("喂食功能仅限群聊使用～")
+            return
+
+        result = await handle_feed(event, self)
+        event.set_extra("self_evolution_command_reply", True)
+        yield event.plain_result(result)

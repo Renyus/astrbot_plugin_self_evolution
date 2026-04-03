@@ -11,20 +11,19 @@ from .session_memory_store import SessionMemoryStore
 SUMMARY_CHUNK_CHAR_LIMIT = 12000
 SUMMARY_CHUNK_MAX_MESSAGES = 200
 
-SESSION_MEMORY_PROMPT = """你是会话记忆分析师。请分析以下 {summary_date} 的聊天记录，提取结构化的记忆信息。
+SESSION_MEMORY_PROMPT = """分析以下 {summary_date} 的聊天记录，输出JSON：
 
-请以JSON格式输出：
 {{
-    "overview": "一段200-500字的总结，描述当日主要话题、氛围和重要事件",
-    "key_facts": ["关键事实1", "关键事实2", "关键事实3", ...],
-    "key_entities": ["重要人物或对象1", "重要人物或对象2", ...],
-    "tags": ["标签1", "标签2", ...]
+    "overview": "一段100-200字的总结，描述当日主要话题和氛围",
+    "key_facts": ["值得记住的事实1", "事实2", ...],
+    "key_entities": ["当日重要的人物、话题、约定等"],
+    "tags": ["主题标签1", "标签2"]
 }}
 
 规则：
-- key_facts 至少3条，最多8条，每条不超过50字
-- key_entities 列出当日活跃人物、重要讨论对象、群规、约定、项目名等
-- tags 用简洁的词或短语标注主题，最多5个
+- key_facts 选重要的写，3-6条，每条不超过50字
+- key_entities 列出当日活跃的人物或讨论对象
+- tags 不超过5个
 - 只输出JSON，不要其他内容
 
 消息列表：
@@ -45,15 +44,14 @@ PARTIAL_MEMORY_PROMPT = """你是会话记忆分析师。以下是 {summary_date
 {messages}
 """
 
-MERGE_MEMORY_PROMPT = """你是会话记忆分析师。以下是 {summary_date} 的分段记忆分析，请整合成最终的结构化JSON。
+MERGE_MEMORY_PROMPT = """以下是 {summary_date} 的分段记忆分析，请整合成最终JSON。
 
 整合要求：
-1. 合并重复信息
-2. overview 整合成一段200-500字的完整总结
-3. key_facts 控制在3-8条，每条不超过50字
-4. key_entities 合并，去重
-5. tags 不超过5个
-6. 只输出JSON
+1. overview 整合成一段100-200字的总结
+2. key_facts 3-6条，每条不超过50字
+3. key_entities 合并去重
+4. tags 不超过5个
+5. 只输出JSON
 """
 
 

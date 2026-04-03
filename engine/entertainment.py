@@ -305,11 +305,7 @@ class EntertainmentEngine:
         if stats["total"] == 0:
             return ""
 
-        injection = (
-            f"\n\n【表情包库】你有一个表情包库，目前有 {stats['total']} 张表情包（今日新增 {stats['today']} 张）。"
-        )
-        injection += "\n当群聊氛围适合时，可以使用 send_sticker 工具发送表情包来活跃气氛。"
-        injection += "\n使用 list_stickers 工具可以查看可用的表情包。"
+        injection = f"可以用 list_stickers 看看有什么，合适的时候 send_sticker 发一张。"
 
         return injection
 
