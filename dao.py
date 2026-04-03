@@ -335,6 +335,19 @@ class SelfEvolutionDAO:
                 created_at TEXT NOT NULL
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS persona_todos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scope_id TEXT NOT NULL,
+                todo_type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                reason TEXT NOT NULL DEFAULT '',
+                priority INTEGER NOT NULL DEFAULT 5,
+                mood_bias REAL NOT NULL DEFAULT 0.0,
+                expires_at REAL NOT NULL DEFAULT 0.0,
+                created_at REAL NOT NULL DEFAULT 0.0
+            )
+        """)
 
     async def get_conn(self):
         """带有存活检测的全局连接获取器，兼顾长连接性能与雪崩恢复，防阻塞分离读写锁"""
