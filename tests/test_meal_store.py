@@ -89,3 +89,46 @@ class MealStoreTests(IsolatedAsyncioTestCase):
         self.assertNotIn("红烧肉", meals2)
         self.assertIn("糖醋排骨", meals2)
         self.assertNotIn("糖醋排骨", meals1)
+
+    async def test_clear_meals(self):
+        await self.store.add_meal("group1", "红烧肉", max_items=100)
+        await self.store.add_meal("group1", "糖醋排骨", max_items=100)
+        success, msg = await self.store.clear_meals("group1")
+        self.assertTrue(success)
+        self.assertIn("已清空", msg)
+        meals = await self.store.load_meals("group1")
+        self.assertEqual(meals, [])
+
+    async def test_clear_meals_empty(self):
+        success, msg = await self.store.clear_meals("group1")
+        self.assertFalse(success)
+        self.assertIn("已经是空的了", msg)
+
+    async def test_ban_user(self):
+        success, msg = await self.store.ban_user("group1", "123456")
+        self.assertTrue(success)
+        self.assertIn("已禁止", msg)
+        self.assertTrue(await self.store.is_user_banned("group1", "123456"))
+
+    async def test_ban_user_duplicate(self):
+        await self.store.ban_user("group1", "123456")
+        success, msg = await self.store.ban_user("group1", "123456")
+        self.assertFalse(success)
+        self.assertIn("已经在禁言名单中", msg)
+
+    async def test_unban_user(self):
+        await self.store.ban_user("group1", "123456")
+        success, msg = await self.store.unban_user("group1", "123456")
+        self.assertTrue(success)
+        self.assertIn("已解除", msg)
+        self.assertFalse(await self.store.is_user_banned("group1", "123456"))
+
+    async def test_unban_user_not_in_list(self):
+        success, msg = await self.store.unban_user("group1", "123456")
+        self.assertFalse(success)
+        self.assertIn("不在禁言名单中", msg)
+
+    async def test_ban_per_group_isolation(self):
+        await self.store.ban_user("group1", "123456")
+        self.assertTrue(await self.store.is_user_banned("group1", "123456"))
+        self.assertFalse(await self.store.is_user_banned("group2", "123456"))

@@ -11,3 +11,5 @@ docs/astrbot_framework_analysis.md
 /.idea
 nul
 /backup
+/docs
+/tests

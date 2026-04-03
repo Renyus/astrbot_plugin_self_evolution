@@ -87,6 +87,19 @@ class ContextBuilder:
         )
 
     async def _get_persona_prompt(self, ctx) -> str:
+        scope_id = getattr(ctx, "scope_id", None) or getattr(ctx, "group_id", None)
+        sim_block = ""
+        if scope_id and hasattr(self.plugin, "persona_sim") and self.plugin.persona_sim:
+            try:
+                snapshot = await self.plugin.persona_sim.get_snapshot(str(scope_id))
+                if snapshot:
+                    from .persona_sim_injection import snapshot_to_prompt
+
+                    sim_block = snapshot_to_prompt(snapshot)
+            except Exception:
+                pass
+
+        fallback = getattr(self.plugin, "persona_name", "黑塔")
         if hasattr(self.plugin, "_get_active_persona_prompt"):
             umo = getattr(ctx, "umo", None) or (
                 getattr(self.plugin, "get_group_umo", lambda g: None)(getattr(ctx, "group_id", ""))
@@ -94,8 +107,11 @@ class ContextBuilder:
                 else None
             )
             if umo:
-                return await self.plugin._get_active_persona_prompt(umo)
-        return getattr(self.plugin, "persona_name", "黑塔")
+                fallback = await self.plugin._get_active_persona_prompt(umo)
+
+        if sim_block:
+            return sim_block + "\n\n" + fallback
+        return fallback
 
     def _build_identity(self, ctx) -> str:
         parts = [
@@ -192,6 +208,10 @@ class ContextBuilder:
         if reply_format:
             parts.append(reply_format)
 
+        style_hint = self._build_style_hint(decision)
+        if style_hint:
+            parts.append(style_hint)
+
         return "\n\n" + "\n\n".join(parts) + "\n" if parts else ""
 
     def _build_time_awareness(self) -> str:
@@ -212,6 +232,31 @@ class ContextBuilder:
     def _get_reply_format(self) -> str:
         if hasattr(self.plugin, "_get_reply_format"):
             return self.plugin._get_reply_format()
+        return ""
+
+    def _build_style_hint(self, decision: SpeechDecision) -> str:
+        if decision.delivery_mode != "text":
+            return ""
+
+        hints: list[str] = []
+
+        if decision.warmth_hint < -0.1:
+            hints.append("语气偏冷淡收敛")
+        elif decision.warmth_hint > 0.1:
+            hints.append("语气偏温暖热情")
+
+        if decision.initiative_hint > 0.15:
+            hints.append("可以更主动一些")
+        elif decision.initiative_hint < -0.1:
+            hints.append("不要太主动")
+
+        if decision.playfulness_hint > 0.15:
+            hints.append("表达可以更轻松有趣一些")
+        elif decision.playfulness_hint < -0.1:
+            hints.append("表达收敛一些")
+
+        if hints:
+            return "[风格提示] " + " ".join(hints)
         return ""
 
     def _build_decision_block(self, decision: SpeechDecision, scene: str = "") -> str:

@@ -57,21 +57,39 @@ class MealStore:
                 self._cache[group_id] = []
                 return []
 
+    async def _load_group_data(self, group_id: str) -> dict:
+        """加载群的完整数据（meals + banned_users）"""
+        await self._ensure_dir()
+        meal_file = self._get_meal_file(group_id)
+        if not meal_file.exists():
+            return {"version": self.INDEX_VERSION, "meals": [], "banned_users": []}
+        try:
+            with open(meal_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            logger.warning(f"[MealStore] 加载群 {group_id} 数据失败: {e}")
+            return {"version": self.INDEX_VERSION, "meals": [], "banned_users": []}
+
+    async def _save_group_data(self, group_id: str, data: dict):
+        """保存群的完整数据（调用方需持有锁）"""
+        await self._ensure_dir()
+        meal_file = self._get_meal_file(group_id)
+        temp_file = meal_file.with_suffix(".json.tmp")
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        for _ in range(3):
+            try:
+                os.replace(temp_file, meal_file)
+                break
+            except PermissionError:
+                await asyncio.sleep(0.05)
+
     async def save_meals(self, group_id: str, meals: list[str]):
         """保存群的菜单"""
         async with self._lock:
-            await self._ensure_dir()
-            meal_file = self._get_meal_file(group_id)
-            temp_file = meal_file.with_suffix(".json.tmp")
-            data = {"version": self.INDEX_VERSION, "meals": meals}
-            with open(temp_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            for _ in range(3):
-                try:
-                    os.replace(temp_file, meal_file)
-                    break
-                except PermissionError:
-                    await asyncio.sleep(0.05)
+            data = await self._load_group_data(group_id)
+            data["meals"] = meals
+            await self._save_group_data(group_id, data)
             self._cache[group_id] = meals
 
     async def add_meal(self, group_id: str, meal: str, max_items: int = 100) -> tuple[bool, str]:
@@ -155,3 +173,48 @@ class MealStore:
                 self._cache.pop(group_id, None)
             else:
                 self._cache.clear()
+
+    async def clear_meals(self, group_id: str) -> tuple[bool, str]:
+        """清空群菜单"""
+        async with self._lock:
+            data = await self._load_group_data(group_id)
+            meals = data.get("meals", [])
+            if not meals:
+                return False, "菜单已经是空的了"
+            data["meals"] = []
+            await self._save_group_data(group_id, data)
+            self._cache[group_id] = []
+            return True, f"已清空菜单（{len(meals)} 道菜已删除）"
+
+    async def is_user_banned(self, group_id: str, user_id: str) -> bool:
+        """检查用户是否被禁止添加菜品"""
+        async with self._lock:
+            data = await self._load_group_data(group_id)
+            banned = data.get("banned_users", [])
+            return str(user_id) in banned
+
+    async def ban_user(self, group_id: str, user_id: str) -> tuple[bool, str]:
+        """禁止某用户添加菜品"""
+        async with self._lock:
+            data = await self._load_group_data(group_id)
+            banned: list = data.get("banned_users", [])
+            uid = str(user_id)
+            if uid in banned:
+                return False, f"用户 {uid} 已经在禁言名单中了"
+            banned.append(uid)
+            data["banned_users"] = banned
+            await self._save_group_data(group_id, data)
+            return True, f"已禁止用户 {uid} 添加菜品"
+
+    async def unban_user(self, group_id: str, user_id: str) -> tuple[bool, str]:
+        """解除某用户添加菜品的限制"""
+        async with self._lock:
+            data = await self._load_group_data(group_id)
+            banned: list = data.get("banned_users", [])
+            uid = str(user_id)
+            if uid not in banned:
+                return False, f"用户 {uid} 不在禁言名单中"
+            banned.remove(uid)
+            data["banned_users"] = banned
+            await self._save_group_data(group_id, data)
+            return True, f"已解除用户 {uid} 的限制"

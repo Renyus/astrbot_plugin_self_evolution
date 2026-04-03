@@ -1,5 +1,6 @@
 import asyncio
 import random
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -17,15 +18,6 @@ from .social_state import (
 )
 
 # QQ 原生表情分类映射
-_MOOD_FACES = {
-    "happy": [178, 179, 14, 3],
-    "agree": [179, 63, 21],
-    "laugh": [178, 14, 49],
-    "thinking": [32, 33, 34],
-    "neutral": [0, 1, 2],
-}
-
-# 消息表情回应映射（NapCat set_msg_emoji_like 的 emoji_id）
 _REACTION_EMOJIS = {
     SceneType.CASUAL: ["128077", "128514", "128516"],  # 👍😂😄
     SceneType.HELP: ["128588", "128170", "128077"],  # 🙌👊👍
@@ -79,6 +71,68 @@ class ReplyExecutor:
         self.cfg = plugin.cfg
         self.output_guard = output_guard if output_guard is not None else OutputGuard(plugin)
         self._stats = stats
+
+    def _assess_quality(
+        self,
+        action: str,
+        is_active_trigger: bool,
+        guard_downgrade: bool = False,
+        text_length: int = 0,
+    ) -> str:
+        if guard_downgrade:
+            return "awkward"
+
+        if action == "emoji_reaction":
+            return "brief"
+
+        if action == "sticker":
+            return "brief"
+
+        if action == "text":
+            if is_active_trigger:
+                return "good"
+            if text_length > 0 and text_length < 10:
+                return "brief"
+            return "normal"
+
+        return "normal"
+
+    def _assess_interaction_semantics(
+        self,
+        action: str,
+        is_active_trigger: bool,
+        guard_downgrade: bool = False,
+        text_length: int = 0,
+    ) -> tuple[str, str, str]:
+        """评估互动的完整语义：quality × mode × outcome。
+
+        Returns:
+            tuple: (quality, mode, outcome)
+                - quality: good/normal/brief/awkward/relief/bad
+                - mode: active/passive
+                - outcome: connected/missed
+        """
+        quality = self._assess_quality(action, is_active_trigger, guard_downgrade, text_length)
+        mode = "active" if is_active_trigger else "passive"
+
+        if quality == "bad":
+            outcome = "missed"
+        elif quality == "awkward":
+            outcome = "missed"
+        elif quality == "good":
+            outcome = "connected"
+        elif quality == "relief":
+            outcome = "connected"
+        elif quality == "brief":
+            outcome = "connected" if is_active_trigger else "missed"
+        else:
+            outcome = "connected"
+
+        return quality, mode, outcome
+
+    def _debug(self, msg: str):
+        if getattr(self.cfg, "engagement_debug_enabled", False):
+            logger.debug(msg)
 
     async def execute(
         self,
@@ -155,6 +209,15 @@ class ReplyExecutor:
                         self._stats.record_active_reaction(scope_id)
                     else:
                         self._stats.record_passive_reaction(scope_id)
+
+                persona_sim = getattr(self.plugin, "persona_sim", None)
+                if persona_sim:
+                    try:
+                        quality, mode, outcome = self._assess_interaction_semantics("emoji_reaction", is_active_trigger)
+                        await persona_sim.apply_interaction(scope_id, quality=quality, mode=mode, outcome=outcome)
+                    except Exception:
+                        pass
+
                 return EngagementExecutionResult(
                     executed=True,
                     level=EngagementLevel.REACT,
@@ -170,6 +233,15 @@ class ReplyExecutor:
                     self._stats.record_active_emoji(scope_id)
                 else:
                     self._stats.record_passive_emoji(scope_id)
+
+            persona_sim = getattr(self.plugin, "persona_sim", None)
+            if persona_sim:
+                try:
+                    quality, mode, outcome = self._assess_interaction_semantics("sticker", is_active_trigger)
+                    await persona_sim.apply_interaction(scope_id, quality=quality, mode=mode, outcome=outcome)
+                except Exception:
+                    pass
+
             return EngagementExecutionResult(
                 executed=True,
                 level=EngagementLevel.REACT,
@@ -275,19 +347,16 @@ class ReplyExecutor:
                     reason="prompt构建失败",
                 )
 
-            text = await self.plugin.inject_and_chat(req, umo)
+            text = await self.plugin.inject_and_chat(req, umo, state.scope_id)
 
             if text:
                 result = self.output_guard.check(text, decision)
                 if result.status == "pass":
-                    # 决定引用策略
                     reply_to = self._decide_reply_to(message_id, has_reply_to_bot, has_mention, is_active_trigger)
 
-                    # 人性化延迟
                     affinity = await self._get_user_affinity(user_id)
                     await self._human_typing_delay(text, affinity)
 
-                    # 分段发送
                     success = await self._send_message_segmented(
                         group_id,
                         text,
@@ -303,6 +372,19 @@ class ReplyExecutor:
                                 )
                             else:
                                 self._stats.record_passive_text(group_id)
+
+                        persona_sim = getattr(self.plugin, "persona_sim", None)
+                        if persona_sim:
+                            try:
+                                quality, mode, outcome = self._assess_interaction_semantics(
+                                    "text", is_active_trigger, text_length=len(text)
+                                )
+                                await persona_sim.apply_interaction(
+                                    group_id, quality=quality, mode=mode, outcome=outcome
+                                )
+                            except Exception:
+                                pass
+
                         return EngagementExecutionResult(
                             executed=True,
                             level=EngagementLevel.FULL,
@@ -324,6 +406,19 @@ class ReplyExecutor:
                                     self._stats.record_active_reaction(group_id)
                                 else:
                                     self._stats.record_passive_reaction(group_id)
+
+                            persona_sim = getattr(self.plugin, "persona_sim", None)
+                            if persona_sim:
+                                try:
+                                    quality, mode, outcome = self._assess_interaction_semantics(
+                                        "emoji_reaction", is_active_trigger, guard_downgrade=True
+                                    )
+                                    await persona_sim.apply_interaction(
+                                        group_id, quality=quality, mode=mode, outcome=outcome
+                                    )
+                                except Exception:
+                                    pass
+
                             return EngagementExecutionResult(
                                 executed=True,
                                 level=EngagementLevel.FULL,
@@ -337,6 +432,19 @@ class ReplyExecutor:
                                 self._stats.record_active_emoji(group_id)
                             else:
                                 self._stats.record_passive_emoji(group_id)
+
+                        persona_sim = getattr(self.plugin, "persona_sim", None)
+                        if persona_sim:
+                            try:
+                                quality, mode, outcome = self._assess_interaction_semantics(
+                                    "sticker", is_active_trigger, guard_downgrade=True
+                                )
+                                await persona_sim.apply_interaction(
+                                    group_id, quality=quality, mode=mode, outcome=outcome
+                                )
+                            except Exception:
+                                pass
+
                         return EngagementExecutionResult(
                             executed=True,
                             level=EngagementLevel.FULL,
@@ -380,6 +488,17 @@ class ReplyExecutor:
                     self._stats.record_active_emoji(group_id)
                 else:
                     self._stats.record_passive_emoji(group_id)
+
+            persona_sim = getattr(self.plugin, "persona_sim", None)
+            if persona_sim:
+                try:
+                    quality, mode, outcome = self._assess_interaction_semantics(
+                        "sticker", is_active_trigger, guard_downgrade=False
+                    )
+                    await persona_sim.apply_interaction(group_id, quality=quality, mode=mode, outcome=outcome)
+                except Exception:
+                    pass
+
             return EngagementExecutionResult(
                 executed=True,
                 level=EngagementLevel.FULL,
@@ -474,7 +593,7 @@ class ReplyExecutor:
         """分段发送消息，模拟真人打字节奏。
 
         短消息（<=25字）直接发送；长消息自然切分为多条，每条之间随机间隔。
-        第一条消息可携带 reply/at 消息段。
+        第一条消息可携带 reply/at 消息段。最后一条消息概率性追加点缀表情包。
         """
         segments = _split_message_naturally(text)
 
@@ -485,7 +604,6 @@ class ReplyExecutor:
             message = []
 
             if i == 0:
-                # 第一条消息：可带 reply + at
                 if reply_to_msg_id:
                     message.append({"type": "reply", "data": {"id": str(reply_to_msg_id)}})
                 if at_user_id:
@@ -494,29 +612,19 @@ class ReplyExecutor:
 
             message.append({"type": "text", "data": {"text": seg}})
 
-            # 最后一段：20% 概率追加 QQ 原生表情
-            if i == len(segments) - 1:
-                self._maybe_append_face(message, scene)
+            is_last = i == len(segments) - 1
+            if is_last:
+                self._maybe_append_sticker(message, group_id, text)
 
             success = await self._send_raw_message(group_id, message)
             if not success:
                 return False
 
-            # 各段之间加随机间隔（模拟分条打字）
             if i < len(segments) - 1:
                 inter_delay = random.uniform(0.5, 1.8)
                 await asyncio.sleep(inter_delay)
 
         return True
-
-    def _maybe_append_face(self, message: list, scene: SceneType = SceneType.CASUAL):
-        """20% 概率追加一个 QQ 原生表情。"""
-        if random.random() >= 0.2:
-            return
-        mood = "happy" if scene == SceneType.CASUAL else "agree" if scene == SceneType.HELP else "neutral"
-        faces = _MOOD_FACES.get(mood, _MOOD_FACES["neutral"])
-        face_id = random.choice(faces)
-        message.append({"type": "face", "data": {"id": str(face_id)}})
 
     async def _send_raw_message(self, group_id: str, message: list) -> bool:
         """底层发送：接受完整 message 段列表。"""
@@ -548,6 +656,83 @@ class ReplyExecutor:
             return None
 
         return None
+
+    def _maybe_append_sticker(self, message: list, group_id: str, text: str):
+        """概率性追加点缀表情包到消息列表。参考 _maybe_append_face 模式。"""
+        logger.info(f"[ReplyExecutor] _maybe_append_sticker called: group={group_id}, text={text[:20]}")
+        if not getattr(self.cfg, "sticker_reply_enabled", False):
+            logger.info(f"[ReplyExecutor] sticker skipped: not enabled")
+            return
+
+        if not group_id:
+            logger.info(f"[ReplyExecutor] sticker skipped: no group_id")
+            return
+
+        text_len = len(text)
+        min_len = getattr(self.cfg, "sticker_reply_min_text_length", 5)
+        if text_len < min_len:
+            logger.info(f"[ReplyExecutor] sticker skipped: text_len={text_len} < min={min_len}")
+            return
+
+        hourly_limit = getattr(self.cfg, "sticker_reply_max_per_hour", 3)
+        timestamps_key = f"sticker_reply:{group_id}"
+        timestamps: list = getattr(self.plugin, "_sticker_reply_timestamps", {}).get(timestamps_key, [])
+        now = time.time()
+        timestamps = [t for t in timestamps if now - t < 3600]
+        if len(timestamps) >= hourly_limit:
+            logger.info(f"[ReplyExecutor] sticker skipped: hourly_limit={len(timestamps)}/{hourly_limit}")
+            return
+
+        chance = getattr(self.cfg, "sticker_reply_chance", 30)
+        roll = random.randint(1, 100)
+        if roll > chance:
+            logger.info(f"[ReplyExecutor] sticker skipped: roll={roll} > chance={chance}")
+            return
+
+        sticker_store = None
+        if hasattr(self.plugin, "sticker_store") and self.plugin.sticker_store:
+            sticker_store = self.plugin.sticker_store
+            logger.info(f"[ReplyExecutor] using plugin.sticker_store")
+        elif hasattr(self.plugin, "entertainment"):
+            ent = self.plugin.entertainment
+            if hasattr(ent, "sticker_store"):
+                sticker_store = ent.sticker_store
+                logger.info(f"[ReplyExecutor] using entertainment.sticker_store")
+
+        if not sticker_store:
+            logger.info(f"[ReplyExecutor] sticker skipped: no sticker_store")
+            return
+
+        sticker = sticker_store.get_random_sticker_sync()
+        logger.info(f"[ReplyExecutor] get_random_sticker_sync returned: {sticker}")
+        if not sticker:
+            logger.info(f"[ReplyExecutor] sticker skipped: get_random_sticker_sync returned None")
+            return
+
+        file_path = sticker_store.get_sticker_path(sticker)
+        logger.info(f"[ReplyExecutor] get_sticker_path returned: {file_path} (type={type(file_path).__name__})")
+        if not file_path:
+            return
+
+        from pathlib import Path
+
+        file_path = Path(file_path)
+        if not file_path.exists():
+            logger.info(f"[ReplyExecutor] sticker skipped: file not found={file_path}")
+            return
+
+        ts_dict = getattr(self.plugin, "_sticker_reply_timestamps", None)
+        if ts_dict is not None:
+            ts_dict[timestamps_key] = timestamps + [now]
+
+        try:
+            with open(file_path, "rb") as f:
+                data = f.read()
+            bs64 = __import__("base64").b64encode(data).decode()
+            message.append({"type": "image", "data": {"file": f"base64://{bs64}"}})
+            logger.info(f"[ReplyExecutor] sticker appended: path={file_path}")
+        except Exception as e:
+            logger.info(f"[ReplyExecutor] sticker append failed: {e}")
 
     async def _send_message(self, group_id: str, text: str) -> bool:
         """兼容旧调用：纯文本发送，内部转发到 _send_raw_message。"""

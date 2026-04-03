@@ -9,6 +9,66 @@
 - `2.x` 是当前插件版本号体系
 - 更早的 `5.x`、`4.x`、`3.x` 记录来自此前的内部阶段版本，保留用于历史参考
 
+## [Unreleased]
+
+### Persona Sim 2.0 — Bug Fix & Clean up
+
+#### Fixed
+
+- **tick combined path 后置 effect 触发**：post-interaction `eval_effect_triggers` 终于把刚发生的 `interaction_event` 传进去（之前只传 DAO 里恢复的历史事件）
+- **DAO Effect 字段缺失**：`persona_effects` 表新增 `source_detail`、`decay_style`、`recovery_style` 三列，迁移时向后兼容；`add_persona_effect` 和三处效果加载（`apply_interaction`/`tick`/`get_snapshot`）均已读写新字段
+
+#### Added
+
+- **日志**：`tick` combined path 记录 quality/mode/outcome；`add_persona_effect` 记录写入详情；三处效果恢复路径加 debug 日志
+- **ReplyPolicy 时间兜底**：`check()` 新增 `current_hour` 参数，测试传入 14 避免深夜 cooldown 三倍扩大
+
+### 命令系统精简
+
+#### Changed
+
+- `/system` → `/se`
+- `/affinity` → `/af`（`/af show` / `/af debug <用户>` / `/af set <用户> <分数>`）
+- `/evolution` → `/ev`
+- `/personasim` → `/ps`
+- `/banuseraddmeal` → `/meal ban <用户>`，`/unbanuseraddmeal` → `/meal unban <用户>`
+- 删除 `/se help text` 图片帮助分支，`/se help` 统一输出纯文本帮助
+- 所有子命令格式统一：`/ps tick` → `none/negative/positive`；`/ps apply` → `bad/awkward/normal/good/relief/brief`
+- `scope` 参数帮助文本改为 `[群]`，`date` 改为 `[日期]` 并注明格式
+
+#### Removed
+
+- `engine/help_assets.py` 整个文件（图片帮助相关代码全部删除）
+- `main.py` 中 `resolve_help_image_path` 导入及图片帮助分支
+
+### 架构与调度
+
+#### Changed
+
+- **定时任务时间错开**：`PersonaThought` 改为 `0 1,13 * * *`（避开 00:00 ProfileBuild）；`MemorySummary` 默认值 `0 6 * * *`（从 03:00 移开）
+- **Scheduler 描述中文化**：9 个定时任务描述全部改为中文
+- **plan_engagement 改为 async**：`engagement_planner.py` 的 `plan_engagement` 从 `def` 改为 `async def`，直接 `await _get_persona_drive()`；14 处测试调用全部加 `await`
+
+### 帮助文本优化
+
+#### Changed
+
+- 帮助文本按中文字符宽度动态对齐（中文=2格，英文=1格），每组命令独立最宽对齐
+- `format_text_help` 尾部提示改为 `"发送 /se help 查看帮助"`
+
+### Config & Schema
+
+#### Changed
+
+- `_conf_schema.json`：`moderation.*` 键名前缀对齐为 `moderation_moderation_*`；`sticker_reply.*` 改为 `sticker_reply_sticker_reply_*`
+- `config.py`：`memory_summary_schedule` 默认值 `0 3 * * *` → `0 6 * * *`，schema 同步更新
+
+### Tests
+
+- `TestHelpAssets` 3 个测试删除（对应已移除的 `help_assets.py`）
+- `test_bug1_active_allowed_with_hour` mock 方式从 `patch.object(datetime, "now")` 改为传 `current_hour=14` 参数
+- `test_short_reply_bias_reduces_max_chars` flaky 修复：mock `random.choices` 返回固定值
+
 ## [3.3]
 
 ### Added

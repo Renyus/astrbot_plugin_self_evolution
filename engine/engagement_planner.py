@@ -1,3 +1,4 @@
+import asyncio
 import time
 import re
 
@@ -239,7 +240,7 @@ class EngagementPlanner:
             silence_seconds=silence_seconds,
         )
 
-    def plan_engagement(
+    async def plan_engagement(
         self,
         state: GroupSocialState,
         eligibility: EngagementEligibility,
@@ -250,116 +251,113 @@ class EngagementPlanner:
         scene = self.classify_scene_from_state(state)
         confidence = min(eligibility.silence_seconds / 120.0, 1.0) * 0.5 + 0.5
 
+        plan = self._build_base_plan(scene, eligibility, confidence, has_mention, has_reply_to_bot, trigger_text, state)
+
+        drive = await self._get_persona_drive(state.scope_id)
+        plan = self._apply_persona_drive(plan, drive)
+
+        self._debug(
+            f"[Engagement] scene={scene.value} eligible={'yes' if eligibility.allowed else 'no'} level={plan.level.value} reason={plan.reason}"
+        )
+        return plan
+
+    def _build_base_plan(
+        self,
+        scene: SceneType,
+        eligibility: EngagementEligibility,
+        confidence: float,
+        has_mention: bool,
+        has_reply_to_bot: bool,
+        trigger_text: str,
+        state: GroupSocialState,
+    ) -> EngagementPlan:
         if scene == SceneType.IDLE:
             if has_mention or has_reply_to_bot:
-                plan = EngagementPlan(
+                return EngagementPlan(
                     level=EngagementLevel.FULL,
                     reason="idle场景但被明确唤醒",
                     confidence=0.7,
                     scene=scene,
                 )
-            else:
-                plan = EngagementPlan(
-                    level=EngagementLevel.IGNORE,
-                    reason="idle场景且无明确唤醒",
-                    confidence=0.8,
-                    scene=scene,
-                )
-            self._debug(
-                f"[Engagement] scene=idle eligible={'yes' if eligibility.allowed else 'no'} level={plan.level.value} reason={plan.reason}"
+            return EngagementPlan(
+                level=EngagementLevel.IGNORE,
+                reason="idle场景且无明确唤醒",
+                confidence=0.8,
+                scene=scene,
             )
-            return plan
 
         if scene == SceneType.HELP:
             if has_mention or has_reply_to_bot:
                 confidence = min(confidence + 0.2, 1.0)
-                plan = EngagementPlan(
+                return EngagementPlan(
                     level=EngagementLevel.FULL,
                     reason="help场景且被明确唤醒",
                     confidence=confidence,
                     scene=scene,
                 )
-            else:
-                plan = EngagementPlan(
-                    level=EngagementLevel.FULL,
-                    reason="help场景低相关",
-                    confidence=0.4,
-                    scene=scene,
-                )
-            self._debug(
-                f"[Engagement] scene=help eligible={'yes' if eligibility.allowed else 'no'} level={plan.level.value} reason={plan.reason}"
+            return EngagementPlan(
+                level=EngagementLevel.FULL,
+                reason="help场景低相关",
+                confidence=0.4,
+                scene=scene,
             )
-            return plan
 
         if scene == SceneType.DEBATE:
             if has_mention or has_reply_to_bot:
                 confidence = min(confidence + 0.15, 1.0)
-                plan = EngagementPlan(
+                return EngagementPlan(
                     level=EngagementLevel.FULL,
                     reason="debate场景但被明确唤醒",
                     confidence=confidence,
                     scene=scene,
                 )
-            else:
-                plan = EngagementPlan(
-                    level=EngagementLevel.IGNORE,
-                    reason="debate场景且无唤醒",
-                    confidence=0.6,
-                    scene=scene,
-                )
-            self._debug(
-                f"[Engagement] scene=debate eligible={'yes' if eligibility.allowed else 'no'} level={plan.level.value} reason={plan.reason}"
+            return EngagementPlan(
+                level=EngagementLevel.IGNORE,
+                reason="debate场景且无唤醒",
+                confidence=0.6,
+                scene=scene,
             )
-            return plan
 
         if scene == SceneType.CASUAL:
             if has_mention or has_reply_to_bot:
-                plan = EngagementPlan(
+                return EngagementPlan(
                     level=EngagementLevel.FULL,
                     reason="casual场景且被明确唤醒",
                     confidence=0.7,
                     scene=scene,
                 )
-            else:
-                opportunity = self.recognize_opportunity(state, False, False, trigger_text)
-                if opportunity.kind == OpportunityKind.EMOJI_REACT:
-                    plan = EngagementPlan(
-                        level=EngagementLevel.REACT,
-                        reason=f"emoji参与: {opportunity.reason}",
-                        confidence=opportunity.confidence,
-                        scene=scene,
-                        anchor_type=opportunity.anchor_type,
-                        anchor_text=opportunity.anchor_text,
-                    )
-                elif opportunity.kind in (OpportunityKind.ACTIVE_CONTINUATION, OpportunityKind.TOPIC_HOOK):
-                    plan = EngagementPlan(
-                        level=EngagementLevel.FULL,
-                        reason=f"主动文本: {opportunity.reason}",
-                        confidence=opportunity.confidence,
-                        scene=scene,
-                        anchor_type=opportunity.anchor_type,
-                        anchor_text=opportunity.anchor_text,
-                    )
-                else:
-                    plan = EngagementPlan(
-                        level=EngagementLevel.IGNORE,
-                        reason=f"无锚点不参与: {opportunity.reason}",
-                        confidence=0.7,
-                        scene=scene,
-                    )
-            self._debug(
-                f"[Engagement] scene=casual eligible={'yes' if eligibility.allowed else 'no'} level={plan.level.value} reason={plan.reason}"
+            opportunity = self.recognize_opportunity(state, False, False, trigger_text)
+            if opportunity.kind == OpportunityKind.EMOJI_REACT:
+                return EngagementPlan(
+                    level=EngagementLevel.REACT,
+                    reason=f"emoji参与: {opportunity.reason}",
+                    confidence=opportunity.confidence,
+                    scene=scene,
+                    anchor_type=opportunity.anchor_type,
+                    anchor_text=opportunity.anchor_text,
+                )
+            elif opportunity.kind in (OpportunityKind.ACTIVE_CONTINUATION, OpportunityKind.TOPIC_HOOK):
+                return EngagementPlan(
+                    level=EngagementLevel.FULL,
+                    reason=f"主动文本: {opportunity.reason}",
+                    confidence=opportunity.confidence,
+                    scene=scene,
+                    anchor_type=opportunity.anchor_type,
+                    anchor_text=opportunity.anchor_text,
+                )
+            return EngagementPlan(
+                level=EngagementLevel.IGNORE,
+                reason=f"无锚点不参与: {opportunity.reason}",
+                confidence=0.7,
+                scene=scene,
             )
-            return plan
 
-        plan = EngagementPlan(
+        return EngagementPlan(
             level=EngagementLevel.IGNORE,
             reason="默认忽略",
             confidence=1.0,
             scene=scene,
         )
-        self._debug(f"[Engagement] scene=unknown level=IGNORE reason=default")
-        return plan
 
     def classify_scene_from_state(self, state: GroupSocialState) -> SceneType:
         if state.emotion_count_window >= 4:
@@ -372,6 +370,194 @@ class EngagementPlanner:
 
     def _high_relevance_check(self, state: GroupSocialState) -> bool:
         return state.mention_bot_recently
+
+    async def _get_persona_drive(self, scope_id: str) -> dict | None:
+        """读取 persona sim snapshot，返回 drive 信息用于影响 engagement plan。
+
+        增强版：纳入 interaction semantics 和 effect 来源感。
+        """
+        try:
+            persona_sim = getattr(self.plugin, "persona_sim", None)
+            if not persona_sim:
+                return None
+            snapshot = await persona_sim.get_snapshot(scope_id)
+            if not snapshot:
+                return None
+            state = snapshot.state
+            active_effects = snapshot.active_effects
+            effect_ids = {e.effect_id for e in active_effects}
+
+            short_reply = 0.0
+            warmth = 0.0
+            initiative = 0.0
+            playfulness = 0.0
+
+            if state.energy < 40 or "low_energy" in effect_ids or "tired" in effect_ids or "sleepy" in effect_ids:
+                short_reply += 0.3
+
+            if "irritated" in effect_ids:
+                warmth -= 0.3
+
+            if "wronged" in effect_ids:
+                warmth -= 0.3
+                for e in active_effects:
+                    if e.effect_id == "wronged" and "主动" in e.source_detail:
+                        initiative -= 0.2
+
+            if "lonely" in effect_ids:
+                warmth += 0.1
+                initiative += 0.3
+
+            if "thriving" in effect_ids:
+                warmth += 0.2
+                initiative += 0.1
+                playfulness += 0.2
+
+            if "relieved" in effect_ids:
+                warmth += 0.2
+                playfulness += 0.1
+
+            if "satisfied" in effect_ids:
+                warmth += 0.2
+                playfulness += 0.1
+
+            if "curious" in effect_ids:
+                playfulness += 0.1
+                initiative += 0.1
+
+            recent = snapshot.recent_events
+            interaction_events = [e for e in recent if e.event_type.name == "INTERACTION"]
+            if interaction_events:
+                last = interaction_events[-1]
+                outcome = getattr(last, "interaction_outcome", "")
+                mode = getattr(last, "interaction_mode", "")
+                if outcome == "missed" and mode == "active":
+                    initiative -= 0.2
+                    warmth -= 0.1
+                elif outcome == "connected":
+                    initiative += 0.1
+                    warmth += 0.1
+
+            social_todos = [t for t in snapshot.pending_todos if t.todo_type.value == "social"]
+            if social_todos:
+                top_todo = social_todos[0]
+                if "没说完" in top_todo.title or "继续聊" in top_todo.title:
+                    initiative += 0.1
+                elif "想找人" in top_todo.title:
+                    initiative += 0.15
+
+            drive = {
+                "energy": state.energy,
+                "mood": state.mood,
+                "social_need": state.social_need,
+                "satiety": state.satiety,
+                "effect_ids": effect_ids,
+                "active_effects": active_effects,
+                "short_reply_bias": short_reply,
+                "warmth_bias": warmth,
+                "initiative_bias": initiative,
+                "playfulness_bias": playfulness,
+            }
+            return drive
+        except Exception:
+            return None
+
+    def _apply_persona_drive(self, plan: EngagementPlan, drive: dict | None) -> EngagementPlan:
+        """根据 persona drive 调整 engagement plan。"""
+        if not drive:
+            return plan
+
+        energy = drive.get("energy", 80)
+        mood = drive.get("mood", 70)
+        social_need = drive.get("social_need", 50)
+        effect_ids = drive.get("effect_ids", set())
+        short_reply_bias = drive.get("short_reply_bias", 0.0)
+        warmth_bias = drive.get("warmth_bias", 0.0)
+        initiative_bias = drive.get("initiative_bias", 0.0)
+        playfulness_bias = drive.get("playfulness_bias", 0.0)
+
+        adjusted = plan
+        confidence_adjustment = 0.0
+        level_override = False
+
+        if energy < 30:
+            confidence_adjustment -= 0.15
+            if plan.level == EngagementLevel.FULL and plan.scene != SceneType.HELP:
+                adjusted = EngagementPlan(
+                    level=EngagementLevel.REACT,
+                    reason=plan.reason + f" (能量不足:{energy:.0f})",
+                    confidence=max(0.3, plan.confidence - 0.15),
+                    scene=plan.scene,
+                    anchor_type=plan.anchor_type,
+                    anchor_text=plan.anchor_text,
+                    short_reply_bias=short_reply_bias,
+                    warmth_bias=warmth_bias,
+                    initiative_bias=initiative_bias,
+                    playfulness_bias=playfulness_bias,
+                )
+                level_override = True
+
+        if mood < 30 and not level_override:
+            confidence_adjustment -= 0.1
+
+        if mood < 20 and "irritated" in effect_ids:
+            if plan.level == EngagementLevel.FULL and plan.scene == SceneType.DEBATE:
+                adjusted = EngagementPlan(
+                    level=EngagementLevel.REACT,
+                    reason=plan.reason + " (情绪不佳)",
+                    confidence=max(0.3, plan.confidence - 0.2),
+                    scene=plan.scene,
+                    anchor_type=plan.anchor_type,
+                    anchor_text=plan.anchor_text,
+                    short_reply_bias=short_reply_bias,
+                    warmth_bias=warmth_bias,
+                    initiative_bias=initiative_bias,
+                    playfulness_bias=playfulness_bias,
+                )
+                level_override = True
+
+        if "lonely" in effect_ids or social_need > 80:
+            confidence_adjustment += 0.1
+            if plan.level == EngagementLevel.IGNORE:
+                adjusted = EngagementPlan(
+                    level=EngagementLevel.REACT,
+                    reason=plan.reason + " (渴望互动)",
+                    confidence=min(0.9, plan.confidence + 0.1),
+                    scene=plan.scene,
+                    anchor_type=plan.anchor_type,
+                    anchor_text=plan.anchor_text,
+                    short_reply_bias=short_reply_bias,
+                    warmth_bias=warmth_bias,
+                    initiative_bias=initiative_bias,
+                    playfulness_bias=playfulness_bias,
+                )
+
+        if "thriving" in effect_ids:
+            confidence_adjustment += 0.05
+
+        if not level_override and confidence_adjustment != 0:
+            new_confidence = max(0.1, min(0.95, plan.confidence + confidence_adjustment))
+            if new_confidence != plan.confidence or short_reply_bias != 0.0:
+                adjusted = EngagementPlan(
+                    level=plan.level,
+                    reason=plan.reason,
+                    confidence=new_confidence,
+                    scene=plan.scene,
+                    anchor_type=plan.anchor_type,
+                    anchor_text=plan.anchor_text,
+                    short_reply_bias=short_reply_bias,
+                    warmth_bias=warmth_bias,
+                    initiative_bias=initiative_bias,
+                    playfulness_bias=playfulness_bias,
+                )
+
+        self._debug(
+            f"[Engagement][PersonaDrive] energy={energy:.0f} mood={mood:.0f} social_need={social_need:.0f} "
+            f"effects={list(effect_ids) if effect_ids else 'none'} "
+            f"biases=[short={short_reply_bias:.2f} warm={warmth_bias:.2f} init={initiative_bias:.2f} play={playfulness_bias:.2f}] "
+            f"orig_conf={plan.confidence:.2f} adj_conf={adjusted.confidence:.2f} level={plan.level.value}->{adjusted.level.value}"
+        )
+        return adjusted
 
     def recognize_opportunity(
         self,
@@ -618,11 +804,42 @@ class EngagementPlanner:
 
         # 过滤虚词/功能词，避免 confidence 虚高
         _STOPWORDS = {
-            "什么", "怎么", "为什么", "如何", "是不是", "能不能", "要不要",
-            "的是", "一个", "这个", "那个", "就是", "可以", "不是", "没有",
-            "我们", "你们", "他们", "自己", "现在", "已经", "还是", "但是",
-            "因为", "所以", "如果", "虽然", "而且", "或者", "不过", "然后",
-            "知道", "觉得", "时候", "问题", "东西",
+            "什么",
+            "怎么",
+            "为什么",
+            "如何",
+            "是不是",
+            "能不能",
+            "要不要",
+            "的是",
+            "一个",
+            "这个",
+            "那个",
+            "就是",
+            "可以",
+            "不是",
+            "没有",
+            "我们",
+            "你们",
+            "他们",
+            "自己",
+            "现在",
+            "已经",
+            "还是",
+            "但是",
+            "因为",
+            "所以",
+            "如果",
+            "虽然",
+            "而且",
+            "或者",
+            "不过",
+            "然后",
+            "知道",
+            "觉得",
+            "时候",
+            "问题",
+            "东西",
         }
 
         keywords: set[str] = set()

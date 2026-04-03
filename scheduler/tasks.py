@@ -355,3 +355,114 @@ async def _profile_build_impl(plugin):
         if i + batch_size < len(scopes):
             logger.debug(f"[Scheduler] ProfileBuild 批次完成，等待 {batch_interval} 分钟...")
             await asyncio.sleep(batch_interval * 60)
+
+
+async def scheduled_persona_consolidation(plugin) -> ScheduledTaskResult:
+    """人格日结定时任务 - 每天凌晨对所有活跃 scope 执行日结"""
+    consolidator = getattr(plugin, "persona_consolidator", None)
+    if not consolidator:
+        logger.info("[Scheduler] PersonaConsolidation 跳过: persona_consolidator 不可用")
+        return ScheduledTaskResult(
+            task_name="PersonaConsolidation",
+            scope_id=None,
+            success=True,
+            skipped=True,
+            reason="persona_consolidator unavailable",
+        )
+
+    scopes, skip_reason = await _resolve_target_scopes(
+        plugin, "PersonaConsolidation", include_private=True, include_groups=True
+    )
+    if not scopes:
+        logger.debug(f"[Scheduler] PersonaConsolidation 跳过: {skip_reason}")
+        return ScheduledTaskResult(
+            task_name="PersonaConsolidation",
+            scope_id=None,
+            success=True,
+            skipped=True,
+            reason=skip_reason,
+        )
+
+    return await _run_task(
+        "PersonaConsolidation",
+        _persona_consolidation_impl,
+        plugin,
+        swallow_errors=True,
+        log_scope_count=True,
+        scope_count=len(scopes),
+    )
+
+
+async def _persona_consolidation_impl(plugin):
+    consolidator = getattr(plugin, "persona_consolidator", None)
+    if not consolidator:
+        return
+
+    scopes, _ = await _resolve_target_scopes(plugin, "PersonaConsolidation", include_private=True, include_groups=True)
+    scopes = _dedupe_scopes(scopes)
+
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    success_count = 0
+    for scope_id in scopes:
+        try:
+            await consolidator.consolidate_scope(scope_id, yesterday)
+            success_count += 1
+        except Exception as e:
+            logger.warning(f"[Scheduler] PersonaConsolidation scope={scope_id} 失败: {e}")
+
+    logger.info(f"[Scheduler] PersonaConsolidation 完成: {success_count}/{len(scopes)} 个 scope")
+
+
+async def scheduled_persona_thought(plugin) -> ScheduledTaskResult:
+    """人格思维生成定时任务 - 每12小时为所有活跃 scope 生成内心独白"""
+    persona_sim = getattr(plugin, "persona_sim", None)
+    if not persona_sim:
+        logger.info("[Scheduler] PersonaThought 跳过: persona_sim 不可用")
+        return ScheduledTaskResult(
+            task_name="PersonaThought",
+            scope_id=None,
+            success=True,
+            skipped=True,
+            reason="persona_sim unavailable",
+        )
+
+    scopes, skip_reason = await _resolve_target_scopes(
+        plugin, "PersonaThought", include_private=True, include_groups=True
+    )
+    if not scopes:
+        logger.debug(f"[Scheduler] PersonaThought 跳过: {skip_reason}")
+        return ScheduledTaskResult(
+            task_name="PersonaThought",
+            scope_id=None,
+            success=True,
+            skipped=True,
+            reason=skip_reason,
+        )
+
+    return await _run_task(
+        "PersonaThought",
+        _persona_thought_impl,
+        plugin,
+        swallow_errors=True,
+        log_scope_count=True,
+        scope_count=len(scopes),
+    )
+
+
+async def _persona_thought_impl(plugin):
+    persona_sim = getattr(plugin, "persona_sim", None)
+    if not persona_sim:
+        return
+
+    scopes, _ = await _resolve_target_scopes(plugin, "PersonaThought", include_private=True, include_groups=True)
+    scopes = _dedupe_scopes(scopes)
+
+    success_count = 0
+    for scope_id in scopes:
+        try:
+            await persona_sim.generate_thought_process(scope_id)
+            success_count += 1
+        except Exception as e:
+            logger.warning(f"[Scheduler] PersonaThought scope={scope_id} 失败: {e}")
+
+    logger.info(f"[Scheduler] PersonaThought 完成: {success_count}/{len(scopes)} 个 scope")

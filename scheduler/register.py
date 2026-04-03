@@ -6,6 +6,8 @@ from .tasks import (
     scheduled_affinity_recovery,
     scheduled_interject,
     scheduled_memory_summary,
+    scheduled_persona_consolidation,
+    scheduled_persona_thought,
     scheduled_profile_build,
     scheduled_profile_cleanup,
     scheduled_reflection,
@@ -50,7 +52,7 @@ async def register_tasks(plugin):
             name="SelfEvolution_ProfileCleanup",
             cron_expression="0 4 * * *",
             handler=lambda: scheduled_profile_cleanup(plugin),
-            description="SelfEvolution: cleanup expired profiles",
+            description="SelfEvolution: 清理过期用户画像",
             persistent=True,
         )
         logger.info("[SelfEvolution] 已注册 ProfileCleanup: 0 4 * * *")
@@ -61,7 +63,7 @@ async def register_tasks(plugin):
                 name="SelfEvolution_ProfileBuild",
                 cron_expression=profile_cron,
                 handler=lambda: scheduled_profile_build(plugin),
-                description="SelfEvolution: build user profiles",
+                description="SelfEvolution: 批量构建用户画像",
                 persistent=True,
             )
             logger.info(f"[SelfEvolution] 已注册 ProfileBuild: {profile_cron}")
@@ -71,7 +73,7 @@ async def register_tasks(plugin):
                 name="SelfEvolution_DailyReflection",
                 cron_expression=plugin.reflection_schedule,
                 handler=lambda: scheduled_reflection(plugin),
-                description="SelfEvolution: daily reflection batch",
+                description="SelfEvolution: 每日反思批处理",
                 persistent=True,
             )
             logger.info(f"[SelfEvolution] 已注册 DailyReflection: {plugin.reflection_schedule}")
@@ -82,7 +84,7 @@ async def register_tasks(plugin):
                 name="SelfEvolution_AffinityRecovery",
                 cron_expression=recovery_cron,
                 handler=lambda: scheduled_affinity_recovery(plugin),
-                description="SelfEvolution: affinity recovery",
+                description="SelfEvolution: 好感度每日恢复",
                 persistent=True,
             )
             logger.info(f"[SelfEvolution] 已注册 AffinityRecovery: {recovery_cron}")
@@ -94,7 +96,7 @@ async def register_tasks(plugin):
                 name="SelfEvolution_SANAnalyze",
                 cron_expression=san_cron,
                 handler=lambda: scheduled_san_analyze(plugin),
-                description="SelfEvolution: SAN analysis",
+                description="SelfEvolution: SAN 精力分析",
                 persistent=True,
             )
             logger.info(f"[SelfEvolution] 已注册 SANAnalyze: {san_cron}")
@@ -105,7 +107,7 @@ async def register_tasks(plugin):
                 name="SelfEvolution_MemorySummary",
                 cron_expression=summary_cron,
                 handler=lambda: scheduled_memory_summary(plugin),
-                description="SelfEvolution: daily memory summary",
+                description="SelfEvolution: 每日会话记忆总结",
                 persistent=True,
             )
             logger.info(f"[SelfEvolution] 已注册 MemorySummary: {summary_cron}")
@@ -117,10 +119,28 @@ async def register_tasks(plugin):
                 name="SelfEvolution_Interject",
                 cron_expression=interject_cron,
                 handler=lambda: scheduled_interject(plugin),
-                description="SelfEvolution: proactive interject check",
+                description="SelfEvolution: 主动插嘴检查",
                 persistent=True,
             )
             logger.info(f"[SelfEvolution] 已注册 Interject: {interject_cron}")
+
+        await cron_mgr.add_basic_job(
+            name="SelfEvolution_PersonaConsolidation",
+            cron_expression="0 5 * * *",
+            handler=lambda: scheduled_persona_consolidation(plugin),
+            description="SelfEvolution: 人格日结",
+            persistent=True,
+        )
+        logger.info("[SelfEvolution] 已注册 PersonaConsolidation: 0 5 * * *")
+
+        await cron_mgr.add_basic_job(
+            name="SelfEvolution_PersonaThought",
+            cron_expression="0 1,13 * * *",
+            handler=lambda: scheduled_persona_thought(plugin),
+            description="SelfEvolution: 人格思维生成（每12小时）",
+            persistent=True,
+        )
+        logger.info("[SelfEvolution] 已注册 PersonaThought: 0 1,13 * * *")
 
         logger.info("[SelfEvolution] 调度任务注册完成")
 

@@ -105,6 +105,9 @@ class SpeechDecision:
     allow_new_topic: bool = False
     must_follow_thread: bool = True
     anchor_text: str = ""
+    warmth_hint: float = 0.0
+    initiative_hint: float = 0.0
+    playfulness_hint: float = 0.0
 
     IGNORE = "ignore"
     EMOJI = "emoji"
@@ -145,6 +148,9 @@ class SpeechDecision:
         allow_new_topic: bool = False,
         must_follow_thread: bool = True,
         anchor_text: str = "",
+        warmth_hint: float = 0.0,
+        initiative_hint: float = 0.0,
+        playfulness_hint: float = 0.0,
     ) -> "SpeechDecision":
         return cls(
             delivery_mode="text",
@@ -157,6 +163,9 @@ class SpeechDecision:
             allow_new_topic=allow_new_topic,
             must_follow_thread=must_follow_thread,
             anchor_text=anchor_text,
+            warmth_hint=warmth_hint,
+            initiative_hint=initiative_hint,
+            playfulness_hint=playfulness_hint,
         )
 
 

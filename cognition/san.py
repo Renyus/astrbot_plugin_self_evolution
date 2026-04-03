@@ -3,6 +3,7 @@ SAN 值系统 - 心智疲劳与精力管理
 定时获取群消息，分析群状态，动态调整 SAN 值
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -93,6 +94,28 @@ class SANSystem:
         if not self.enabled:
             return True
 
+        persona_sim = getattr(self.plugin, "persona_sim", None)
+        if persona_sim:
+            try:
+                scope_id = getattr(self.plugin, "_current_scope_id", None)
+                if scope_id:
+
+                    async def _read_energy():
+                        snap = await persona_sim.get_snapshot(str(scope_id))
+                        return snap.state.energy if snap else None
+
+                    energy = asyncio.get_event_loop().run_until_complete(_read_energy())
+                else:
+                    energy = None
+                if energy is not None:
+                    self._san_value = energy
+                    if energy <= 0:
+                        logger.warning("[SAN] 精力耗尽，拒绝服务")
+                        return False
+                    return True
+            except Exception:
+                pass
+
         if self._san_value is None:
             self._san_value = self.max_value
             self._san_last_recovery = time.time()
@@ -119,6 +142,31 @@ class SANSystem:
     def get_status(self):
         if not self.enabled:
             return ""
+        persona_sim = getattr(self.plugin, "persona_sim", None)
+        if persona_sim:
+            try:
+                scope_id = getattr(self.plugin, "_current_scope_id", None)
+                if scope_id:
+
+                    async def _get_snap():
+                        return await persona_sim.get_snapshot(str(scope_id))
+
+                    snapshot = asyncio.get_event_loop().run_until_complete(_get_snap())
+                else:
+                    snapshot = None
+                if snapshot:
+                    energy = snapshot.state.energy
+                    ratio = energy / 100.0
+                    if ratio < 0.2:
+                        status = "疲惫不堪"
+                    elif ratio < 0.5:
+                        status = "略有疲态"
+                    else:
+                        status = "精力充沛"
+                    logger.debug(f"[SAN] 获取状态: {status} (energy={energy})")
+                    return status
+            except Exception:
+                pass
         if self._san_value is None:
             status = "精力充沛"
             logger.debug(f"[SAN] 获取状态: {status}")

@@ -57,6 +57,10 @@ class EngagementPlan:
     sticker_id: Optional[str] = None
     anchor_type: AnchorType = AnchorType.NONE
     anchor_text: str = ""
+    short_reply_bias: float = 0.0
+    warmth_bias: float = 0.0
+    initiative_bias: float = 0.0
+    playfulness_bias: float = 0.0
 
     def to_speech_decision(self) -> SpeechDecision:
         if self.level == EngagementLevel.IGNORE:
@@ -66,7 +70,6 @@ class EngagementPlan:
 
         import random
 
-        # 根据场景动态设置 max_chars，模拟真人消息长度分布
         if self.scene == SceneType.CASUAL:
             max_chars = random.choices([30, 60, 120], weights=[60, 30, 10])[0]
         elif self.scene == SceneType.HELP:
@@ -76,6 +79,11 @@ class EngagementPlan:
         else:
             max_chars = 100
 
+        if self.short_reply_bias > 0.3:
+            max_chars = int(max_chars * 0.6)
+        elif self.short_reply_bias > 0.1:
+            max_chars = int(max_chars * 0.8)
+
         return SpeechDecision.text(
             text_mode="reply",
             anchor_type=self.anchor_type,
@@ -84,6 +92,9 @@ class EngagementPlan:
             max_chars=max_chars,
             must_follow_thread=True,
             anchor_text=self.anchor_text,
+            warmth_hint=self.warmth_bias,
+            initiative_hint=self.initiative_bias,
+            playfulness_hint=self.playfulness_bias,
         )
 
 

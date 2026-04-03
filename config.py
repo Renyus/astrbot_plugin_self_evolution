@@ -112,7 +112,7 @@ class PluginConfig:
 
     @property
     def memory_summary_schedule(self):
-        return self._get_nested("memory_summary", "memory_summary_schedule", "0 3 * * *")
+        return self._get_nested("memory_summary", "memory_summary_schedule", "0 6 * * *")
 
     @property
     def enable_kb_memory_recall(self):

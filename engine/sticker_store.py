@@ -259,6 +259,17 @@ class StickerStore:
 
         return random.choice(available)
 
+    def get_random_sticker_sync(self) -> dict | None:
+        """同步版：使用缓存的 index 随机获取一张可用表情包。缓存未初始化时返回 None。"""
+        import random
+
+        if self._index_cache is None:
+            return None
+        available = [s for s in self._index_cache.get("stickers", []) if not s.get("disabled", False)]
+        if not available:
+            return None
+        return random.choice(available)
+
     async def list_stickers(self, limit: int = 10, offset: int = 0) -> tuple[list[dict], int]:
         """获取表情包列表"""
         index = await self.load_index()

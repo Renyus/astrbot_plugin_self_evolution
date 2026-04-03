@@ -42,6 +42,9 @@ from .engine.eavesdropping import EavesdroppingEngine
 from .engine.affinity import AffinityEngine
 from .engine.entertainment import EntertainmentEngine
 from .engine.event_context import extract_interaction_context
+from .engine.persona_sim_engine import PersonaSimEngine
+from .engine.persona_sim_consolidation import PersonaSimConsolidator
+from .engine.persona_sim_injection import snapshot_to_debug_str, snapshot_to_prompt
 from .engine.message_normalization import ensure_event_message_text
 from .engine.memory import MemoryManager
 from .engine.memory_router import MemoryRouter
@@ -110,7 +113,7 @@ class PromptContext:
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "CognitionCore 7.0 数字生命。",
-    "Ver 4.1.2",
+    "Ver 5.0.0",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
@@ -147,6 +150,7 @@ class SelfEvolutionPlugin(Star):
         self.stickers_dir.mkdir(parents=True, exist_ok=True)
         self.sticker_store = StickerStore(self.stickers_dir)
         self._sticker_reply_timestamps: dict[str, list[float]] = {}
+        self._background_tasks: dict[str, asyncio.Task] = {}
         self.meals_dir = self.data_dir / "meals"
         self.meals_dir.mkdir(parents=True, exist_ok=True)
         self.meal_store = MealStore(self.meals_dir)
@@ -154,6 +158,8 @@ class SelfEvolutionPlugin(Star):
 
         # 配置系统（提前初始化，以便后续使用）
         self.cfg = PluginConfig(self)
+
+        # 帮助主题存储
 
         # 初始化审核关键词（从配置读取，支持用户自定义）
         init_moderation_keywords(
@@ -185,6 +191,9 @@ class SelfEvolutionPlugin(Star):
             self.profile_summary_service = ProfileSummaryService(self, self.profile)
             # 娱乐功能模块
             self.entertainment = EntertainmentEngine(self)
+            # Persona 生活模拟引擎
+            self.persona_sim = PersonaSimEngine(self)
+            self.persona_consolidator = PersonaSimConsolidator(self)
             # 关系温度引擎
             self.affinity = AffinityEngine(self)
             # 认知系统模块
@@ -335,6 +344,19 @@ class SelfEvolutionPlugin(Star):
 
         parts.append(await self._build_behavior_hints(ctx))
 
+        sim_block = ""
+        if ctx.scope_id and hasattr(self, "persona_sim") and self.persona_sim:
+            try:
+                snapshot = await self.persona_sim.get_snapshot(str(ctx.scope_id))
+                if snapshot:
+                    from .engine.persona_sim_injection import snapshot_to_prompt
+
+                    sim_block = snapshot_to_prompt(snapshot)
+            except Exception:
+                pass
+        if sim_block:
+            parts.append(sim_block)
+
         if explicit_facts:
             await self._writeback_reflection_facts(ctx, explicit_facts)
 
@@ -349,7 +371,7 @@ class SelfEvolutionPlugin(Star):
             logger.debug(
                 f"[MemoryInject] profile={'hit' if profile_hit else 'miss'} "
                 f"kb={'hit' if kb_hit else 'miss'} history={'hit' if history_hit else 'miss'} "
-                f"reflection={'hit' if reflection_hint else 'miss'} truncated={truncated}"
+                f"reflection={'hit' if reflection_hint else 'miss'} persona_sim={'hit' if sim_block else 'miss'} truncated={truncated}"
             )
 
     async def _prepare_request_context(self, event: AstrMessageEvent, req: ProviderRequest) -> PromptContext | None:
@@ -603,6 +625,7 @@ class SelfEvolutionPlugin(Star):
             logger.warning(f"[SelfEvolution] 注入内容超长，已截断至 {max_len} 字符")
 
         req.system_prompt += injection
+        self._last_llm_system_prompt = req.system_prompt
 
         if self.cfg.debug_log_enabled and req.system_prompt:
             logger.debug(
@@ -663,6 +686,12 @@ class SelfEvolutionPlugin(Star):
     async def on_media_extraction_listener(self, event: AstrMessageEvent):
         """Phase 1+2+4: 消息媒体目标抽取 -> Caption -> 审核分类。"""
         group_id = event.get_group_id() or ""
+        if group_id:
+            try:
+                asyncio.create_task(self.persona_sim.tick_time_only(group_id))
+            except Exception:
+                pass
+
         if not await _is_bot_admin_in_group(event, group_id):
             return
 
@@ -861,6 +890,7 @@ class SelfEvolutionPlugin(Star):
         plain_texts = [c.text for c in result.chain if isinstance(c, Plain) and c.text]
         total_len = sum(len(t) for t in plain_texts)
         if total_len < self.cfg.sticker_reply_min_text_length:
+            logger.debug(f"[Sticker] text too short: {total_len} < {self.cfg.sticker_reply_min_text_length}")
             return
 
         now = time.time()
@@ -869,20 +899,30 @@ class SelfEvolutionPlugin(Star):
         timestamps = self._sticker_reply_timestamps.get(key, [])
         timestamps = [t for t in timestamps if now - t < 3600]
         if len(timestamps) >= hourly_limit:
+            logger.debug(f"[Sticker] hourly limit reached: {len(timestamps)}/{hourly_limit}")
             return
-        if random.randint(1, 100) > self.cfg.sticker_reply_chance:
+        roll = random.randint(1, 100)
+        if roll > self.cfg.sticker_reply_chance:
+            logger.debug(f"[Sticker] roll {roll} > chance {self.cfg.sticker_reply_chance}")
             return
 
         sticker = await self.sticker_store.get_random_sticker()
         if not sticker:
+            logger.debug(f"[Sticker] no sticker from store")
             return
 
         file_path = self.sticker_store.get_sticker_path(sticker)
-        if not file_path or not os.path.exists(file_path):
+        if not file_path:
+            logger.debug(f"[Sticker] get_sticker_path returned None")
+            return
+        file_path_str = os.path.normpath(str(file_path))
+        if not os.path.exists(file_path_str):
+            logger.debug(f"[Sticker] file not found: {file_path_str}")
             return
 
+        logger.debug(f"[Sticker] appending: {file_path_str}")
         if AstrImage:
-            result.chain.append(AstrImage.fromFileSystem(file_path))
+            result.chain.append(AstrImage.fromFileSystem(file_path_str))
         timestamps.append(now)
         self._sticker_reply_timestamps[key] = timestamps
 
@@ -926,6 +966,7 @@ class SelfEvolutionPlugin(Star):
         self,
         req,
         umo,
+        scope_id: str = "",
     ):
         """Builds a generation spec and calls LLM directly without standard
         user-message-driven request hooks.
@@ -933,8 +974,28 @@ class SelfEvolutionPlugin(Star):
         Injects: persona, identity, history, profile, memory, behavior hints.
         Does not call on_llm_request hooks since they are designed for
         user-message-driven requests and active trigger is self-initiated.
+        Persona sim injection is done here directly instead.
         """
         try:
+            if scope_id and hasattr(self, "persona_sim") and self.persona_sim:
+                try:
+                    snapshot = await self.persona_sim.get_snapshot(scope_id)
+                    if snapshot:
+                        from .engine.persona_sim_injection import snapshot_to_prompt
+
+                        sim_block = snapshot_to_prompt(snapshot)
+                        if sim_block:
+                            req.system_prompt += "\n\n[当前状态]\n" + sim_block
+                except Exception:
+                    pass
+
+            if self.cfg.debug_log_enabled:
+                logger.debug(
+                    f"[InjectAndChat] ===== 主动触发 Prompt (共 {len(req.system_prompt)} 字符) =====\n"
+                    f"{req.system_prompt}\n"
+                    f"===== Prompt End =====\n"
+                    f"[InjectAndChat] user_prompt: {req.prompt[:200] if req.prompt else '(none)'}..."
+                )
             llm_provider = self.context.get_using_provider(umo=umo)
             resp = await llm_provider.text_chat(
                 prompt=req.prompt,
@@ -998,6 +1059,8 @@ class SelfEvolutionPlugin(Star):
 
             builder = ContextBuilder(self)
             gc = await builder.build(ctx, decision, anchor_text, scene)
+            if self.cfg.debug_log_enabled and gc.persona_prompt:
+                logger.debug(f"[BuildSpec] persona_prompt ({len(gc.persona_prompt)} chars): {gc.persona_prompt}")
             spec = builder.build_generation_spec(gc, decision)
 
             req = ProviderRequest(
@@ -1042,18 +1105,18 @@ class SelfEvolutionPlugin(Star):
 
         asyncio.create_task(self.sticker_store.sync_from_files())
 
-    @filter.command_group("system")
-    def system_group(self):
+    @filter.command_group("se")
+    def se_group(self):
         """系统命令"""
 
-    @system_group.command("help")
+    @se_group.command("help")
     async def show_help(self, event: AstrMessageEvent):
         """查看插件帮助"""
-        result = await commands.handle_help(event, self)
+        result = await commands.handle_help_text(event, self)
         event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
-    @system_group.command("version")
+    @se_group.command("version")
     async def show_version(self, event: AstrMessageEvent):
         """查看插件版本"""
         result = await commands.handle_version(event, self)
@@ -1075,6 +1138,67 @@ class SelfEvolutionPlugin(Star):
             event.set_extra("self_evolution_command_reply", True)
             yield event.chain_result([Image.fromURL(result[1]), Plain(result[0])])
 
+    @filter.command("meal")
+    def meal_group(self):
+        """群菜单管理"""
+        pass
+
+    @meal_group.command("ban")
+    async def meal_ban(self, event: AstrMessageEvent, target_user_id: str = ""):
+        """禁止某用户添加菜品（仅管理员）"""
+        if not event.is_admin():
+            yield event.plain_result("此指令仅限管理员使用。")
+            return
+        group_id = event.get_group_id()
+        if not group_id:
+            yield event.plain_result("此指令仅限群聊使用。")
+            return
+        raw = target_user_id.strip().lstrip("@")
+        if not raw:
+            yield event.plain_result("请 @ 要禁止的用户或提供 QQ 号，例如：/meal ban @xxx 或 /meal ban 123456")
+            return
+        if raw.isdigit():
+            qq = raw
+        else:
+            from .engine.event_context import extract_interaction_context
+
+            bot_id = self._get_bot_id()
+            interaction = extract_interaction_context(
+                event.get_messages(), persona_name=self.persona_name, bot_id=bot_id
+            )
+            at_targets = interaction.get("at_targets", [])
+            qq = at_targets[0] if at_targets else raw
+        success, message = await self.meal_store.ban_user(group_id, qq)
+        yield event.plain_result(message)
+
+    @meal_group.command("unban")
+    async def meal_unban(self, event: AstrMessageEvent, target_user_id: str = ""):
+        """解除某用户添加菜品的限制（仅管理员）"""
+        if not event.is_admin():
+            yield event.plain_result("此指令仅限管理员使用。")
+            return
+        group_id = event.get_group_id()
+        if not group_id:
+            yield event.plain_result("此指令仅限群聊使用。")
+            return
+        raw = target_user_id.strip().lstrip("@")
+        if not raw:
+            yield event.plain_result("请 @ 要解禁的用户或提供 QQ 号，例如：/meal unban @xxx 或 /meal unban 123456")
+            return
+        if raw.isdigit():
+            qq = raw
+        else:
+            from .engine.event_context import extract_interaction_context
+
+            bot_id = self._get_bot_id()
+            interaction = extract_interaction_context(
+                event.get_messages(), persona_name=self.persona_name, bot_id=bot_id
+            )
+            at_targets = interaction.get("at_targets", [])
+            qq = at_targets[0] if at_targets else raw
+        success, message = await self.meal_store.unban_user(group_id, qq)
+        yield event.plain_result(message)
+
     @filter.command("addmeal")
     async def add_meal(self, event: AstrMessageEvent, meal_name: str = ""):
         """添加菜品到群菜单"""
@@ -1095,6 +1219,11 @@ class SelfEvolutionPlugin(Star):
             return
 
         max_items = getattr(self.cfg, "meal_max_items", 100)
+        user_id = event.get_sender_id()
+        if await self.meal_store.is_user_banned(group_id, user_id):
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result("你被管理员禁止添加菜品，如有异议请联系管理员。")
+            return
         success, message = await self.meal_store.add_meal(group_id, meal_name.strip(), max_items)
         event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(message)
@@ -1116,6 +1245,16 @@ class SelfEvolutionPlugin(Star):
         if not getattr(self.cfg, "entertainment_enabled", True):
             event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("娱乐模块当前已关闭。")
+            return
+
+        if meal_name.strip().lower() == "all":
+            if not event.is_admin():
+                event.set_extra("self_evolution_command_reply", True)
+                yield event.plain_result("清空菜单仅限管理员使用。")
+                return
+            success, message = await self.meal_store.clear_meals(group_id)
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(message)
             return
 
         success, message = await self.meal_store.del_meal(group_id, meal_name.strip())
@@ -1187,11 +1326,11 @@ class SelfEvolutionPlugin(Star):
         """
         return await self.persona.evolve_persona(event, new_system_prompt, reason)
 
-    @filter.command_group("affinity")
-    def affinity_group(self):
+    @filter.command_group("af")
+    def af_group(self):
         """好感度管理"""
 
-    @affinity_group.command("show")
+    @af_group.command("show")
     async def check_affinity(self, event: AstrMessageEvent):
         """查询机器人对你的当前好感度。"""
         user_id = event.get_sender_id()
@@ -1204,7 +1343,7 @@ class SelfEvolutionPlugin(Star):
         event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(f"UID: {user_id}\n{self.persona_name} 的情感矩阵评分: {score}/100\n分类状态: {status}")
 
-    @affinity_group.command("debug")
+    @af_group.command("debug")
     async def affinity_debug(self, event: AstrMessageEvent, user_id: str = ""):
         """[管理员] 查看指定用户的详细好感度状态。"""
         if not event.is_admin():
@@ -1233,7 +1372,7 @@ class SelfEvolutionPlugin(Star):
         event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
-    @filter.command("set_affinity")
+    @af_group.command("set")
     async def set_affinity(self, event: AstrMessageEvent, user_id: str, score: int):
         """[管理员] 手动重置指定用户的好感度评分。"""
         if not event.is_admin():
@@ -1280,11 +1419,11 @@ class SelfEvolutionPlugin(Star):
         logger.warning(f"[SelfEvolution] 用户 {user_id} 积分变动 {delta}，原因: {reason}")
         return f"用户情感积分已更新。当前调整理由：{reason}"
 
-    @filter.command_group("evolution")
-    def evolution_group(self):
+    @filter.command_group("ev")
+    def ev_group(self):
         """人格进化管理"""
 
-    @evolution_group.command("review")
+    @ev_group.command("review")
     async def review_evolutions(self, event: AstrMessageEvent, page: int = 1):
         """查看待审核的人格进化"""
         if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
@@ -1294,7 +1433,7 @@ class SelfEvolutionPlugin(Star):
         event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(await self.persona.review_evolutions(event, page))
 
-    @evolution_group.command("approve")
+    @ev_group.command("approve")
     async def approve_evolution(self, event: AstrMessageEvent, request_id: int):
         """批准人格进化"""
         if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
@@ -1304,7 +1443,7 @@ class SelfEvolutionPlugin(Star):
         event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(await self.persona.approve_evolution(event, request_id))
 
-    @evolution_group.command("reject")
+    @ev_group.command("reject")
     async def reject_evolution(self, event: AstrMessageEvent, request_id: int):
         """拒绝人格进化"""
         if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
@@ -1314,7 +1453,7 @@ class SelfEvolutionPlugin(Star):
         event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(await self.persona.reject_evolution(event, request_id))
 
-    @evolution_group.command("clear")
+    @ev_group.command("clear")
     async def clear_evolutions(self, event: AstrMessageEvent):
         """清空待审核人格进化"""
         if not event.is_admin() and (not self.admin_users or str(event.get_sender_id()) not in self.admin_users):
@@ -1332,7 +1471,7 @@ class SelfEvolutionPlugin(Star):
             event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result(f"清空审核列表时发生异常: {e}")
 
-    @evolution_group.command("stats")
+    @ev_group.command("stats")
     async def evolution_stats(self, event: AstrMessageEvent, scope_id: str = ""):
         """查看行为统计摘要。默认显示当前群组，可指定 scope_id。"""
         event.set_extra("self_evolution_command_reply", True)
@@ -2026,3 +2165,200 @@ class SelfEvolutionPlugin(Star):
         result = await commands.handle_db(event, self, action, param)
         event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
+
+    @filter.command_group("ps")
+    def ps_group(self):
+        """人格生活模拟"""
+        pass
+
+    @ps_group.command("status")
+    async def persona_status_cmd(self, event: AstrMessageEvent, scope: str = ""):
+        """查看当前人格状态快照（手动 tick）"""
+        target_scope = scope or event.get_group_id() or str(event.get_sender_id())
+        if not target_scope:
+            yield event.plain_result("无法确定 scope，请传入 scope 参数。")
+            return
+        try:
+            snapshot = await self.persona_sim.tick(target_scope)
+            debug_str = snapshot_to_debug_str(snapshot)
+            injection = snapshot_to_prompt(snapshot)
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(f"[PersonaSim]\n{debug_str}\n\n[注入片段]\n{injection}")
+        except Exception as e:
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(f"[PersonaSim] 出错: {e}")
+
+    @ps_group.command("state")
+    async def persona_state_cmd(self, event: AstrMessageEvent, scope: str = ""):
+        """只读取当前状态，不 tick"""
+        target_scope = scope or event.get_group_id() or str(event.get_sender_id())
+        if not target_scope:
+            yield event.plain_result("无法确定 scope，请传入 scope 参数。")
+            return
+        try:
+            snapshot = await self.persona_sim.get_snapshot(target_scope)
+            if not snapshot:
+                event.set_extra("self_evolution_command_reply", True)
+                yield event.plain_result(f"[PersonaSim] scope={target_scope} 还没有状态记录。")
+                return
+            debug_str = snapshot_to_debug_str(snapshot)
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(f"[PersonaSim]\n{debug_str}")
+        except Exception as e:
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(f"[PersonaSim] 出错: {e}")
+
+    @ps_group.command("todo")
+    async def persona_todo_cmd(self, event: AstrMessageEvent, scope: str = ""):
+        """查看当前脑内待办（只读）"""
+        target_scope = scope or event.get_group_id() or str(event.get_sender_id())
+        if not target_scope:
+            yield event.plain_result("无法确定 scope，请传入 scope 参数。")
+            return
+        try:
+            snapshot = await self.persona_sim.get_snapshot(target_scope)
+            if not snapshot:
+                event.set_extra("self_evolution_command_reply", True)
+                yield event.plain_result(f"[PersonaSim] scope={target_scope} 还没有状态记录。")
+                return
+            if not snapshot.pending_todos:
+                event.set_extra("self_evolution_command_reply", True)
+                yield event.plain_result(f"[PersonaSim todo] scope={target_scope} 当前没有待办。")
+                return
+            lines = [f"[PersonaSim 待办] scope={target_scope}"]
+            for i, td in enumerate(snapshot.pending_todos, 1):
+                lines.append(f"{i}. [{td.todo_type.value}] {td.title}")
+                if td.reason:
+                    lines.append(f"   原因: {td.reason}")
+                lines.append(f"   优先级: {td.priority} | 情绪偏向: {td.mood_bias:+.1f}")
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result("\n".join(lines))
+        except Exception as e:
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(f"[PersonaSim] 出错: {e}")
+
+    @ps_group.command("effects")
+    async def persona_effects_cmd(self, event: AstrMessageEvent, scope: str = ""):
+        """查看当前状态效果（只读）"""
+        target_scope = scope or event.get_group_id() or str(event.get_sender_id())
+        if not target_scope:
+            yield event.plain_result("无法确定 scope，请传入 scope 参数。")
+            return
+        try:
+            snapshot = await self.persona_sim.get_snapshot(target_scope)
+            if not snapshot:
+                event.set_extra("self_evolution_command_reply", True)
+                yield event.plain_result(f"[PersonaSim] scope={target_scope} 还没有状态记录。")
+                return
+            if not snapshot.active_effects:
+                event.set_extra("self_evolution_command_reply", True)
+                yield event.plain_result(f"[PersonaSim effects] scope={target_scope} 当前没有活跃效果。")
+                return
+            lines = [f"[PersonaSim 状态效果] scope={target_scope}"]
+            for eff in snapshot.active_effects:
+                lines.append(f"- {eff.name} (强度: {eff.intensity}, 类型: {eff.effect_type.value})")
+                if eff.prompt_hint:
+                    lines.append(f"  提示: {eff.prompt_hint}")
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result("\n".join(lines))
+        except Exception as e:
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(f"[PersonaSim] 出错: {e}")
+
+    @ps_group.command("apply")
+    async def persona_apply_cmd(self, event: AstrMessageEvent, q: str = "normal", scope: str = ""):
+        """应用一次互动影响（q: bad/awkward/normal/good/relief/brief）"""
+        target_scope = scope or event.get_group_id() or str(event.get_sender_id())
+        if not target_scope:
+            yield event.plain_result("无法确定 scope，请传入 scope 参数。")
+            return
+        valid_qualities = ("bad", "awkward", "normal", "good", "relief", "brief")
+        if q not in valid_qualities:
+            yield event.plain_result(f"质量必须是: {', '.join(valid_qualities)}")
+            return
+        try:
+            snapshot = await self.persona_sim.apply_interaction(target_scope, q)
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(
+                f"[PersonaSim apply] q={q}\n"
+                f"已应用 {q} 互动\n"
+                f"当前状态: energy={snapshot.state.energy:.0f} mood={snapshot.state.mood:.0f}"
+            )
+        except Exception as e:
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(f"[PersonaSim] 出错: {e}")
+
+    @ps_group.command("tick")
+    async def persona_tick_cmd(self, event: AstrMessageEvent, q: str = "none", scope: str = ""):
+        """手动推进人格时间（q: none/negative/positive）"""
+        target_scope = scope or event.get_group_id() or str(event.get_sender_id())
+        if not target_scope:
+            yield event.plain_result("无法确定 scope，请传入 scope 参数。")
+            return
+        valid_qualities = ("none", "negative", "positive")
+        if q not in valid_qualities:
+            yield event.plain_result(f"质量必须是: {', '.join(valid_qualities)}")
+            return
+        try:
+            snapshot = await self.persona_sim.tick(target_scope, interaction_quality=q)
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(
+                f"[PersonaSim tick] scope={target_scope}\n"
+                f"时间已推进\n"
+                f"当前状态: energy={snapshot.state.energy:.0f} mood={snapshot.state.mood:.0f}"
+            )
+        except Exception as e:
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(f"[PersonaSim] 出错: {e}")
+
+    @ps_group.command("consolidate")
+    async def persona_consolidate_cmd(self, event: AstrMessageEvent, scope: str = "", date: str = ""):
+        """执行人格日结（手动），可指定 scope 和日期（YYYY-MM-DD）。"""
+        target_scope = scope or event.get_group_id()
+        if not target_scope:
+            yield event.plain_result("无法确定 scope，请传入 scope 参数。")
+            return
+        try:
+            event.set_extra("self_evolution_command_reply", True)
+            result = await self.persona_consolidator.consolidate_scope(target_scope, date or None)
+            yield event.plain_result(result)
+        except Exception as e:
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(f"[PersonaSim] 日结出错: {e}")
+
+    @ps_group.command("today")
+    async def persona_today_cmd(self, event: AstrMessageEvent, scope: str = ""):
+        """查看今日人格状态摘要（只读，不触发 drift）。"""
+        target_scope = scope or event.get_group_id()
+        if not target_scope:
+            yield event.plain_result("无法确定 scope，请传入 scope 参数。")
+            return
+        try:
+            summary = await self.persona_consolidator.get_today_summary(target_scope)
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(f"[PersonaSim 今日]\n{summary}")
+        except Exception as e:
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(f"[PersonaSim] 出错: {e}")
+
+    @ps_group.command("think")
+    async def persona_think_cmd(self, event: AstrMessageEvent, scope: str = ""):
+        """手动触发 LLM 生成内心独白（覆盖旧的）"""
+        target_scope = scope or event.get_group_id() or str(event.get_sender_id())
+        if not target_scope:
+            yield event.plain_result("无法确定 scope，请传入 scope 参数。")
+            return
+        task_key = f"think_{target_scope}"
+        existing = self._background_tasks.get(task_key)
+        if existing and not existing.done():
+            yield event.plain_result("[PersonaSim 思维] 已有生成任务在进行中，请稍后再试。")
+            return
+        try:
+            event.set_extra("self_evolution_command_reply", True)
+            task = asyncio.create_task(self.persona_sim.generate_thought_process(target_scope))
+            self._background_tasks[task_key] = task
+            task.add_done_callback(lambda _: self._background_tasks.pop(task_key, None))
+            yield event.plain_result("[PersonaSim 思维] 正在生成中，请稍后 /personasim status 查看结果。")
+        except Exception as e:
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(f"[PersonaSim] 出错: {e}")

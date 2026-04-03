@@ -114,48 +114,50 @@ class EngagementPlannerTests(IsolatedAsyncioTestCase):
         self.assertTrue(result.allowed)
         self.assertEqual(result.reason_code, "OK")
 
-    def test_plan_ignore_in_idle_no_mention(self):
+    async def test_plan_ignore_in_idle_no_mention(self):
         state = self._make_state(message_count_window=1, last_message_time=time.time() - 600)
         eligibility = self.planner.check_eligibility(state)
-        plan = self.planner.plan_engagement(state, eligibility, has_mention=False, has_reply_to_bot=False)
+        plan = await self.planner.plan_engagement(state, eligibility, has_mention=False, has_reply_to_bot=False)
         self.assertEqual(plan.level, EngagementLevel.IGNORE)
 
-    def test_plan_full_in_idle_with_mention(self):
+    async def test_plan_full_in_idle_with_mention(self):
         state = self._make_state(message_count_window=1, last_message_time=time.time() - 600)
         eligibility = self.planner.check_eligibility(state)
-        plan = self.planner.plan_engagement(state, eligibility, has_mention=True, has_reply_to_bot=False)
+        plan = await self.planner.plan_engagement(state, eligibility, has_mention=True, has_reply_to_bot=False)
         self.assertEqual(plan.level, EngagementLevel.FULL)
 
-    def test_plan_full_in_help_with_mention(self):
+    async def test_plan_full_in_help_with_mention(self):
         state = self._make_state(question_count_window=3, scene=SceneType.HELP)
         eligibility = self.planner.check_eligibility(state)
-        plan = self.planner.plan_engagement(state, eligibility, has_mention=True, has_reply_to_bot=False)
+        plan = await self.planner.plan_engagement(state, eligibility, has_mention=True, has_reply_to_bot=False)
         self.assertEqual(plan.level, EngagementLevel.FULL)
 
-    def test_plan_ignore_in_debate_no_mention(self):
+    async def test_plan_ignore_in_debate_no_mention(self):
         state = self._make_state(emotion_count_window=5, scene=SceneType.DEBATE)
         eligibility = self.planner.check_eligibility(state)
-        plan = self.planner.plan_engagement(state, eligibility, has_mention=False, has_reply_to_bot=False)
+        plan = await self.planner.plan_engagement(state, eligibility, has_mention=False, has_reply_to_bot=False)
         self.assertEqual(plan.level, EngagementLevel.IGNORE)
 
-    def test_plan_full_in_debate_with_mention(self):
+    async def test_plan_full_in_debate_with_mention(self):
         state = self._make_state(emotion_count_window=5, scene=SceneType.DEBATE)
         eligibility = self.planner.check_eligibility(state)
-        plan = self.planner.plan_engagement(state, eligibility, has_mention=True, has_reply_to_bot=False)
+        plan = await self.planner.plan_engagement(state, eligibility, has_mention=True, has_reply_to_bot=False)
         self.assertEqual(plan.level, EngagementLevel.FULL)
 
-    def test_plan_full_in_casual_with_mention(self):
+    async def test_plan_full_in_casual_with_mention(self):
         state = self._make_state(scene=SceneType.CASUAL)
         eligibility = self.planner.check_eligibility(state)
-        plan = self.planner.plan_engagement(state, eligibility, has_mention=True, has_reply_to_bot=False)
+        plan = await self.planner.plan_engagement(state, eligibility, has_mention=True, has_reply_to_bot=False)
         self.assertEqual(plan.level, EngagementLevel.FULL)
 
-    def test_plan_no_anchor_no_trigger(self):
+    async def test_plan_no_anchor_no_trigger(self):
         self.plugin.cfg.engagement_react_probability = 1.0
         planner = EngagementPlanner(self.plugin)
         state = self._make_state(scene=SceneType.CASUAL)
         eligibility = planner.check_eligibility(state)
-        plan = planner.plan_engagement(state, eligibility, has_mention=False, has_reply_to_bot=False, trigger_text="")
+        plan = await planner.plan_engagement(
+            state, eligibility, has_mention=False, has_reply_to_bot=False, trigger_text=""
+        )
         self.assertEqual(plan.level, EngagementLevel.IGNORE)
 
 
@@ -475,7 +477,7 @@ class HelpSceneLowRelevanceTests(IsolatedAsyncioTestCase):
         await self.dao.close()
         cleanup_workspace_temp_dir(self.temp_dir)
 
-    def test_help_scene_low_relevance_gives_full(self):
+    async def test_help_scene_low_relevance_gives_full(self):
         social_module = load_engine_module("social_state")
         GroupSocialState = social_module.GroupSocialState
         SceneType = social_module.SceneType
@@ -493,7 +495,7 @@ class HelpSceneLowRelevanceTests(IsolatedAsyncioTestCase):
             consecutive_bot_replies=0,
         )
         eligibility = EngagementEligibility(allowed=True, silence_seconds=30, reason_code="test", reason_text="test")
-        plan = self.planner.plan_engagement(state, eligibility, has_mention=False, has_reply_to_bot=False)
+        plan = await self.planner.plan_engagement(state, eligibility, has_mention=False, has_reply_to_bot=False)
         self.assertEqual(plan.level.value, "full")
 
 
@@ -675,6 +677,7 @@ class ReplyPolicyStateTransitionTests(IsolatedAsyncioTestCase):
             min_new_messages=1,
             require_new_user_after_bot=True,
             allow_active=True,
+            current_hour=14,
         )
 
         self.assertTrue(
@@ -921,7 +924,7 @@ class AnchorRequirementRegressionTests(IsolatedAsyncioTestCase):
             scene=scene,
         )
 
-    def test_no_anchor_casual_emoji_react_only(self):
+    async def test_no_anchor_casual_emoji_react_only(self):
         """无锚点时，只有情绪活跃才能 EMOJI_REACT.
 
         Natural landing only triggers when 2 <= message_count_window <= 4 in CASUAL.
@@ -929,12 +932,12 @@ class AnchorRequirementRegressionTests(IsolatedAsyncioTestCase):
         """
         state = self._make_state(scene=self.SceneType.CASUAL, emotion_count=1, message_count=1)
         eligibility = self.EngagementEligibility(allowed=True, silence_seconds=60, reason_code="OK", reason_text="OK")
-        plan = self.planner.plan_engagement(
+        plan = await self.planner.plan_engagement(
             state, eligibility, has_mention=False, has_reply_to_bot=False, trigger_text="hello"
         )
         self.assertEqual(plan.level.value, "ignore", "低情绪无锚点应 IGNORE")
 
-    def test_no_anchor_emotion_high_emoji_react(self):
+    async def test_no_anchor_emotion_high_emoji_react(self):
         """高情绪无锚点时降级为 REACT.
 
         CASUAL scene with message_count=1 (no natural landing) and emotion_count=3 (>=2),
@@ -944,22 +947,22 @@ class AnchorRequirementRegressionTests(IsolatedAsyncioTestCase):
         """
         state = self._make_state(scene=self.SceneType.CASUAL, emotion_count=3, message_count=5)
         eligibility = self.EngagementEligibility(allowed=True, silence_seconds=60, reason_code="OK", reason_text="OK")
-        plan = self.planner.plan_engagement(
+        plan = await self.planner.plan_engagement(
             state, eligibility, has_mention=False, has_reply_to_bot=False, trigger_text="今天吃饭了"
         )
         self.assertEqual(plan.level.value, "react", "高情绪无锚点应 REACT")
 
-    def test_question_anchor_text_allowed_full(self):
+    async def test_question_anchor_text_allowed_full(self):
         """问题锚点应允许主动文本发言."""
         state = self._make_state(scene=self.SceneType.CASUAL, message_count=3)
         eligibility = self.EngagementEligibility(allowed=True, silence_seconds=60, reason_code="OK", reason_text="OK")
-        plan = self.planner.plan_engagement(
+        plan = await self.planner.plan_engagement(
             state, eligibility, has_mention=False, has_reply_to_bot=False, trigger_text="这个问题怎么解决？"
         )
         self.assertEqual(plan.level.value, "full")
         self.assertNotEqual(plan.anchor_type.value, "none")
 
-    def test_natural_landing_anchor_full(self):
+    async def test_natural_landing_anchor_full(self):
         """自然落点应允许主动文本发言."""
         state = self.GroupSocialState(
             scope_id="5001",
@@ -972,7 +975,7 @@ class AnchorRequirementRegressionTests(IsolatedAsyncioTestCase):
             scene=self.SceneType.CASUAL,
         )
         eligibility = self.EngagementEligibility(allowed=True, silence_seconds=60, reason_code="OK", reason_text="OK")
-        plan = self.planner.plan_engagement(
+        plan = await self.planner.plan_engagement(
             state, eligibility, has_mention=False, has_reply_to_bot=False, trigger_text="今天天气真好"
         )
         self.assertIn(plan.level.value, ("full", "ignore"))

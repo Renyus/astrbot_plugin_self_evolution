@@ -17,7 +17,7 @@ from .profile import (
 )
 from .sticker import check_admin as check_sticker_admin
 from .sticker import handle_sticker
-from .system import handle_help, handle_version
+from .system import handle_help, handle_help_text, handle_version
 
 __all__ = [
     "check_admin_admin",
@@ -30,6 +30,7 @@ __all__ = [
     "handle_delete",
     "handle_set_san",
     "handle_help",
+    "handle_help_text",
     "handle_shut",
     "handle_stats",
     "handle_sticker",

@@ -126,7 +126,7 @@ async def process_intent(
         await recorder.record(scope_id, executed=False, momentum=momentum)
         return False
 
-    plan = planner.plan_engagement(
+    plan = await planner.plan_engagement(
         state,
         eligibility,
         has_mention=intent.has_mention,

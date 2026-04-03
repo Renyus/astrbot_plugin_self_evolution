@@ -67,6 +67,17 @@ def ensure_group(ctx: CommandContext) -> str | None:
     return RESP_MESSAGES["group_only"]
 
 
+def _extract_at_targets(event) -> list[str]:
+    """从消息链的 At 段提取所有被 @ 的用户 QQ 列表。"""
+    targets = []
+    for comp in event.get_messages() or []:
+        if type(comp).__name__ == "At":
+            qq = getattr(comp, "qq", None)
+            if qq:
+                targets.append(str(qq))
+    return targets
+
+
 def parse_target_user(event, default_to_sender=True) -> tuple[str, str]:
     sender_id = str(event.get_sender_id())
     user_id = ""
@@ -82,6 +93,14 @@ def parse_target_user(event, default_to_sender=True) -> tuple[str, str]:
         else:
             user_arg = parts[1].strip() if len(parts) > 1 else ""
 
-        user_id = user_arg
+        if user_arg.startswith("@"):
+            at_targets = _extract_at_targets(event)
+            if at_targets:
+                user_id = at_targets[0]
+            else:
+                user_id = user_arg.lstrip("@")
+        elif user_arg:
+            user_id = user_arg
+
     target = user_id if user_id else (sender_id if default_to_sender else "")
     return target, user_id

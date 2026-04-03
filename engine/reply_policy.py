@@ -34,6 +34,7 @@ class ReplyPolicy:
         require_new_user_after_bot: bool = False,
         allow_active: bool = True,
         is_direct_addressed: bool = False,
+        current_hour: int | None = None,
     ) -> ReplyPolicyDecision:
         """统一仲裁入口。
 
@@ -51,7 +52,7 @@ class ReplyPolicy:
         scope_id = momentum.scope_id
 
         # 深夜时段（23:00-06:00）：延长冷却，非直接寻址还提高消息门槛
-        hour = datetime.now().hour
+        hour = current_hour if current_hour is not None else datetime.now().hour
         if 23 <= hour or hour < 6:
             cooldown_seconds = int(cooldown_seconds * 3)
             # 直接寻址（@bot / reply bot / 私聊）不提高消息门槛，避免用户叫不醒 bot
