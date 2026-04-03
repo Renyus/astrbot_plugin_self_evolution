@@ -1110,6 +1110,15 @@ class SelfEvolutionDAO:
             )
             await db.commit()
 
+    async def set_persona_sim_energy(self, scope_id: str, energy: float) -> None:
+        db = await self.get_conn()
+        async with self._write_lock:
+            await db.execute(
+                "UPDATE persona_state SET energy = ? WHERE scope_id = ?",
+                (energy, scope_id),
+            )
+            await db.commit()
+
     @with_db_retry()
     async def get_active_persona_effects(self, scope_id: str) -> list[dict]:
         db = await self.get_conn()

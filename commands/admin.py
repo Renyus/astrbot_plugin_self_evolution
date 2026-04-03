@@ -37,7 +37,24 @@ def _read_db_confirmation(plugin, user_id: str) -> tuple[str, float]:
 
 
 async def handle_san_show(event, plugin):
-    """查看当前 SAN 状态。"""
+    """查看当前 SAN 状态（优先读取 Persona Sim）"""
+    persona_sim = getattr(plugin, "persona_sim", None)
+    if persona_sim:
+        scope_id = event.get_group_id() or str(event.get_sender_id())
+        try:
+            snap = await persona_sim.get_snapshot(str(scope_id))
+            if snap:
+                e = snap.state.energy
+                ratio = e / 100.0
+                if ratio < 0.2:
+                    label = "疲惫不堪"
+                elif ratio < 0.5:
+                    label = "略有疲态"
+                else:
+                    label = "精力充沛"
+                return f"当前精力值：{e:.0f}/100（{label}）[Persona Sim]"
+        except Exception:
+            pass
     return _format_san_status(plugin.san_system)
 
 
@@ -158,14 +175,14 @@ async def handle_db(event, plugin, action: str = "", param: str = ""):
 
 
 async def handle_set_san(event, plugin, value: str = ""):
-    """查看或设置当前 SAN。"""
+    """查看或设置当前 SAN（优先操作 Persona Sim）"""
     ctx = CommandContext.from_event(event, plugin)
     deny = ensure_admin(ctx)
     if deny:
         return deny
 
     if not value:
-        return _format_san_status(plugin.san_system)
+        return await handle_san_show(event, plugin)
 
     if not plugin.san_system.enabled:
         return "SAN 精力系统未启用"
@@ -174,6 +191,15 @@ async def handle_set_san(event, plugin, value: str = ""):
         new_val = int(value)
     except ValueError:
         return RESP_MESSAGES["invalid_param"]
+
+    persona_sim = getattr(plugin, "persona_sim", None)
+    if persona_sim:
+        scope_id = event.get_group_id() or str(event.get_sender_id())
+        try:
+            await plugin.dao.set_persona_sim_energy(str(scope_id), float(new_val))
+            return f"精力值已设置为：{new_val}/100（Persona Sim，直接写库，下次 tick 前生效）"
+        except Exception as e:
+            return f"Persona Sim 写入失败：{e}，回退到 SAN 系统"
 
     actual = plugin.san_system.set_value(new_val)
     status = plugin.san_system.get_status()

@@ -11,6 +11,16 @@
 
 ## [Unreleased]
 
+### SAN × Persona Sim 统一
+
+#### Changed
+
+- **SAN 归口到 Persona Sim**：SAN 的 LLM 群分析结果通过 `persona_sim.tick(quality)` 注入，而非改自己的 `_san_value`；不再存在两套能量系统打架
+- **`analyze_all_groups()`**：每群分析后映射为 interaction_quality（`good/normal/awkward/bad`），调用 `persona_sim.tick()` 而非改 SAN 内部值
+- **`update()` 改为 async**：当 persona_sim 可用时直接返回 True，由 Persona Sim 负责能量管理；不再用 `run_until_complete()` hack
+- **`get_prompt_injection()`**：当 persona_sim 可用时返回空串，Prompt 注入完全由 Persona Sim 提供，解除左右脑互搏
+- **向后兼容**：当 persona_sim 不可用时，SAN 自身能量管理逻辑保留，降级为独立系统
+
 ### Persona Sim 2.0 — Bug Fix & Clean up
 
 #### Fixed

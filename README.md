@@ -8,40 +8,158 @@
 
 ## 功能架构
 
+### Persona Sim 2.0 — 人格生活模拟（核心引擎）
+
+内置人格状态引擎，追踪 **能量、心情、社交需求、饱腹感**，基于时间差推演状态变化，触发短期 Effect 和脑内待办。**SAN 系统现已归口到 Persona Sim**，不再独立维护能量值。
+
+#### Prompt 注入
+
+- **System Prompt**：人格叙事片段（`snapshot_to_prompt`）+ 人格设定基底
+  - 输出示例：`"刚主动说了话但被冷落，还有点堵着"`
+  - 不再注入"精力充沛"等状态基调，由 Persona Sim 统一提供
+- **注入位置**：`generation_context.py` → `_get_persona_prompt()`
+
+#### 核心数据
+
+| 状态 | 说明 |
+|------|------|
+| `energy` | 活力，0~100，影响回复意愿 |
+| `mood` | 心情，0~100，影响语气 |
+| `social_need` | 社交需求，0~100 |
+| `satiety` | 饱腹感，0~100 |
+
+#### Effect 系统
+
+- **来源语义**：每个 Effect 携带 `source_detail`（触发来源描述）、`decay_style`（衰减风格）、`recovery_style`（恢复风格），持久化到 SQLite
+- **wronged + active + miss** → `source_detail="主动搭话但被冷落，期望落空"`
+- **互动维度**：`InteractionMode`（active/passive）× `InteractionOutcome`（connected/missed）
+
+#### 待办生成（脑内关切）
+
+- **need_todo（生理型）**：饿、累、想安静
+- **social_todo（关系型）**：想把没说完的话接上、想继续聊、想躲热闹
+- `wronged + active + missed` → `"想把当时没说完的话接上"`
+
+#### 日结轨迹
+
+分析日内 missed / connected / active 计数，输出情感 trajectory（向上/有落差/独处/平淡/平稳）
+
+#### 相关文件
+
+- `engine/persona_sim_engine.py` — 引擎核心
+- `engine/persona_sim_rules.py` — Effect 触发规则
+- `engine/persona_sim_injection.py` — Prompt 注入逻辑
+- `engine/persona_sim_todo.py` — 待办生成
+- `engine/persona_sim_consolidation.py` — 日结
+
+---
+
+### SAN × Persona Sim 统一
+
+LLM 群分析结果（activity / emotion / has_drama）映射为 `interaction_quality`，通过 `persona_sim.tick(quality)` 注入，不再独立改 SAN 值。
+
+#### Quality 映射
+
+| 分析结果 | interaction_quality |
+|----------|-------------------|
+| drama=True | `bad` |
+| low + negative | `bad` |
+| low | `awkward` |
+| negative | `awkward` |
+| high + positive | `good` |
+| 其他 | `normal` |
+
+#### Prompt 注入
+
+- **当 Persona Sim 可用时**：`get_prompt_injection()` 返回空串，不注入任何 SAN 描述
+- **当 Persona Sim 不可用时**：降级为独立能量系统，注入 `【当前状态】精力充沛/略有疲态/疲惫不堪`
+
+#### 相关文件
+
+- `cognition/san.py` — 群消息 LLM 分析
+- `scheduler/` — `SANAnalyze` 定时任务
+
+---
+
+### 社交参与（主动 / 被动）
+
+Bot 根据场景（IDLE / CASUAL / HELP / DEBATE）和沉默时长判断是否要主动插话，同时处理被动回复请求。
+
+#### Prompt 注入
+
+- **主动模式**：`[主动发言模式]` + "你是主动加入群聊讨论的…保持简短（50字以内）"
+- 注入位置：`_build_behavior()` → 当 `decision.delivery_mode == "text" && text_mode == "interject"`
+
+#### 参与层级
+
+| 层级 | 行为 |
+|------|------|
+| `IGNORE` | 不回应 |
+| `REACT` | 表情包 reaction |
+| `FULL` | LLM 文本回复 |
+
+#### Planner 微调
+
+- `wronged` + 主动 → initiative ↓
+- `social_todo` 存在 → initiative ↑
+- `curious` + active → playfulness ↑
+
+#### 相关文件
+
+- `engine/eavesdropping.py` — 主动触发入口
+- `engine/engagement_planner.py` — 场景分类、意图规划
+- `engine/reply_executor.py` — 回复执行
+- `engine/reply_policy.py` — 统一仲裁
+- `engine/output_guard.py` — 输出安全约束
+
+---
+
 ### 记忆与画像
 
 维护用户画像（身份、偏好、特征、备注）和会话事件/每日总结，支持按群聊/私聊自动 scope 隔离。长期知识库可召回并注入 Prompt。
 
-- `profile.py` — 用户画像增删改查
-- `session_memory_store.py` — 会话事件持久化
-- `memory_router.py` / `memory_query_service.py` — 记忆查询与注入
-- `session_memory_summarizer.py` — 每日会话总结
+#### Prompt 注入
 
-### 社交参与（主动 / 被动）
+- **`【内部参考信息】`**：发送者ID、昵称、情感积分、群聊/私聊来源、引用/AT上下文
+  - 注入位置：`_build_identity()`
+- **`【群消息历史】`**：最近 N 条群消息（`inject_group_history` 控制）
+  - 注入位置：`_build_history()`
+- **画像摘要**：身份、偏好、特征、长期笔记（`enable_profile_injection` 控制，需 AT 或回复）
+  - 注入位置：`_build_profile()`
+- **知识库召回**：记忆段落召回（`enable_kb_memory_recall` 控制）
+  - 注入位置：`_build_memory()`
 
-Bot 根据场景（IDLE / CASUAL / HELP / DEBATE）和沉默时长判断是否要主动插话，同时处理被动回复请求。输出约束（OutputGuard）防止 Bot 自曝、说过长或重复内容。
+#### 相关文件
 
-- `eavesdropping.py` — 主动触发入口
-- `engagement_planner.py` — 场景分类、意图规划
-- `reply_executor.py` — 回复执行（文本 / emoji reaction / 表情包）
-- `reply_policy.py` — 统一仲裁（cooldown / flood / wave 占用）
-- `output_guard.py` — 输出安全约束
+- `engine/profile.py` — 画像增删改查
+- `engine/memory_router.py` / `memory_query_service.py` — 记忆查询与注入
+- `engine/session_memory_store.py` — 会话事件持久化
+- `engine/session_memory_summarizer.py` — 每日会话总结
 
-### Persona Sim 2.0 — 人格生活模拟
-
-内置人格状态引擎，追踪能量、心情、社交需求、饱腹感，基于时间差推演状态变化，触发短期 Effect 和脑内待办，以极短片段注入 Prompt。详见下一节。
-
-### 认知与情感
-
-- `cognition/san.py` — SAN 精力值动态分析，基于群消息情绪波动调整
-- `engine/affinity.py` — 情感积分，增减依赖互动质量
-- `scheduler/` — 每日反思批处理、好感度恢复等定时任务
+---
 
 ### 审核与娱乐
 
-- `caption_service.py` / `moderation_classifier.py` — 图片 caption 生成 + NSFW / 引流推广二次推定
-- `sticker_store.py` — 表情包学习与发送
-- `meal_store.py` — 群菜单
+#### Prompt 注入
+
+- **表情包学习提示**：`[表情包学习]` + 触发关键词说明
+  - 注入位置：`_build_behavior()` → 当 `sticker_learning_enabled`
+- **画像更新提示**：`[即时画像更新提示]` + "请调用 upsert_cognitive_memory 工具"
+  - 注入位置：`_build_behavior()` → 当 `_should_inject_preference_hints()`
+
+#### 相关文件
+
+- `engine/entertainment.py` — 表情包学习 + `get_prompt_injection()`
+- `engine/caption_service.py` / `moderation_classifier.py` — 图片 caption + NSFW/Promo 审核
+- `engine/sticker_store.py` — 表情包存储与发送
+- `engine/meal_store.py` — 群菜单
+
+---
+
+### 认知与情感
+
+- `engine/affinity.py` — 情感积分（直接回复/礼貌词/攻击词/回访加分），不注入 Prompt
+- `scheduler/` — 每日反思批处理、好感度恢复等定时任务
 
 ---
 

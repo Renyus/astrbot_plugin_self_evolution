@@ -90,31 +90,16 @@ class SANSystem:
             self._last_analyze_time = time.time()
             logger.debug(f"[SAN] 精力值系统初始化: {self._san_value}/{self.max_value}")
 
-    def update(self):
+    async def update(self):
         if not self.enabled:
             return True
 
         persona_sim = getattr(self.plugin, "persona_sim", None)
         if persona_sim:
-            try:
-                scope_id = getattr(self.plugin, "_current_scope_id", None)
-                if scope_id:
-
-                    async def _read_energy():
-                        snap = await persona_sim.get_snapshot(str(scope_id))
-                        return snap.state.energy if snap else None
-
-                    energy = asyncio.get_event_loop().run_until_complete(_read_energy())
-                else:
-                    energy = None
-                if energy is not None:
-                    self._san_value = energy
-                    if energy <= 0:
-                        logger.warning("[SAN] 精力耗尽，拒绝服务")
-                        return False
-                    return True
-            except Exception:
-                pass
+            scope_id = getattr(self.plugin, "_current_scope_id", None)
+            if scope_id:
+                logger.debug("[SAN] update 跳过，Persona Sim 负责能量管理")
+            return True
 
         if self._san_value is None:
             self._san_value = self.max_value
@@ -142,31 +127,12 @@ class SANSystem:
     def get_status(self):
         if not self.enabled:
             return ""
+
         persona_sim = getattr(self.plugin, "persona_sim", None)
         if persona_sim:
-            try:
-                scope_id = getattr(self.plugin, "_current_scope_id", None)
-                if scope_id:
+            logger.debug("[SAN] get_status 跳过，Persona Sim 提供状态叙事")
+            return ""
 
-                    async def _get_snap():
-                        return await persona_sim.get_snapshot(str(scope_id))
-
-                    snapshot = asyncio.get_event_loop().run_until_complete(_get_snap())
-                else:
-                    snapshot = None
-                if snapshot:
-                    energy = snapshot.state.energy
-                    ratio = energy / 100.0
-                    if ratio < 0.2:
-                        status = "疲惫不堪"
-                    elif ratio < 0.5:
-                        status = "略有疲态"
-                    else:
-                        status = "精力充沛"
-                    logger.debug(f"[SAN] 获取状态: {status} (energy={energy})")
-                    return status
-            except Exception:
-                pass
         if self._san_value is None:
             status = "精力充沛"
             logger.debug(f"[SAN] 获取状态: {status}")
@@ -184,7 +150,12 @@ class SANSystem:
     def get_prompt_injection(self):
         if not self.enabled:
             return ""
-        return f"\n\n【当前状态】{self.get_status()}"
+        if getattr(self.plugin, "persona_sim", None):
+            return ""
+        status = self.get_status()
+        if not status:
+            return ""
+        return f"\n\n【当前状态】{status}"
 
     @property
     def value(self):
@@ -198,7 +169,7 @@ class SANSystem:
         return self._san_value
 
     async def analyze_all_groups(self):
-        """定时分析所有群的消息，动态调整 SAN 值"""
+        """定时分析所有群的消息，将结果注入 Persona Sim"""
         if not self.enabled or not self.auto_analyze_enabled:
             return
 
@@ -210,24 +181,26 @@ class SANSystem:
         self._last_analyze_time = current_time
         logger.debug("[SAN] 开始分析群状态...")
 
+        persona_sim = getattr(self.plugin, "persona_sim", None)
+
         try:
             listened_groups = await self._get_listened_groups()
             if not listened_groups:
                 logger.debug("[SAN] 无监听的群，跳过分析")
                 return
 
-            total_change = 0
             for group_id in listened_groups:
-                change = await self._analyze_group(group_id)
-                if change is not None and change != 0:
-                    total_change += change
-                    logger.debug(f"[SAN] 群 {group_id} 分析完成，SAN 变化: {change:+d}")
+                analysis = await self._analyze_group(group_id)
+                if analysis is None:
+                    continue
 
-            if total_change != 0:
-                self._san_value = max(0, min(self.max_value, self._san_value + total_change))
-                logger.debug(
-                    f"[SAN] 群分析完成，总 SAN 变化: {total_change:+d}, 当前值: {self._san_value}/{self.max_value}"
-                )
+                quality = self._analysis_to_quality(analysis)
+                if quality and persona_sim:
+                    try:
+                        await persona_sim.tick(str(group_id), interaction_quality=quality)
+                        logger.debug(f"[SAN] 群 {group_id} 分析→{quality}，已注入 Persona Sim")
+                    except Exception as e:
+                        logger.warning(f"[SAN] 群 {group_id} 注入 Persona Sim 失败: {e}")
 
         except Exception as e:
             logger.warning(f"[SAN] 群分析异常: {e}")
@@ -275,25 +248,20 @@ class SANSystem:
             logger.debug(f"[SAN] 获取群列表失败: {e}")
             return []
 
-    async def _analyze_group(self, group_id: str) -> int:
-        """分析单个群的状态，返回 SAN 值变化"""
+    async def _analyze_group(self, group_id: str) -> dict | None:
+        """分析单个群的状态，返回完整分析结果"""
         try:
             messages = await self._fetch_group_messages(group_id)
             if not messages:
-                drain = self.low_activity_drain
-                return drain if drain is not None else 0
+                return None
 
             group_umo = self.plugin.get_group_umo(group_id) if hasattr(self.plugin, "get_group_umo") else None
             analysis = await self._llm_analyze(messages, umo=group_umo)
-            if not analysis:
-                return 0
-
-            change = self._calculate_san_change(analysis)
-            return change if change is not None else 0
+            return analysis if analysis else None
 
         except Exception as e:
             logger.warning(f"[SAN] 群 {group_id} 分析失败: {e}")
-            return 0
+            return None
 
     async def _fetch_group_messages(self, group_id: str) -> list:
         """通过 NapCat API 获取群消息"""
@@ -360,25 +328,20 @@ class SANSystem:
 
         return None
 
-    def _calculate_san_change(self, analysis: dict) -> int:
-        """根据分析结果计算 SAN 值变化"""
-        change = 0
-
+    def _analysis_to_quality(self, analysis: dict) -> str | None:
+        """将 LLM 分析结果映射为 interaction_quality"""
         activity = analysis.get("activity", "medium")
         emotion = analysis.get("emotion", "neutral")
         has_drama = analysis.get("has_drama", False)
 
-        if activity == "high":
-            change += self.high_activity_boost
-        elif activity == "low":
-            change += self.low_activity_drain
-
-        if emotion == "positive":
-            change += self.positive_vibe_bonus
-        elif emotion == "negative":
-            change += self.negative_vibe_penalty
-
         if has_drama:
-            change += self.negative_vibe_penalty
-
-        return change
+            return "bad"
+        if activity == "low" and emotion == "negative":
+            return "bad"
+        if activity == "low":
+            return "awkward"
+        if emotion == "negative":
+            return "awkward"
+        if activity == "high" and emotion == "positive":
+            return "good"
+        return "normal"

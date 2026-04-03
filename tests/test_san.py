@@ -39,10 +39,31 @@ class SANSystemTests(IsolatedAsyncioTestCase):
         san = SANSystem(plugin)
         san._fetch_group_messages = AsyncMock(return_value=["Alice: hi"])
         san._llm_analyze = AsyncMock(return_value={"activity": "medium", "emotion": "neutral", "has_drama": False})
-        san._calculate_san_change = MagicMock(return_value=2)
 
         result = await san._analyze_group("7001")
 
         plugin.get_group_umo.assert_called_once_with("7001")
         san._llm_analyze.assert_awaited_once_with(["Alice: hi"], umo="qq:group:7001")
-        self.assertEqual(result, 2)
+        self.assertEqual(result, {"activity": "medium", "emotion": "neutral", "has_drama": False})
+
+    def test_analysis_to_quality(self):
+        san = SANSystem(SimpleNamespace(cfg=SimpleNamespace()))
+
+        self.assertEqual(
+            san._analysis_to_quality({"activity": "high", "emotion": "positive", "has_drama": False}), "good"
+        )
+        self.assertEqual(
+            san._analysis_to_quality({"activity": "medium", "emotion": "neutral", "has_drama": False}), "normal"
+        )
+        self.assertEqual(
+            san._analysis_to_quality({"activity": "low", "emotion": "neutral", "has_drama": False}), "awkward"
+        )
+        self.assertEqual(
+            san._analysis_to_quality({"activity": "high", "emotion": "negative", "has_drama": False}), "awkward"
+        )
+        self.assertEqual(
+            san._analysis_to_quality({"activity": "low", "emotion": "negative", "has_drama": False}), "bad"
+        )
+        self.assertEqual(
+            san._analysis_to_quality({"activity": "medium", "emotion": "positive", "has_drama": True}), "bad"
+        )
