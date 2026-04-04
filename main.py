@@ -218,21 +218,47 @@ class SelfEvolutionPlugin(Star):
         self._group_umo_cache = {}  # 最近见过的群会话来源 {group_id: unified_msg_origin}
         self._private_umo_cache = {}  # 最近见过的私聊会话来源 {private_user_id: unified_msg_origin}
         self._scope_registry_touch_cache = {}  # 会话范围持久化防抖 {scope_id: last_touch_timestamp}
-        self._lock = None  # 元编程文件锁，防止并发写入
+        self._last_cache_cleanup = 0.0  # 上次缓存清理时间
+
+    def _cleanup_stale_caches(self):
+        """清理过期缓存条目，防止无限膨胀。"""
+        now = time.time()
+        if now - self._last_cache_cleanup < 300:
+            return
+        self._last_cache_cleanup = now
+
+        expired_keys = [(k, v) for k, v in self._group_umo_cache.items() if now - v.get("_cached_at", 0) > 3600]
+        for k, _ in expired_keys:
+            del self._group_umo_cache[k]
+
+        expired_keys = [(k, v) for k, v in self._private_umo_cache.items() if now - v.get("_cached_at", 0) > 3600]
+        for k, _ in expired_keys:
+            del self._private_umo_cache[k]
+
+        expired_keys = [k for k, v in self._scope_registry_touch_cache.items() if now - v > 86400]
+        for k in expired_keys:
+            del self._scope_registry_touch_cache[k]
+
+        expired_keys = [k for k, v in self._pending_db_reset.items() if now > v.get("expires_at", 0)]
+        for k in expired_keys:
+            del self._pending_db_reset[k]
 
     def remember_group_umo(self, group_id, umo: str | None, user_id=None):
         """Remember the latest unified message origin for a group or private scope."""
+        self._cleanup_stale_caches()
+        now = time.time()
         if group_id and umo:
-            self._group_umo_cache[str(group_id)] = str(umo)
+            self._group_umo_cache[str(group_id)] = {"umo": str(umo), "_cached_at": now}
         elif user_id and umo:
             private_scope_id = self._resolve_profile_scope_id(None, user_id)
-            self._private_umo_cache[private_scope_id] = str(umo)
+            self._private_umo_cache[private_scope_id] = {"umo": str(umo), "_cached_at": now}
 
     def get_group_umo(self, group_id) -> str | None:
         """Return the latest cached unified message origin for a group."""
         if not group_id:
             return None
-        return self._group_umo_cache.get(str(group_id))
+        entry = self._group_umo_cache.get(str(group_id))
+        return entry.get("umo") if entry else None
 
     def get_scope_umo(self, scope_id) -> str | None:
         """Return the latest cached unified message origin for a group/private scope."""
@@ -240,8 +266,10 @@ class SelfEvolutionPlugin(Star):
             return None
         scope_id = str(scope_id)
         if scope_id.startswith(PRIVATE_SCOPE_PREFIX):
-            return self._private_umo_cache.get(scope_id)
-        return self._group_umo_cache.get(scope_id)
+            entry = self._private_umo_cache.get(scope_id)
+        else:
+            entry = self._group_umo_cache.get(scope_id)
+        return entry.get("umo") if entry else None
 
     async def touch_known_scope(self, scope_id: str | None):
         """Persist recently seen scopes for background tasks, with a small debounce to avoid hot writes."""

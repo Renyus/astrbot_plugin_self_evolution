@@ -22,7 +22,6 @@ class ProfileManager:
         self.plugin = plugin
         self.profile_dir = plugin.data_dir / "profiles"
         self.profile_dir.mkdir(parents=True, exist_ok=True)
-        self.locks = defaultdict(asyncio.Lock)
         # 画像内存缓存 {user_id: content}
         self._profile_cache = {}
         self._cache_ttl = 300  # 缓存5分钟
@@ -32,6 +31,7 @@ class ProfileManager:
         self._profile_build_cooldown = {}
         # 每日更新记录 {group_id_user_id: "YYYY-MM-DD"}
         self._profile_daily_updated = {}
+        self._last_state_cleanup = 0  # 状态字典上次清理时间
 
     @property
     def dropout_enabled(self):
@@ -106,6 +106,18 @@ class ProfileManager:
 
         if expired_users:
             logger.debug(f"[Profile] 已清理 {len(expired_users)} 个过期缓存")
+
+        if now - self._last_state_cleanup > 3600:
+            self._last_state_cleanup = now
+            cooldown_seconds = self.plugin.cfg.profile_cooldown_minutes * 60
+            expired_cooldown = [k for k, v in self._profile_build_cooldown.items() if now - v > cooldown_seconds]
+            for k in expired_cooldown:
+                del self._profile_build_cooldown[k]
+
+            today = datetime.now().strftime("%Y-%m-%d")
+            expired_daily = [k for k, v in self._profile_daily_updated.items() if v != today]
+            for k in expired_daily:
+                del self._profile_daily_updated[k]
 
     async def load_profile(self, group_id: str, user_id: str) -> str:
         """读取用户画像（YAML 格式），无则返回空"""
@@ -960,7 +972,7 @@ class ProfileManager:
             mode: "create" 覆盖创建, "update" 增量更新
             force: 是否强制更新（忽略每日限制）
         """
-
+        self._cleanup_expired_cache()
         scope_id = str(group_id)
         is_private_scope = self._is_private_scope(scope_id)
         private_user_id = self._get_private_scope_user_id(scope_id)
@@ -1099,6 +1111,7 @@ class ProfileManager:
         Returns:
             处理结果描述
         """
+        self._cleanup_expired_cache()
         import json
 
         logger.debug(f"[Profile] 自动分析并构建画像: 群={group_id}")
