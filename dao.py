@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from contextlib import suppress
+
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
@@ -28,7 +28,7 @@ def with_db_retry(retries=3, delay=0.5):
                     if attempt < retries - 1:
                         await asyncio.sleep(delay)
                     else:
-                        raise e
+                        raise
 
         return wrapper
 
@@ -371,10 +371,9 @@ class SelfEvolutionDAO:
                     await cursor.fetchone()
 
             await asyncio.wait_for(probe(), timeout=2.0)
-        except Exception:
+        except (asyncio.TimeoutError, aiosqlite.Error, OSError):
             logger.warning("[SelfEvolution] DAO: 侦测到 SQLite 长连接句柄丢失或断裂，尝试热重连机制...")
             async with self._db_lock:
-                # Double-check 预防并发协程在等待锁时已经被前面的人重设连接，同样增加时限防护
                 try:
 
                     async def p_probe():
@@ -382,13 +381,12 @@ class SelfEvolutionDAO:
                             await cursor.fetchone()
 
                     await asyncio.wait_for(p_probe(), timeout=2.0)
-                except Exception:
+                except (asyncio.TimeoutError, aiosqlite.Error, OSError):
                     if self.db_conn:
                         try:
-                            # 显式关闭旧连接，确保操作系统回收底层文件描述符
                             await self.db_conn.close()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"[SelfEvolution] DAO close 失败（可忽略）: {e}")
                     try:
                         self.db_conn = await aiosqlite.connect(self.db_path)
                         await self.db_conn.execute("PRAGMA journal_mode=WAL;")
@@ -846,20 +844,34 @@ class SelfEvolutionDAO:
         ]
         deleted_files = []
 
-        await self.close()
+        try:
+            await self.close()
+        except Exception as e:
+            logger.warning(f"[SelfEvolution] delete_and_rebuild: close 失败，继续删除文件: {e}")
 
         for file_path in related_files:
             if file_path.exists():
-                with suppress(FileNotFoundError):
+                try:
                     file_path.unlink()
                     deleted_files.append(file_path.name)
+                except FileNotFoundError:
+                    pass
 
         self._affinity_cache.clear()
         self._affinity_cache_time.clear()
         self._probe_counter = 0
         self._last_probe_time = 0
 
-        await self.init_db()
+        try:
+            await self.init_db()
+        except Exception as e:
+            logger.error(f"[SelfEvolution] delete_and_rebuild: init_db 失败: {e}")
+            return {
+                "deleted_files": deleted_files,
+                "rebuilt": False,
+                "db_path": str(db_file),
+                "error": str(e),
+            }
 
         return {
             "deleted_files": deleted_files,
@@ -1040,6 +1052,7 @@ class SelfEvolutionDAO:
     async def get_caption_cache(self, cache_key: str) -> tuple[str, str, str] | None:
         """返回 (caption_text, provider_id, model_name) 或 None。"""
         if not cache_key:
+            logger.debug("[DAO] get_caption_cache: 空 cache_key，跳过")
             return None
         db = await self.get_conn()
         async with self._db_lock:
@@ -1063,6 +1076,7 @@ class SelfEvolutionDAO:
     ) -> None:
         """写入 caption 缓存。ttl_seconds=0 表示永久缓存。"""
         if not cache_key:
+            logger.debug("[DAO] set_caption_cache: 空 cache_key，跳过")
             return
         db = await self.get_conn()
         now = datetime.now().isoformat()

@@ -410,12 +410,15 @@ class EntertainmentEngine:
 
             try:
                 file_path = self.sticker_store.get_sticker_path(sticker)
-                if not file_path or not Path(file_path).exists():
+                if not file_path or not file_path.exists():
                     logger.warning(f"[Sticker] 表情包文件不存在: {sticker['filename']}")
                     return None
 
-                with open(file_path, "rb") as f:
-                    data = f.read()
+                def _read():
+                    with open(file_path, "rb") as f:
+                        return f.read()
+
+                data = await asyncio.to_thread(_read)
                 bs64 = __import__("base64").b64encode(data).decode()
 
                 from astrbot.core.message.components import Image
@@ -437,5 +440,5 @@ class EntertainmentEngine:
             platform = self.plugin.context.platform_manager.platform_insts[0]
             bot = platform.bot
             await bot.send_group_msg(group_id=int(group_id), message=[{"type": "text", "data": {"text": text}}])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"[Entertainment] _send_to_group 失败 group={group_id}: {e}")

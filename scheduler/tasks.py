@@ -470,23 +470,27 @@ async def _persona_thought_impl(plugin):
 
 async def scheduled_github_check(plugin):
     """检查 GitHub 仓库更新，有新 commit 则发群通知。"""
-    notify_group_ids = getattr(plugin.cfg, "update_notify_group_id", []) or []
+    notify_group_ids = plugin.cfg.update_notify_group_id
     if not notify_group_ids:
         logger.debug("[Scheduler] GitHub 检查跳过：未配置通知群")
         return
 
-    repo = getattr(plugin.cfg, "update_notify_repo", None)
-    if not repo:
-        repo = "Renyus/astrbot_plugin_self_evolution"
+    repo = plugin.cfg.update_notify_repo
+    branch = plugin.cfg.update_notify_branch
 
-    import urllib.request
+    import aiohttp
     import json
 
-    url = f"https://api.github.com/repos/{repo}/commits?per_page=3"
+    url = f"https://api.github.com/repos/{repo}/commits?per_page=3&sha={branch}"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "AstrBot-SelfEvolution"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            commits = json.loads(resp.read())
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                url, headers={"User-Agent": "AstrBot-SelfEvolution"}, timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status != 200:
+                    logger.warning(f"[Scheduler] GitHub API 返回错误状态码: {resp.status} {resp.reason}")
+                    return
+                commits = await resp.json()
     except Exception as e:
         logger.warning(f"[Scheduler] GitHub API 请求失败: {e}")
         return
@@ -495,16 +499,20 @@ async def scheduled_github_check(plugin):
         return
 
     latest_sha = commits[0]["sha"]
-    cache_key = "self_evolution_github_last_sha"
+    cache_key = f"self_evolution_github_last_sha_{branch.replace('/', '_')}"
 
     from astrbot.core import sp
 
-    last_sha = await sp.get_async(scope="plugin", scope_id="global", key=cache_key, default="")
+    last_sha = await sp.get_async(scope="plugin", scope_id="global", key=cache_key, default=None)
+    if last_sha is None:
+        await sp.put_async(scope="plugin", scope_id="global", key=cache_key, value=latest_sha)
+        logger.info(f"[Scheduler] GitHub 检查首次记录: {latest_sha[:7]}")
+        return
     if last_sha == latest_sha:
         logger.debug(f"[Scheduler] GitHub 无新 commit: {latest_sha[:7]}")
         return
 
-    await sp.set_async(scope="plugin", scope_id="global", key=cache_key, value=latest_sha)
+    await sp.put_async(scope="plugin", scope_id="global", key=cache_key, value=latest_sha)
 
     commit_lines = []
     for commit in commits[:3]:
@@ -513,7 +521,7 @@ async def scheduled_github_check(plugin):
         date = commit["commit"]["author"]["date"][:10]
         commit_lines.append(f"- {msg} ({author}, {date})")
 
-    notify_text = f"【插件更新通知】\n仓库有新提交：\n" + "\n".join(commit_lines)
+    notify_text = f"【插件更新通知】\n[{branch}] 有新提交：\n" + "\n".join(commit_lines)
 
     try:
         platform_insts = plugin.context.platform_manager.platform_insts

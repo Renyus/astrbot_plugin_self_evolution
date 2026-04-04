@@ -22,7 +22,6 @@ class ProfileManager:
         self.plugin = plugin
         self.profile_dir = plugin.data_dir / "profiles"
         self.profile_dir.mkdir(parents=True, exist_ok=True)
-        self.locks = defaultdict(asyncio.Lock)
         # 画像内存缓存 {user_id: content}
         self._profile_cache = {}
         self._cache_ttl = 300  # 缓存5分钟
@@ -32,6 +31,7 @@ class ProfileManager:
         self._profile_build_cooldown = {}
         # 每日更新记录 {group_id_user_id: "YYYY-MM-DD"}
         self._profile_daily_updated = {}
+        self._last_state_cleanup = 0  # 状态字典上次清理时间
 
     @property
     def dropout_enabled(self):
@@ -107,6 +107,18 @@ class ProfileManager:
         if expired_users:
             logger.debug(f"[Profile] 已清理 {len(expired_users)} 个过期缓存")
 
+        if now - self._last_state_cleanup > 3600:
+            self._last_state_cleanup = now
+            cooldown_seconds = self.plugin.cfg.profile_cooldown_minutes * 60
+            expired_cooldown = [k for k, v in self._profile_build_cooldown.items() if now - v > cooldown_seconds]
+            for k in expired_cooldown:
+                del self._profile_build_cooldown[k]
+
+            today = datetime.now().strftime("%Y-%m-%d")
+            expired_daily = [k for k, v in self._profile_daily_updated.items() if v != today]
+            for k in expired_daily:
+                del self._profile_daily_updated[k]
+
     async def load_profile(self, group_id: str, user_id: str) -> str:
         """读取用户画像（YAML 格式），无则返回空"""
         profile_key = f"{group_id}_{user_id}"
@@ -120,7 +132,7 @@ class ProfileManager:
         profile_paths = self._get_profile_candidates(group_id, user_id)
         if profile_paths:
             try:
-                content = self._load_profile_from_file(profile_paths[0])
+                content = await self._load_profile_from_file(profile_paths[0])
                 if content:
                     self._profile_cache[profile_key] = content
                     self._cache_access_time[profile_key] = time.time()
@@ -132,10 +144,14 @@ class ProfileManager:
         logger.debug(f"[Profile] 用户无画像: {profile_key}")
         return ""
 
-    def _load_profile_from_file(self, path: Path) -> str:
+    async def _load_profile_from_file(self, path: Path) -> str:
         """从 yaml 文件加载画像内容"""
         try:
-            content = path.read_text(encoding="utf-8").strip()
+
+            def _read():
+                return path.read_text(encoding="utf-8").strip()
+
+            content = await asyncio.to_thread(_read)
             _, body = self._parse_profile_document_text(content)
             return body
         except Exception as e:
@@ -196,8 +212,11 @@ class ProfileManager:
 
         return {}, cleaned
 
-    def _load_profile_document(self, path: Path) -> tuple[dict, str]:
-        content = path.read_text(encoding="utf-8")
+    async def _load_profile_document(self, path: Path) -> tuple[dict, str]:
+        def _read():
+            return path.read_text(encoding="utf-8")
+
+        content = await asyncio.to_thread(_read)
         return self._parse_profile_document_text(content)
 
     def _serialize_profile_document(self, document: dict) -> str:
@@ -382,7 +401,11 @@ class ProfileManager:
 
         # 清理 Markdown 代码块标记，防止 LLM 返回 ```yaml 格式
         content = self._clean_yaml_content(content)
-        path.write_text(content, encoding="utf-8")
+
+        def _write():
+            path.write_text(content, encoding="utf-8")
+
+        await asyncio.to_thread(_write)
 
         for legacy_path in self.profile_dir.glob(self._get_legacy_profile_pattern(group_id, user_id)):
             if legacy_path != path:
@@ -421,7 +444,7 @@ class ProfileManager:
         profile_candidates = self._get_profile_candidates(group_id, user_id)
         if profile_candidates:
             try:
-                existing_metadata, existing_content = self._load_profile_document(profile_candidates[0])
+                existing_metadata, existing_content = await self._load_profile_document(profile_candidates[0])
             except OSError as e:
                 logger.warning(f"[Profile] 读取画像文档失败 {group_id}_{user_id}: {e}")
 
@@ -482,7 +505,7 @@ class ProfileManager:
         profile_candidates = self._get_profile_candidates(scope_id, user_id)
         if profile_candidates:
             try:
-                existing_metadata, existing_content = self._load_profile_document(profile_candidates[0])
+                existing_metadata, existing_content = await self._load_profile_document(profile_candidates[0])
                 existing_data = self._parse_structured_content(existing_content)
             except Exception as e:
                 logger.warning(f"[Profile] 读取画像文档失败 {profile_key}: {e}")
@@ -949,7 +972,7 @@ class ProfileManager:
             mode: "create" 覆盖创建, "update" 增量更新
             force: 是否强制更新（忽略每日限制）
         """
-
+        self._cleanup_expired_cache()
         scope_id = str(group_id)
         is_private_scope = self._is_private_scope(scope_id)
         private_user_id = self._get_private_scope_user_id(scope_id)
@@ -1088,6 +1111,7 @@ class ProfileManager:
         Returns:
             处理结果描述
         """
+        self._cleanup_expired_cache()
         import json
 
         logger.debug(f"[Profile] 自动分析并构建画像: 群={group_id}")

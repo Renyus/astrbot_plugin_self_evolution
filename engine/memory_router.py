@@ -455,5 +455,5 @@ class MemoryRouter:
                 self._debug(f"[MemoryWrite] scope={scope_id} user={user_id} target=kb result=failed")
                 return "写入知识库失败"
         except Exception as e:
-            logger.warning(f"[MemoryRouter] 写入 KB 失败: {e}")
+            logger.warning(f"[MemoryRouter] 写入 KB 失败: scope={scope_id} user={user_id} source={source} error={e}")
             return f"写入知识库失败: {e}"

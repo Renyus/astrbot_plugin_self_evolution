@@ -21,7 +21,7 @@ Phase 2: 图片理解服务（Caption Service）
 import asyncio
 import dataclasses
 import hashlib
-import os
+from pathlib import Path
 import uuid
 
 from astrbot.api import logger
@@ -98,7 +98,7 @@ async def _download_and_hash(target: MediaTarget) -> tuple[str, str]:
                 local_path = f[8:]
                 break
             elif f.startswith("/") and len(f) < 256:
-                if os.path.exists(f):
+                if Path(f).exists():
                     local_path = f
                     break
 
@@ -111,8 +111,12 @@ async def _download_and_hash(target: MediaTarget) -> tuple[str, str]:
         return "", ""
 
     try:
-        with open(local_path, "rb") as f:
-            content_hash = hashlib.md5(f.read()).hexdigest()
+
+        def _read_file() -> str:
+            with open(local_path, "rb") as f:
+                return hashlib.md5(f.read()).hexdigest()
+
+        content_hash = await asyncio.to_thread(_read_file)
         return content_hash, local_path
     except Exception as e:
         logger.warning(f"[CaptionService] 计算文件hash失败: {e} {local_path}")

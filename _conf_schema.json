@@ -629,7 +629,13 @@
                 "description": "仓库路径",
                 "type": "string",
                 "default": "Renyus/astrbot_plugin_self_evolution",
-                "hint": "格式：owner/repo，不填默认当前仓库。"
+                "hint": "格式：owner/repo"
+            },
+            "update_notify_branch": {
+                "description": "分支名",
+                "type": "string",
+                "default": "master",
+                "hint": "要检查的分支名，如 master、refactor/napcat-integration"
             },
             "update_check_interval": {
                 "description": "检查间隔（分钟）",

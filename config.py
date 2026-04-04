@@ -513,3 +513,20 @@ class PluginConfig:
     @property
     def sticker_reply_min_text_length(self):
         return self._get_nested_int("sticker_reply", "min_text_length", 5)
+
+    # update_notify
+    @property
+    def update_notify_group_id(self):
+        return self._get_nested_list("update_notify", "update_notify_group_id", [])
+
+    @property
+    def update_notify_repo(self):
+        return self._get_nested("update_notify", "update_notify_repo", "Renyus/astrbot_plugin_self_evolution")
+
+    @property
+    def update_notify_branch(self):
+        return self._get_nested("update_notify", "update_notify_branch", "master")
+
+    @property
+    def update_check_interval(self):
+        return self._get_nested_int("update_notify", "update_check_interval", 30)

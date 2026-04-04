@@ -7,8 +7,6 @@ from .admin import handle_db, handle_kb_clear, handle_san_show, handle_set_san, 
 from .common import RESP_MESSAGES, CommandContext
 from .profile import (
     check_admin as check_profile_admin,
-)
-from .profile import (
     handle_create,
     handle_delete,
     handle_stats,

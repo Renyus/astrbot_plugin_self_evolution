@@ -218,21 +218,47 @@ class SelfEvolutionPlugin(Star):
         self._group_umo_cache = {}  # 最近见过的群会话来源 {group_id: unified_msg_origin}
         self._private_umo_cache = {}  # 最近见过的私聊会话来源 {private_user_id: unified_msg_origin}
         self._scope_registry_touch_cache = {}  # 会话范围持久化防抖 {scope_id: last_touch_timestamp}
-        self._lock = None  # 元编程文件锁，防止并发写入
+        self._last_cache_cleanup = 0.0  # 上次缓存清理时间
+
+    def _cleanup_stale_caches(self):
+        """清理过期缓存条目，防止无限膨胀。"""
+        now = time.time()
+        if now - self._last_cache_cleanup < 300:
+            return
+        self._last_cache_cleanup = now
+
+        expired_keys = [(k, v) for k, v in self._group_umo_cache.items() if now - v.get("_cached_at", 0) > 3600]
+        for k, _ in expired_keys:
+            del self._group_umo_cache[k]
+
+        expired_keys = [(k, v) for k, v in self._private_umo_cache.items() if now - v.get("_cached_at", 0) > 3600]
+        for k, _ in expired_keys:
+            del self._private_umo_cache[k]
+
+        expired_keys = [k for k, v in self._scope_registry_touch_cache.items() if now - v > 86400]
+        for k in expired_keys:
+            del self._scope_registry_touch_cache[k]
+
+        expired_keys = [k for k, v in self._pending_db_reset.items() if now > v.get("expires_at", 0)]
+        for k in expired_keys:
+            del self._pending_db_reset[k]
 
     def remember_group_umo(self, group_id, umo: str | None, user_id=None):
         """Remember the latest unified message origin for a group or private scope."""
+        self._cleanup_stale_caches()
+        now = time.time()
         if group_id and umo:
-            self._group_umo_cache[str(group_id)] = str(umo)
+            self._group_umo_cache[str(group_id)] = {"umo": str(umo), "_cached_at": now}
         elif user_id and umo:
             private_scope_id = self._resolve_profile_scope_id(None, user_id)
-            self._private_umo_cache[private_scope_id] = str(umo)
+            self._private_umo_cache[private_scope_id] = {"umo": str(umo), "_cached_at": now}
 
     def get_group_umo(self, group_id) -> str | None:
         """Return the latest cached unified message origin for a group."""
         if not group_id:
             return None
-        return self._group_umo_cache.get(str(group_id))
+        entry = self._group_umo_cache.get(str(group_id))
+        return entry.get("umo") if entry else None
 
     def get_scope_umo(self, scope_id) -> str | None:
         """Return the latest cached unified message origin for a group/private scope."""
@@ -240,8 +266,10 @@ class SelfEvolutionPlugin(Star):
             return None
         scope_id = str(scope_id)
         if scope_id.startswith(PRIVATE_SCOPE_PREFIX):
-            return self._private_umo_cache.get(scope_id)
-        return self._group_umo_cache.get(scope_id)
+            entry = self._private_umo_cache.get(scope_id)
+        else:
+            entry = self._group_umo_cache.get(scope_id)
+        return entry.get("umo") if entry else None
 
     async def touch_known_scope(self, scope_id: str | None):
         """Persist recently seen scopes for background tasks, with a small debounce to avoid hot writes."""
@@ -837,7 +865,7 @@ class SelfEvolutionPlugin(Star):
                     return
                 logger.debug(f"[SelfEvolution] 管理员跳过闭嘴拦截")
             else:
-                del self._shut_until_by_group[group_id]
+                self._shut_until_by_group.pop(group_id, None)
 
         logger.debug(f"[SelfEvolution] 收到消息: {event.message_str[:30] if event.message_str else '(空)'}")
 
@@ -1969,8 +1997,11 @@ class SelfEvolutionPlugin(Star):
                     skipped += 1
                     continue
 
-                with open(file_path, "rb") as f:
-                    data = f.read()
+                def _read():
+                    with open(file_path, "rb") as f:
+                        return f.read()
+
+                data = await asyncio.to_thread(_read)
                 bs64 = base64.b64encode(data).decode()
                 from astrbot.core.message.components import Image
 
@@ -2023,8 +2054,11 @@ class SelfEvolutionPlugin(Star):
                     yield event.plain_result(f"表情包文件不存在: {result['image_path']}")
                     return
 
-                with open(file_path, "rb") as f:
-                    data = f.read()
+                def _read():
+                    with open(file_path, "rb") as f:
+                        return f.read()
+
+                data = await asyncio.to_thread(_read)
                 bs64 = base64.b64encode(data).decode()
                 from astrbot.core.message.components import Image
 
@@ -2179,13 +2213,13 @@ class SelfEvolutionPlugin(Star):
             yield event.plain_result(result)
 
     @filter.command("db")
-    async def db_cmd(self, event: AstrMessageEvent, action: str = "", param: str = ""):
+    async def db_cmd(self, event: AstrMessageEvent, action: str = ""):
         """数据库管理命令"""
         if not commands.check_admin_admin(event, self):
             event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
-        result = await commands.handle_db(event, self, action, param)
+        result = await commands.handle_db(event, self, action)
         event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 

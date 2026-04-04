@@ -368,9 +368,6 @@ class EngagementPlanner:
             return SceneType.IDLE
         return SceneType.CASUAL
 
-    def _high_relevance_check(self, state: GroupSocialState) -> bool:
-        return state.mention_bot_recently
-
     async def _get_persona_drive(self, scope_id: str) -> dict | None:
         """读取 persona sim snapshot，返回 drive 信息用于影响 engagement plan。
 

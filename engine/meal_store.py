@@ -47,8 +47,12 @@ class MealStore:
                 return []
 
             try:
-                with open(meal_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+
+                def _read():
+                    with open(meal_file, "r", encoding="utf-8") as f:
+                        return json.load(f)
+
+                data = await asyncio.to_thread(_read)
                 meals = data.get("meals", [])
                 self._cache[group_id] = meals
                 return meals.copy()
@@ -64,8 +68,12 @@ class MealStore:
         if not meal_file.exists():
             return {"version": self.INDEX_VERSION, "meals": [], "banned_users": []}
         try:
-            with open(meal_file, "r", encoding="utf-8") as f:
-                return json.load(f)
+
+            def _read():
+                with open(meal_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+
+            return await asyncio.to_thread(_read)
         except (json.JSONDecodeError, IOError) as e:
             logger.warning(f"[MealStore] 加载群 {group_id} 数据失败: {e}")
             return {"version": self.INDEX_VERSION, "meals": [], "banned_users": []}
@@ -75,8 +83,12 @@ class MealStore:
         await self._ensure_dir()
         meal_file = self._get_meal_file(group_id)
         temp_file = meal_file.with_suffix(".json.tmp")
-        with open(temp_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+
+        def _write():
+            with open(temp_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+
+        await asyncio.to_thread(_write)
         for _ in range(3):
             try:
                 os.replace(temp_file, meal_file)

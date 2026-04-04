@@ -272,7 +272,6 @@ class SANSystem:
             )
 
             messages = result.get("messages", [])
-            import asyncio
             from ..engine.context_injection import parse_message_chain
 
             formatted = await asyncio.gather(*[parse_message_chain(msg, self.plugin) for msg in messages])
