@@ -650,5 +650,30 @@
                 "hint": "每多少分钟检查一次 GitHub 新提交。"
             }
         }
+    },
+    "poke": {
+        "type": "object",
+        "description": "戳一戳互动",
+        "hint": "戳我时的互动反应。",
+        "items": {
+            "poke_reply_enabled": {
+                "description": "启用戳回复",
+                "type": "bool",
+                "default": true,
+                "hint": "开启后收到戳一戳会有反应。"
+            },
+            "poke_poke_back_chance": {
+                "description": "戳回概率",
+                "type": "int",
+                "default": 50,
+                "hint": "1~100，戳回的概率；否则发送吐槽文字。"
+            },
+            "poke_complaint_texts": {
+                "description": "吐槽文本列表",
+                "type": "list",
+                "default": ["干嘛呢~", "有事说事！", "别闹", "正经点"],
+                "hint": "不戳回时随机选一条发送。"
+            }
+        }
     }
 }

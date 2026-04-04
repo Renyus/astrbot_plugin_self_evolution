@@ -534,3 +534,20 @@ class PluginConfig:
     @property
     def update_check_interval(self):
         return self._get_nested_int("update_notify", "update_check_interval", 30)
+
+    # poke
+    @property
+    def poke_reply_enabled(self):
+        return self._get_nested_bool("poke", "poke_reply_enabled", True)
+
+    @property
+    def poke_poke_back_chance(self):
+        return self._get_nested_int("poke", "poke_poke_back_chance", 50)
+
+    @property
+    def poke_complaint_texts(self):
+        return self._get_nested_list(
+            "poke",
+            "poke_complaint_texts",
+            ["干嘛呢~", "有事说事！", "别闹", "正经点"],
+        )

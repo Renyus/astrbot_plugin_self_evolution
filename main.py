@@ -109,6 +109,76 @@ class PromptContext:
     event: AstrMessageEvent | None = field(default=None)
 
 
+class PokeEventFilter:
+    """Filter for poke (戳一戳) notice events."""
+
+    def filter(self, event: AstrMessageEvent, cfg) -> bool:
+        raw = getattr(event, "raw_info", None)
+        if not isinstance(raw, dict):
+            return False
+        return raw.get("post_type") == "notice" and raw.get("sub_type") == "poke"
+
+
+async def _poke_reply_async(plugin, target_id: str, user_id: str, group_id: str, sender_id: str):
+    """Async implementation of poke reply."""
+    if random.random() * 100 < plugin.cfg.poke_poke_back_chance:
+        try:
+            platform_insts = plugin.context.platform_manager.platform_insts
+            if platform_insts:
+                bot = platform_insts[0].get_client()
+                if group_id:
+                    await bot.send_msg(
+                        group_id=int(group_id),
+                        message=[{"type": "poke", "data": {"id": user_id}}],
+                    )
+                else:
+                    await bot.send_msg(
+                        user_id=int(sender_id),
+                        message=[{"type": "poke", "data": {"id": sender_id}}],
+                    )
+        except Exception as e:
+            logger.debug(f"[Poke] 戳回失败: {e}")
+    else:
+        complaint = random.choice(plugin.cfg.poke_complaint_texts)
+        try:
+            platform_insts = plugin.context.platform_manager.platform_insts
+            if platform_insts:
+                bot = platform_insts[0].get_client()
+                if group_id:
+                    await bot.send_msg(
+                        group_id=int(group_id),
+                        message=[{"type": "text", "data": {"text": complaint}}],
+                    )
+                else:
+                    await bot.send_msg(
+                        user_id=int(sender_id),
+                        message=[{"type": "text", "data": {"text": complaint}}],
+                    )
+        except Exception as e:
+            logger.debug(f"[Poke] 发送吐槽失败: {e}")
+
+
+def _handle_poke_event(plugin, event: AstrMessageEvent):
+    """Handle poke (戳一戳) events with probabilistic responses (sync wrapper)."""
+    if not plugin.cfg.poke_reply_enabled:
+        return
+
+    raw = getattr(event, "raw_info", None)
+    if not isinstance(raw, dict):
+        return
+
+    target_id = str(raw.get("target_id", ""))
+    user_id = str(raw.get("user_id", ""))
+    group_id = str(raw.get("group_id", ""))
+    sender_id = str(raw.get("sender_id", ""))
+
+    bot_id = plugin._get_bot_id()
+    if target_id != bot_id:
+        return
+
+    asyncio.create_task(_poke_reply_async(plugin, target_id, user_id, group_id, sender_id))
+
+
 @register(
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
@@ -219,6 +289,19 @@ class SelfEvolutionPlugin(Star):
         self._private_umo_cache = {}  # 最近见过的私聊会话来源 {private_user_id: unified_msg_origin}
         self._scope_registry_touch_cache = {}  # 会话范围持久化防抖 {scope_id: last_touch_timestamp}
         self._last_cache_cleanup = 0.0  # 上次缓存清理时间
+
+        # 注册戳一戳处理器
+        self._poke_filter = PokeEventFilter()
+        poke_handler = StarHandlerMetadata(
+            event_type=EventType.AdapterMessageEvent,
+            handler_full_name="self_evolution_poke_handler",
+            handler_name="poke_handler",
+            handler_module_path="main",
+            handler=lambda evt: _handle_poke_event(self, evt),
+            event_filters=[self._poke_filter],
+            desc="戳一戳互动处理",
+        )
+        star_handlers_registry.append(poke_handler)
 
     def _cleanup_stale_caches(self):
         """清理过期缓存条目，防止无限膨胀。"""
