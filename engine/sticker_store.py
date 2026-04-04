@@ -48,8 +48,12 @@ class StickerStore:
                 return index
 
             try:
-                with open(self.index_file, "r", encoding="utf-8") as f:
-                    self._index_cache = json.load(f)
+
+                def _read():
+                    with open(self.index_file, "r", encoding="utf-8") as f:
+                        return json.load(f)
+
+                self._index_cache = await asyncio.to_thread(_read)
                 return self._index_cache
             except (json.JSONDecodeError, IOError) as e:
                 logger.warning(f"[StickerStore] 加载索引失败，使用空索引: {e}")
@@ -62,8 +66,12 @@ class StickerStore:
         async with self._lock:
             await self._ensure_dirs()
             temp_file = self.index_file.with_suffix(".json.tmp")
-            with open(temp_file, "w", encoding="utf-8") as f:
-                json.dump(index, f, ensure_ascii=False, indent=2)
+
+            def _write():
+                with open(temp_file, "w", encoding="utf-8") as f:
+                    json.dump(index, f, ensure_ascii=False, indent=2)
+
+            await asyncio.to_thread(_write)
             temp_file.replace(self.index_file)
             self._index_cache = index
 
@@ -81,8 +89,12 @@ class StickerStore:
 
         async with self._lock:
             if not file_path.exists():
-                with open(file_path, "wb") as f:
-                    f.write(content)
+
+                def _write():
+                    with open(file_path, "wb") as f:
+                        f.write(content)
+
+                await asyncio.to_thread(_write)
 
         return file_path
 
@@ -156,8 +168,12 @@ class StickerStore:
     ) -> dict | None:
         """从本地文件添加表情包"""
         try:
-            with open(file_path, "rb") as f:
-                content = f.read()
+
+            def _read():
+                with open(file_path, "rb") as f:
+                    return f.read()
+
+            content = await asyncio.to_thread(_read)
 
             mime_type, _ = mimetypes.guess_type(str(file_path))
             if not mime_type:
@@ -310,8 +326,12 @@ class StickerStore:
                 continue
 
             try:
-                with open(file_path, "rb") as f:
-                    content = f.read()
+
+                def _read():
+                    with open(file_path, "rb") as f:
+                        return f.read()
+
+                content = await asyncio.to_thread(_read)
                 file_hash = await self._compute_content_hash(content)
 
                 if file_hash in existing_hashes:
