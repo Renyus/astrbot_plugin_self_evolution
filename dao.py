@@ -28,7 +28,7 @@ def with_db_retry(retries=3, delay=0.5):
                     if attempt < retries - 1:
                         await asyncio.sleep(delay)
                     else:
-                        raise e
+                        raise
 
         return wrapper
 
