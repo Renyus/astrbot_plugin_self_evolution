@@ -625,6 +625,12 @@
                 "default": [],
                 "hint": "留空则不启用通知。填入群号后，检测到新 commit 会自动发送通知。"
             },
+            "update_notify_user_ids": {
+                "description": "通知用户 ID 列表（私聊）",
+                "type": "list",
+                "default": [],
+                "hint": "填入用户 QQ 号，检测到新 commit 会发送私聊通知。"
+            },
             "update_notify_repo": {
                 "description": "仓库路径",
                 "type": "string",

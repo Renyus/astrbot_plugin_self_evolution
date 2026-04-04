@@ -469,10 +469,11 @@ async def _persona_thought_impl(plugin):
 
 
 async def scheduled_github_check(plugin):
-    """检查 GitHub 仓库更新，有新 commit 则发群通知。"""
+    """检查 GitHub 仓库更新，有新 commit 则发群/私聊通知。"""
     notify_group_ids = plugin.cfg.update_notify_group_id
-    if not notify_group_ids:
-        logger.debug("[Scheduler] GitHub 检查跳过：未配置通知群")
+    notify_user_ids = plugin.cfg.update_notify_user_ids
+    if not notify_group_ids and not notify_user_ids:
+        logger.debug("[Scheduler] GitHub 检查跳过：未配置通知群或用户")
         return
 
     repo = plugin.cfg.update_notify_repo
@@ -536,5 +537,13 @@ async def scheduled_github_check(plugin):
                         logger.info(f"[Scheduler] GitHub 更新已通知群 {group_id}")
                     except Exception as ge:
                         logger.warning(f"[Scheduler] 通知群 {group_id} 失败: {ge}")
+                for user_id in notify_user_ids:
+                    try:
+                        await bot.send_private_msg(
+                            user_id=int(user_id), message=[{"type": "text", "data": {"text": notify_text}}]
+                        )
+                        logger.info(f"[Scheduler] GitHub 更新已通知用户 {user_id}")
+                    except Exception as ge:
+                        logger.warning(f"[Scheduler] 通知用户 {user_id} 失败: {ge}")
     except Exception as e:
         logger.warning(f"[Scheduler] GitHub 更新通知发送失败: {e}")
