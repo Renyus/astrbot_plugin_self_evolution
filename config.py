@@ -519,6 +519,7 @@ class PluginConfig:
     def update_notify_group_id(self):
         return self._get_nested_list("update_notify", "update_notify_group_id", [])
 
+    @property
     def update_notify_user_ids(self):
         return self._get_nested_list("update_notify", "update_notify_user_ids", [])
 
