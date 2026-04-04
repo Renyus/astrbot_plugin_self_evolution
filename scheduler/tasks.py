@@ -478,14 +478,16 @@ async def scheduled_github_check(plugin):
     repo = plugin.cfg.update_notify_repo
     branch = plugin.cfg.update_notify_branch
 
-    import urllib.request
+    import aiohttp
     import json
 
     url = f"https://api.github.com/repos/{repo}/commits?per_page=3&sha={branch}"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "AstrBot-SelfEvolution"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            commits = json.loads(resp.read())
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                url, headers={"User-Agent": "AstrBot-SelfEvolution"}, timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                commits = await resp.json()
     except Exception as e:
         logger.warning(f"[Scheduler] GitHub API 请求失败: {e}")
         return

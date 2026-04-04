@@ -410,7 +410,7 @@ class EntertainmentEngine:
 
             try:
                 file_path = self.sticker_store.get_sticker_path(sticker)
-                if not file_path or not Path(file_path).exists():
+                if not file_path or not file_path.exists():
                     logger.warning(f"[Sticker] 表情包文件不存在: {sticker['filename']}")
                     return None
 
