@@ -371,10 +371,9 @@ class SelfEvolutionDAO:
                     await cursor.fetchone()
 
             await asyncio.wait_for(probe(), timeout=2.0)
-        except Exception:
+        except (asyncio.TimeoutError, aiosqlite.Error, OSError):
             logger.warning("[SelfEvolution] DAO: 侦测到 SQLite 长连接句柄丢失或断裂，尝试热重连机制...")
             async with self._db_lock:
-                # Double-check 预防并发协程在等待锁时已经被前面的人重设连接，同样增加时限防护
                 try:
 
                     async def p_probe():
@@ -382,13 +381,12 @@ class SelfEvolutionDAO:
                             await cursor.fetchone()
 
                     await asyncio.wait_for(p_probe(), timeout=2.0)
-                except Exception:
+                except (asyncio.TimeoutError, aiosqlite.Error, OSError):
                     if self.db_conn:
                         try:
-                            # 显式关闭旧连接，确保操作系统回收底层文件描述符
                             await self.db_conn.close()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"[SelfEvolution] DAO close 失败（可忽略）: {e}")
                     try:
                         self.db_conn = await aiosqlite.connect(self.db_path)
                         await self.db_conn.execute("PRAGMA journal_mode=WAL;")
