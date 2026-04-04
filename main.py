@@ -113,7 +113,7 @@ class PromptContext:
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "CognitionCore 7.0 数字生命。",
-    "Ver 5.1.0",
+    "Ver 5.1.1",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
@@ -333,6 +333,8 @@ class SelfEvolutionPlugin(Star):
         parts.append(self._build_identity_injection(ctx))
         if self._should_inject_group_history(ctx):
             parts.append(await self._build_group_history_injection(ctx))
+        if self._should_inject_private_history(ctx):
+            parts.append(await self._build_private_history_injection(ctx))
         if self._should_inject_profile(ctx):
             parts.append(await self._build_profile_injection(ctx))
         if self._should_inject_kb_memory(ctx):
@@ -434,6 +436,9 @@ class SelfEvolutionPlugin(Star):
     def _should_inject_group_history(self, ctx: PromptContext) -> bool:
         return bool(self.cfg.inject_group_history and ctx.group_id)
 
+    def _should_inject_private_history(self, ctx: PromptContext) -> bool:
+        return bool(self.cfg.inject_group_history and not ctx.group_id and ctx.user_id)
+
     def _should_inject_profile(self, ctx: PromptContext) -> bool:
         return self.enable_profile_injection and (((ctx.has_reply or ctx.has_at) and ctx.is_group) or not ctx.is_group)
 
@@ -480,6 +485,16 @@ class SelfEvolutionPlugin(Star):
         if not hist_str:
             return ""
         return f"\n\n[最近群消息]\n{hist_str}\n"
+
+    async def _build_private_history_injection(self, ctx: PromptContext) -> str:
+        if ctx.group_id or not ctx.user_id:
+            return ""
+        from .engine.context_injection import get_private_history
+
+        hist_str = await get_private_history(self, ctx.user_id, self.cfg.group_history_count)
+        if not hist_str:
+            return ""
+        return f"\n\n[最近私聊消息]\n{hist_str}\n"
 
     async def _build_profile_injection(self, ctx: PromptContext) -> str:
         result = await self.memory_tools.query_service.query(
@@ -2171,6 +2186,28 @@ class SelfEvolutionPlugin(Star):
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
         result = await commands.handle_db(event, self, action, param)
+        event.set_extra("self_evolution_command_reply", True)
+        yield event.plain_result(result)
+
+    @filter.command("kb")
+    async def kb_cmd(self, event: AstrMessageEvent, action: str = "", scope: str = ""):
+        """知识库管理命令"""
+        if not commands.check_admin_admin(event, self):
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
+            return
+        action = action.lower()
+        if action != "clear":
+            event.set_extra("self_evolution_command_reply", True)
+            yield event.plain_result(
+                "【知识库管理】\n"
+                "/kb clear [scope/all]  # 清空知识库文档\n"
+                "  不传 scope：清空当前群/私聊\n"
+                "  scope：指定 scope（如群号或 private_xxx）\n"
+                "  all：清空所有 scope（仅管理员）"
+            )
+            return
+        result = await commands.handle_kb_clear(event, self, scope)
         event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 

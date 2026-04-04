@@ -3,7 +3,7 @@ Commands 模块 - 命令处理
 """
 
 from .admin import check_admin as check_admin_admin
-from .admin import handle_db, handle_san_show, handle_set_san, handle_shut
+from .admin import handle_db, handle_kb_clear, handle_san_show, handle_set_san, handle_shut
 from .common import RESP_MESSAGES, CommandContext
 from .profile import (
     check_admin as check_profile_admin,
@@ -26,6 +26,7 @@ __all__ = [
     "CommandContext",
     "handle_create",
     "handle_db",
+    "handle_kb_clear",
     "handle_san_show",
     "handle_delete",
     "handle_set_san",

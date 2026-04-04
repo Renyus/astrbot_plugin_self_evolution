@@ -174,6 +174,28 @@ async def handle_db(event, plugin, action: str = "", param: str = ""):
     )
 
 
+async def handle_kb_clear(event, plugin, scope_arg: str = ""):
+    """清空知识库命令。"""
+    ctx = CommandContext.from_event(event, plugin)
+
+    deny = ensure_admin(ctx)
+    if deny:
+        return deny
+
+    memory_store = getattr(plugin, "session_memory_store", None)
+    if not memory_store:
+        return "记忆存储模块不可用"
+
+    if scope_arg.lower() == "all":
+        return await memory_store.clear_all_kb()
+
+    target_scope = ctx.scope_id
+    if scope_arg:
+        target_scope = scope_arg
+
+    return await memory_store.clear_kb(target_scope)
+
+
 async def handle_set_san(event, plugin, value: str = ""):
     """查看或设置当前 SAN（优先操作 Persona Sim）"""
     ctx = CommandContext.from_event(event, plugin)

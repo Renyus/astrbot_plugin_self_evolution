@@ -514,3 +514,68 @@ class SessionMemoryStore:
         except Exception as e:
             logger.warning(f"[MemoryStore] clear_summary 失败: {e}")
             return f"清空失败: {e}"
+
+    async def clear_kb(self, scope_id: str) -> str:
+        """清空指定 scope 的整个知识库（包括文档和实例）"""
+        try:
+            kb_manager = getattr(self.plugin.context, "kb_manager", None)
+            if not kb_manager:
+                return "知识库管理器不可用"
+
+            scope_kb_name = self._get_scope_kb_name(scope_id)
+
+            try:
+                kb_helper = await asyncio.wait_for(kb_manager.get_kb_by_name(scope_kb_name), timeout=5.0)
+            except Exception:
+                return f"知识库不存在（scope: {scope_id}）"
+
+            if not kb_helper:
+                return f"知识库不存在（scope: {scope_id}）"
+
+            kb_id = getattr(kb_helper.kb, "kb_id", None)
+            if not kb_id:
+                return f"无法获取知识库 ID（scope: {scope_id}）"
+
+            success = await kb_manager.delete_kb(kb_id)
+            if success:
+                return f"已删除知识库及其所有文档（scope: {scope_id}）"
+            return f"删除知识库失败（scope: {scope_id}）"
+
+        except Exception as e:
+            logger.warning(f"[MemoryStore] clear_kb 失败: {e}")
+            return f"清空失败: {e}"
+
+    async def clear_all_kb(self) -> str:
+        """清空所有 scope 的所有知识库（包括文档和实例），保留主知识库"""
+        try:
+            kb_manager = getattr(self.plugin.context, "kb_manager", None)
+            if not kb_manager:
+                return "知识库管理器不可用"
+
+            deleted_count = 0
+            kbs = await kb_manager.list_kbs()
+            memory_kb_prefix = getattr(self.plugin.cfg, "memory_kb_name", "self_evolution_memory")
+
+            for kb in kbs:
+                kb_name = getattr(kb, "kb_name", "") if not isinstance(kb, str) else kb
+                if not kb_name.startswith(memory_kb_prefix):
+                    continue
+                if "__scope__" not in kb_name:
+                    continue
+
+                kb_id = getattr(kb, "kb_id", None)
+                if not kb_id:
+                    continue
+
+                try:
+                    success = await kb_manager.delete_kb(kb_id)
+                    if success:
+                        deleted_count += 1
+                except Exception:
+                    pass
+
+            return f"已删除 {deleted_count} 个 scope 知识库"
+
+        except Exception as e:
+            logger.warning(f"[MemoryStore] clear_all_kb 失败: {e}")
+            return f"清空失败: {e}"

@@ -27,24 +27,46 @@ _REACTION_EMOJIS = {
 
 
 def _split_message_naturally(text: str) -> list[str]:
-    """将长消息自然切分为多条短消息，模拟真人分段发送。"""
+    """将长消息自然切分为多条短消息，模拟真人分段发送。
+
+    支持按标点、空格、语气词断句，适配真人QQ聊天风格（常无标点）。
+    """
     if len(text) <= 25:
         return [text]
 
-    splitters = {"。", "？", "！", "!", "?", "\n", "…"}
+    punctuation_splitters = {"。", "？", "！", "!", "?", "\n", "…"}
+    casual_splitters = {"呀", "啊", "哦", "呢", "嘛", "吧", "哈", "诶", "呃", "唉", "啧"}
     segments: list[str] = []
     current = ""
 
-    for char in text:
-        current += char
-        if char in splitters and len(current) >= 6:
+    i = 0
+    while i < len(text):
+        char = text[i]
+
+        if char == " " and len(current) >= 10:
             segments.append(current.strip())
             current = ""
+            i += 1
+            continue
+
+        if char in punctuation_splitters and len(current) >= 6:
+            segments.append(current.strip())
+            current = ""
+            i += 1
+            continue
+
+        if char in casual_splitters and len(current) >= 6:
+            segments.append((current + char).strip())
+            current = ""
+            i += 1
+            continue
+
+        current += char
+        i += 1
 
     if current.strip():
         segments.append(current.strip())
 
-    # 合并过短的段落（<4字）到前一段
     merged: list[str] = []
     for seg in segments:
         if merged and len(seg) < 4:
@@ -52,7 +74,6 @@ def _split_message_naturally(text: str) -> list[str]:
         else:
             merged.append(seg)
 
-    # 最多 3 段
     return merged[:3] if len(merged) > 3 else merged
 
 

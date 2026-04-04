@@ -109,6 +109,10 @@ class ContextBuilder:
             if umo:
                 fallback = await self.plugin._get_active_persona_prompt(umo)
 
+        is_group = getattr(ctx, "is_group", False)
+        if not is_group:
+            fallback = fallback.strip() + "\n\n[场景修正]\n当前是私聊场景，不是群聊。"
+
         if sim_block:
             return sim_block + "\n\n" + fallback
         return fallback
