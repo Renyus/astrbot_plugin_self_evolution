@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from contextlib import suppress
+
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
@@ -844,20 +844,34 @@ class SelfEvolutionDAO:
         ]
         deleted_files = []
 
-        await self.close()
+        try:
+            await self.close()
+        except Exception as e:
+            logger.warning(f"[SelfEvolution] delete_and_rebuild: close 失败，继续删除文件: {e}")
 
         for file_path in related_files:
             if file_path.exists():
-                with suppress(FileNotFoundError):
+                try:
                     file_path.unlink()
                     deleted_files.append(file_path.name)
+                except FileNotFoundError:
+                    pass
 
         self._affinity_cache.clear()
         self._affinity_cache_time.clear()
         self._probe_counter = 0
         self._last_probe_time = 0
 
-        await self.init_db()
+        try:
+            await self.init_db()
+        except Exception as e:
+            logger.error(f"[SelfEvolution] delete_and_rebuild: init_db 失败: {e}")
+            return {
+                "deleted_files": deleted_files,
+                "rebuilt": False,
+                "db_path": str(db_file),
+                "error": str(e),
+            }
 
         return {
             "deleted_files": deleted_files,
