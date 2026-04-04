@@ -499,14 +499,14 @@ async def scheduled_github_check(plugin):
 
     last_sha = await sp.get_async(scope="plugin", scope_id="global", key=cache_key, default=None)
     if last_sha is None:
-        await sp.set_async(scope="plugin", scope_id="global", key=cache_key, value=latest_sha)
+        await sp.put_async(scope="plugin", scope_id="global", key=cache_key, value=latest_sha)
         logger.info(f"[Scheduler] GitHub 检查首次记录: {latest_sha[:7]}")
         return
     if last_sha == latest_sha:
         logger.debug(f"[Scheduler] GitHub 无新 commit: {latest_sha[:7]}")
         return
 
-    await sp.set_async(scope="plugin", scope_id="global", key=cache_key, value=latest_sha)
+    await sp.put_async(scope="plugin", scope_id="global", key=cache_key, value=latest_sha)
 
     commit_lines = []
     for commit in commits[:3]:
