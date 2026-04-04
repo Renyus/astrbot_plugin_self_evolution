@@ -476,11 +476,12 @@ async def scheduled_github_check(plugin):
         return
 
     repo = plugin.cfg.update_notify_repo
+    branch = plugin.cfg.update_notify_branch
 
     import urllib.request
     import json
 
-    url = f"https://api.github.com/repos/{repo}/commits?per_page=3"
+    url = f"https://api.github.com/repos/{repo}/commits?per_page=3&sha={branch}"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "AstrBot-SelfEvolution"})
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -493,7 +494,7 @@ async def scheduled_github_check(plugin):
         return
 
     latest_sha = commits[0]["sha"]
-    cache_key = "self_evolution_github_last_sha"
+    cache_key = f"self_evolution_github_last_sha_{branch.replace('/', '_')}"
 
     from astrbot.core import sp
 

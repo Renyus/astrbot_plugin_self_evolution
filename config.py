@@ -524,5 +524,9 @@ class PluginConfig:
         return self._get_nested("update_notify", "update_notify_repo", "Renyus/astrbot_plugin_self_evolution")
 
     @property
+    def update_notify_branch(self):
+        return self._get_nested("update_notify", "update_notify_branch", "master")
+
+    @property
     def update_check_interval(self):
         return self._get_nested_int("update_notify", "update_check_interval", 30)
