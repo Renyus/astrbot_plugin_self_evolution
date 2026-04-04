@@ -103,7 +103,7 @@ _FULL_CATALOG: list[HelpCommand] = [
     HelpCommand("database", "/db confirm", "确认执行危险操作", admin_only=True),
     HelpCommand("persona", "/ps state [群]", "只读当前人格状态", admin_only=True),
     HelpCommand("persona", "/ps status [群]", "推进后查看人格快照", admin_only=True),
-    HelpCommand("persona", "/ps tick [群] [quality]", "手动推进人格时间（none/negative/positive）", admin_only=True),
+    HelpCommand("persona", "/ps tick [quality] [群]", "手动推进人格时间（none/negative/positive）", admin_only=True),
     HelpCommand("persona", "/ps todo [群]", "查看当前脑内待办", admin_only=True),
     HelpCommand("persona", "/ps effects [群]", "查看当前状态效果", admin_only=True),
     HelpCommand(
