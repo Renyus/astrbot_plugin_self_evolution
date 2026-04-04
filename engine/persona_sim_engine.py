@@ -64,8 +64,8 @@ class PersonaSimEngine:
         self._thought_cache: dict[str, str] = {}
 
     async def tick_time_only(self, scope_id: str, now: float | None = None) -> PersonaSnapshot:
-        """只推进时间，不应用真实互动。用于被动观察消息时的自动 tick。"""
-        return await self.tick(scope_id, now=now, interaction_quality="none")
+        """只推进时间，不应用真实互动，不触发新效果。用于被动观察消息时的自动 tick。"""
+        return await self.tick(scope_id, now=now, interaction_quality="none", skip_effect_triggers=True)
 
     async def apply_interaction(
         self,
@@ -182,6 +182,7 @@ class PersonaSimEngine:
         interaction_quality: str = "none",
         interaction_mode: str = "passive",
         interaction_outcome: str = "connected",
+        skip_effect_triggers: bool = False,
     ) -> PersonaSnapshot:
         """执行一次 tick 推演，返回当前 snapshot。"""
         now = now or time.time()
@@ -228,7 +229,9 @@ class PersonaSimEngine:
         if expired_ids and self._dao:
             await self._dao.deactivate_persona_effects(scope_id, list(expired_ids))
 
-        triggered = eval_effect_triggers(state, active_ids, recent_events, now)
+        triggered = []
+        if not skip_effect_triggers:
+            triggered = eval_effect_triggers(state, active_ids, recent_events, now)
         effect_events: list[PersonaEvent] = []
         for e in triggered:
             active_effects.append(e)
