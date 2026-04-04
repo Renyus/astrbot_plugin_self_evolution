@@ -440,5 +440,5 @@ class EntertainmentEngine:
             platform = self.plugin.context.platform_manager.platform_insts[0]
             bot = platform.bot
             await bot.send_group_msg(group_id=int(group_id), message=[{"type": "text", "data": {"text": text}}])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"[Entertainment] _send_to_group 失败 group={group_id}: {e}")
