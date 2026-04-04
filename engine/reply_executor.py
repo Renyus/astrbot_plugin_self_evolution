@@ -676,8 +676,6 @@ class ReplyExecutor:
             logger.debug(f"[ReplyExecutor] 表情包发送失败: {e}")
             return None
 
-        return None
-
     def _maybe_append_sticker(self, message: list, group_id: str, text: str):
         """概率性追加点缀表情包到消息列表。参考 _maybe_append_face 模式。"""
         logger.info(f"[ReplyExecutor] _maybe_append_sticker called: group={group_id}, text={text[:20]}")
