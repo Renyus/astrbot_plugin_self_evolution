@@ -102,10 +102,7 @@ async def handle_shut(event, plugin, minutes: str = ""):
     return f"[OK] 当前群已开启闭嘴模式，持续 {minutes_val} 分钟"
 
 
-async def handle_db(event, plugin, action: str = "", param: str = ""):
-    """数据库管理命令。"""
-    del param
-
+async def handle_db(event, plugin, action: str = ""):
     ctx = CommandContext.from_event(event, plugin)
 
     deny = ensure_admin(ctx)

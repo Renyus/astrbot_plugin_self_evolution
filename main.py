@@ -2213,13 +2213,13 @@ class SelfEvolutionPlugin(Star):
             yield event.plain_result(result)
 
     @filter.command("db")
-    async def db_cmd(self, event: AstrMessageEvent, action: str = "", param: str = ""):
+    async def db_cmd(self, event: AstrMessageEvent, action: str = ""):
         """数据库管理命令"""
         if not commands.check_admin_admin(event, self):
             event.set_extra("self_evolution_command_reply", True)
             yield event.plain_result("权限拒绝：此操作仅限管理员执行。")
             return
-        result = await commands.handle_db(event, self, action, param)
+        result = await commands.handle_db(event, self, action)
         event.set_extra("self_evolution_command_reply", True)
         yield event.plain_result(result)
 
