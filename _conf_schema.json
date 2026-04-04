@@ -620,9 +620,9 @@
         "hint": "插件仓库更新时自动通知指定群聊。",
         "items": {
             "update_notify_group_id": {
-                "description": "通知群号",
-                "type": "string",
-                "default": "",
+                "description": "通知群号列表",
+                "type": "list",
+                "default": [],
                 "hint": "留空则不启用通知。填入群号后，检测到新 commit 会自动发送通知。"
             },
             "update_notify_repo": {
