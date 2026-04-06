@@ -19,10 +19,10 @@ from astrbot.api import logger
 from .common import CommandContext
 
 
-FEED_JSON_PROMPT = """分析图片内容，判断是否为食物。
+FEED_JSON_PROMPT = """分析图片内容，判断是否为食物，以及角色是否会吃。
 
 必须严格按以下 JSON 格式返回（不要输出其他内容）：
-{"food_name": "菜名/物品名", "is_food": true/false, "category": "normal/dessert/dark_cuisine/non_food", "calories": 0-100的数值, "tastiness": 0-100的数值}
+{"food_name": "菜名/物品名", "is_food": true/false, "category": "normal/dessert/dark_cuisine/non_food", "calories": 0-100的数值, "tastiness": 0-100的数值, "ate": true/false}
 
 分类说明：
 - normal: 普通菜肴（米饭、炒菜、汤类、肉类等）
@@ -30,10 +30,15 @@ FEED_JSON_PROMPT = """分析图片内容，判断是否为食物。
 - dark_cuisine: 黑暗料理/不可食用（奇怪的组合、不可描述的东西等）
 - non_food: 非食物（石头、玩具、昆虫等）
 
+判断是否吃（ate）：
+- normal/dessert: 几乎总会吃（ate=true），除非极度不新鲜或已经太饱
+- dark_cuisine/non_food: 绝对不会吃（ate=false），这是原则问题
+- ate 表示角色最终是否真的吃下去了
+
 注意事项：
 - calories 表示这份食物的分量/热量密度，0=几乎没有热量，100=热量极高
 - tastiness 表示看起来的好吃程度，0=看起来很难吃，100=看起来非常美味
-- 如果不是食物，calories 和 tastiness 都设为 0
+- 如果不是食物，calories 和 tastiness 都设为 0，ate 设为 false
 - 只输出JSON，不要有其他解释性文字
 """
 
@@ -101,24 +106,28 @@ async def _call_vision_provider(plugin_context, local_path: str) -> Optional[str
     return None
 
 
-async def _generate_feed_response(plugin, food_data: dict, snapshot, scope_id: str) -> str:
+async def _generate_feed_response(plugin, food_data: dict, snapshot, scope_id: str, ate: bool) -> str:
     """根据喂食结果和当前状态，让 LLM 生成自然回复。"""
     from ..engine.persona_sim_injection import snapshot_to_prompt
 
-    state = snapshot.state
     food_name = food_data["food_name"]
     category = food_data["category"]
     tastiness = food_data["tastiness"]
 
-    effect_hints = []
-    for eff in snapshot.active_effects[-3:]:
-        if eff.prompt_hint:
-            effect_hints.append(eff.prompt_hint)
-    effect_str = " | ".join(effect_hints) if effect_hints else "无特殊状态"
-
+    effect_str = "无特殊状态"
     todo_hint = ""
-    if snapshot.pending_todos:
-        todo_hint = f"\n当前最想做的事：{snapshot.pending_todos[0].title}（{snapshot.pending_todos[0].reason}）"
+    if snapshot:
+        state = snapshot.state
+        effect_hints = []
+        for eff in snapshot.active_effects[-3:]:
+            if eff.prompt_hint:
+                effect_hints.append(eff.prompt_hint)
+        effect_str = " | ".join(effect_hints) if effect_hints else "无特殊状态"
+
+        if snapshot.pending_todos:
+            todo_hint = f"\n当前最想做的事：{snapshot.pending_todos[0].title}（{snapshot.pending_todos[0].reason}）"
+    else:
+        state = None
 
     persona_prompt = ""
     try:
@@ -130,18 +139,24 @@ async def _generate_feed_response(plugin, food_data: dict, snapshot, scope_id: s
 
     persona_section = f"\n\n【角色设定】\n{persona_prompt}" if persona_prompt else ""
 
-    prompt = f"""有人给你看了一个东西，问你要不要吃它，你看了之后需要以该角色的身份作出反应。{persona_section}
-
+    if state:
+        state_section = f"""
 【当前状态】
 - 饱腹感: {state.satiety:.0f}/100
 - 心情: {state.mood:.0f}/100
 - 活力: {state.energy:.0f}/100
 - 社交渴望: {state.social_need:.0f}/100
+"""
+    else:
+        state_section = ""
 
+    prompt = f"""有人给你看了一个东西，问你要不要吃它，你看了之后需要以该角色的身份作出反应。{persona_section}
+{state_section}
 【本次投喂信息】
 - 食物: {food_name}
 - 分类: {category}
 - 美味程度: {tastiness}/100
+- 吃了: {"是" if ate else "否"}
 
 【当前效果】
 {effect_str}
@@ -150,8 +165,9 @@ async def _generate_feed_response(plugin, food_data: dict, snapshot, scope_id: s
 要求：
 - 严格遵循角色设定中的语气、性格、说话习惯
 - 根据饱腹感和心情状态自然反应
-- 如果是 dark_cuisine（黑暗料理）或 non_food（非食物），必须表达强烈厌恶/愤怒/想骂人的情绪，这是原则问题绝对不能忍
-- 如果是甜点，可以表达额外的愉悦
+- dark_cuisine（黑暗料理）或 non_food（非食物）必须表达强烈厌恶/愤怒/想骂人的情绪，这是原则问题绝对不能忍，绝对不会吃
+- 甜点可以表达额外的愉悦
+- 如果没有吃，不要说"吃了xxx"，要明确表达拒绝
 - 40字以内，第一人称，像正常聊天回复
 - 不要输出任何状态数值，只输出对话正文
 """
@@ -208,7 +224,7 @@ async def handle_feed(event, plugin) -> str:
         logger.warning(f"[FeedHandler] JSON解析失败, text={raw_text[:100]}")
         return "图片内容解析失败...我认不出这东西是什么～"
 
-    required_keys = {"food_name", "is_food", "category", "calories", "tastiness"}
+    required_keys = {"food_name", "is_food", "category", "calories", "tastiness", "ate"}
     if not all(k in food_data for k in required_keys):
         logger.warning(f"[FeedHandler] JSON缺少必要字段: {food_data}")
         return "图片内容解析结果不完整...再试一次？"
@@ -217,6 +233,7 @@ async def handle_feed(event, plugin) -> str:
         food_data["calories"] = max(0, min(100, int(food_data["calories"])))
         food_data["tastiness"] = max(0, min(100, int(food_data["tastiness"])))
         food_data["is_food"] = bool(food_data["is_food"])
+        food_data["ate"] = bool(food_data["ate"])
     except (ValueError, TypeError) as e:
         logger.warning(f"[FeedHandler] 字段类型转换失败: {e}")
         return "图片内容解析结果格式错误...再试一次？"
@@ -224,15 +241,28 @@ async def handle_feed(event, plugin) -> str:
     scope_id = ctx.scope_id
     user_id = ctx.sender_id
 
-    try:
-        snapshot = await plugin.persona_sim.eat(food_data, scope_id, user_id)
-    except Exception as e:
-        logger.error(f"[FeedHandler] eat() 调用失败: {e}", exc_info=True)
-        return f"吃东西的时候出了点问题...{e}"
+    ate = food_data.get("ate", False)
+    if ate:
+        try:
+            snapshot = await plugin.persona_sim.eat(food_data, scope_id, user_id)
+        except Exception as e:
+            logger.error(f"[FeedHandler] eat() 调用失败: {e}", exc_info=True)
+            return f"吃东西的时候出了点问题...{e}"
+    else:
+        try:
+            snapshot = await plugin.persona_sim.get_snapshot(scope_id)
+        except Exception as e:
+            logger.error(f"[FeedHandler] get_snapshot() 调用失败: {e}")
+            snapshot = None
 
-    llm_response = await _generate_feed_response(plugin, food_data, snapshot, scope_id)
+    llm_response = await _generate_feed_response(plugin, food_data, snapshot, scope_id, ate)
     if llm_response:
         return llm_response
 
-    state = snapshot.state
-    return f"吃了{food_data['food_name']}，饱腹感 {state.satiety:.0f}/100，心情 {state.mood:.0f}/100"
+    if ate:
+        state = snapshot.state if snapshot else None
+        if state:
+            return f"吃了{food_data['food_name']}，饱腹感 {state.satiety:.0f}/100，心情 {state.mood:.0f}/100"
+        return f"吃了{food_data['food_name']}～"
+    else:
+        return f"这东西不能吃！"
