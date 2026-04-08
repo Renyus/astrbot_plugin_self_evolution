@@ -153,7 +153,7 @@ class EavesdroppingEngine:
 
             planner = EngagementPlanner(self.plugin)
 
-            pending = self._opportunity_cache.peek(group_id)
+            pending = await self._opportunity_cache.peek(group_id)
             motive = None
             pending_anchor_type = ""
             pending_trigger_reason = ""
@@ -202,7 +202,7 @@ class EavesdroppingEngine:
 
             result = await process_intent(self.plugin, intent, momentum, planner, executor, policy, self._recorder)
             if result and pending:
-                self._opportunity_cache.remove_one(group_id, top)
+                await self._opportunity_cache.remove_one(group_id, top)
             await self.persist_stats(group_id)
             return result
         except Exception as e:
@@ -296,8 +296,9 @@ class EavesdroppingEngine:
             )
             score = planner._compute_opportunity_score(state_for_score, msg_text, motive)
 
-            if score.total >= 0.20 and not score.is_blocked:
-                self._opportunity_cache.warm(
+            did_warm = score.total >= 0.20 and not score.is_blocked
+            if did_warm:
+                await self._opportunity_cache.warm(
                     scope_id=group_id,
                     score=score,
                     anchor_text=msg_text,
@@ -337,7 +338,9 @@ class EavesdroppingEngine:
 
             policy = ReplyPolicy(self.plugin)
 
-            await process_intent(self.plugin, intent, momentum, planner, executor, policy, self._recorder)
+            executed = await process_intent(self.plugin, intent, momentum, planner, executor, policy, self._recorder)
+            if did_warm:
+                await self._opportunity_cache.remove_by_anchor(group_id, "passive_message", msg_text)
             await self.persist_stats(group_id)
         except Exception as e:
             logger.warning(f"[PassiveEngagement] 群 {group_id} 处理失败: {e}", exc_info=True)
