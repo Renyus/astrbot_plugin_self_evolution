@@ -159,7 +159,7 @@ async def _poke_reply_async(plugin, target_id: str, user_id: str, group_id: str,
     "astrbot_plugin_self_evolution",
     "自我进化 (Self-Evolution)",
     "CognitionCore 7.0 数字生命。",
-    "Ver 5.1.4",
+    "Ver 5.2.0",
 )
 class SelfEvolutionPlugin(Star):
     @staticmethod
