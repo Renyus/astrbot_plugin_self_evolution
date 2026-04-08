@@ -339,7 +339,7 @@ class EavesdroppingEngine:
             policy = ReplyPolicy(self.plugin)
 
             executed = await process_intent(self.plugin, intent, momentum, planner, executor, policy, self._recorder)
-            if executed and did_warm:
+            if did_warm:
                 await self._opportunity_cache.remove_by_anchor(group_id, "passive_message", msg_text)
             await self.persist_stats(group_id)
         except Exception as e:
