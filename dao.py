@@ -346,6 +346,40 @@ class SelfEvolutionDAO:
                 updated_at REAL NOT NULL DEFAULT 0.0
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS persona_arc_state (
+                scope_id TEXT PRIMARY KEY,
+                arc_id TEXT NOT NULL DEFAULT '',
+                arc_stage INTEGER NOT NULL DEFAULT 0,
+                arc_progress REAL NOT NULL DEFAULT 0.0,
+                updated_at REAL NOT NULL DEFAULT 0.0
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS persona_arc_emotions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scope_id TEXT NOT NULL,
+                arc_id TEXT NOT NULL,
+                emotion_name TEXT NOT NULL,
+                definition_by_user TEXT NOT NULL DEFAULT '',
+                source_text TEXT NOT NULL DEFAULT '',
+                confidence REAL NOT NULL DEFAULT 0.8,
+                unlocked_at REAL NOT NULL DEFAULT 0.0,
+                updated_at REAL NOT NULL DEFAULT 0.0,
+                UNIQUE(scope_id, arc_id, emotion_name)
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS persona_arc_ruminations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scope_id TEXT NOT NULL,
+                arc_id TEXT NOT NULL,
+                text TEXT NOT NULL DEFAULT '',
+                source_summary TEXT NOT NULL DEFAULT '',
+                created_at REAL NOT NULL DEFAULT 0.0,
+                injected INTEGER NOT NULL DEFAULT 0
+            )
+        """)
 
     async def get_conn(self):
         """带有存活检测的全局连接获取器，兼顾长连接性能与雪崩恢复，防阻塞分离读写锁"""
@@ -1375,6 +1409,163 @@ class SelfEvolutionDAO:
             cursor = await db.execute(
                 "SELECT * FROM persona_episodes WHERE scope_id = ? ORDER BY episode_date DESC LIMIT ?",
                 (scope_id, limit),
+            )
+            rows = await cursor.fetchall()
+            cols = [desc[0] for desc in cursor.description]
+            return [dict(zip(cols, row)) for row in rows]
+
+    @with_db_retry()
+    async def get_persona_arc_state(self, scope_id: str):
+        import sys
+        from pathlib import Path
+
+        plugin_root = Path(__file__).parent
+        if str(plugin_root) not in sys.path:
+            sys.path.insert(0, str(plugin_root))
+        from engine.persona_arc.types import PersonaArcState
+
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute("SELECT * FROM persona_arc_state WHERE scope_id = ?", (scope_id,))
+            row = await cursor.fetchone()
+            if row:
+                cols = [desc[0] for desc in cursor.description]
+                data = dict(zip(cols, row))
+                return PersonaArcState(
+                    scope_id=data["scope_id"],
+                    arc_id=data["arc_id"],
+                    arc_stage=data["arc_stage"],
+                    arc_progress=data["arc_progress"],
+                    updated_at=data["updated_at"],
+                )
+            return PersonaArcState(scope_id=scope_id)
+
+    @with_db_retry()
+    async def upsert_persona_arc_state(self, state) -> None:
+        db = await self.get_conn()
+        async with self._write_lock:
+            await db.execute(
+                """INSERT OR REPLACE INTO persona_arc_state
+                   (scope_id, arc_id, arc_stage, arc_progress, updated_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (
+                    state.scope_id,
+                    state.arc_id,
+                    state.arc_stage,
+                    state.arc_progress,
+                    state.updated_at,
+                ),
+            )
+            await db.commit()
+
+    @with_db_retry()
+    async def upsert_persona_arc_emotion(
+        self,
+        scope_id: str,
+        arc_id: str,
+        emotion_name: str,
+        definition_by_user: str,
+        source_text: str = "",
+        confidence: float = 0.8,
+        unlocked_at: float = 0.0,
+        updated_at: float = 0.0,
+    ) -> None:
+        db = await self.get_conn()
+        async with self._write_lock:
+            await db.execute(
+                """INSERT OR REPLACE INTO persona_arc_emotions
+                   (scope_id, arc_id, emotion_name, definition_by_user, source_text, confidence, unlocked_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    scope_id,
+                    arc_id,
+                    emotion_name,
+                    definition_by_user,
+                    source_text,
+                    confidence,
+                    unlocked_at,
+                    updated_at,
+                ),
+            )
+            await db.commit()
+
+    @with_db_retry()
+    async def get_persona_arc_emotions(self, scope_id: str, arc_id: str, limit: int = 20) -> list[dict]:
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute(
+                """SELECT * FROM persona_arc_emotions
+                   WHERE scope_id = ? AND arc_id = ?
+                   ORDER BY updated_at DESC LIMIT ?""",
+                (scope_id, arc_id, limit),
+            )
+            rows = await cursor.fetchall()
+            cols = [desc[0] for desc in cursor.description]
+            return [dict(zip(cols, row)) for row in rows]
+
+    @with_db_retry()
+    async def add_persona_arc_rumination(
+        self,
+        scope_id: str,
+        arc_id: str,
+        text: str,
+        source_summary: str = "",
+        created_at: float = 0.0,
+        injected: bool = False,
+    ) -> None:
+        db = await self.get_conn()
+        async with self._write_lock:
+            await db.execute(
+                """INSERT INTO persona_arc_ruminations
+                   (scope_id, arc_id, text, source_summary, created_at, injected)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    scope_id,
+                    arc_id,
+                    text,
+                    source_summary,
+                    created_at,
+                    1 if injected else 0,
+                ),
+            )
+            await db.commit()
+
+    @with_db_retry()
+    async def get_uninjected_persona_arc_ruminations(self, scope_id: str, arc_id: str, limit: int = 1) -> list[dict]:
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute(
+                """SELECT * FROM persona_arc_ruminations
+                   WHERE scope_id = ? AND arc_id = ? AND injected = 0
+                   ORDER BY created_at ASC LIMIT ?""",
+                (scope_id, arc_id, limit),
+            )
+            rows = await cursor.fetchall()
+            cols = [desc[0] for desc in cursor.description]
+            return [dict(zip(cols, row)) for row in rows]
+
+    @with_db_retry()
+    async def mark_persona_arc_ruminations_injected(self, ids: list[int]) -> None:
+        if not ids:
+            return
+        db = await self.get_conn()
+        async with self._write_lock:
+            placeholders = ",".join("?" * len(ids))
+            await db.execute(
+                f"UPDATE persona_arc_ruminations SET injected = 1 WHERE id IN ({placeholders})",
+                ids,
+            )
+            await db.commit()
+
+    @with_db_retry()
+    async def get_persona_arc_ruminations(self, scope_id: str, arc_id: str, limit: int = 10) -> list[dict]:
+        db = await self.get_conn()
+        async with self._db_lock:
+            cursor = await db.execute(
+                """SELECT * FROM persona_arc_ruminations
+                   WHERE scope_id = ? AND arc_id = ?
+                   ORDER BY created_at DESC LIMIT ?""",
+                (scope_id, arc_id, limit),
             )
             rows = await cursor.fetchall()
             cols = [desc[0] for desc in cursor.description]

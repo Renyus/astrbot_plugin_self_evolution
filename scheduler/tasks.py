@@ -449,6 +449,52 @@ async def scheduled_persona_thought(plugin) -> ScheduledTaskResult:
     )
 
 
+async def scheduled_persona_rumination(plugin) -> ScheduledTaskResult:
+    """离线反刍定时任务 - 每1-3小时为活跃 scope 生成后台反刍"""
+    persona_arc = getattr(plugin, "persona_arc", None)
+    if not persona_arc:
+        logger.info("[Scheduler] PersonaRumination 跳过: persona_arc 不可用")
+        return ScheduledTaskResult(
+            task_name="PersonaRumination",
+            scope_id=None,
+            success=True,
+            skipped=True,
+            reason="persona_arc unavailable",
+        )
+
+    if not persona_arc.enabled:
+        logger.debug("[Scheduler] PersonaRumination 跳过: persona_arc 未启用")
+        return ScheduledTaskResult(
+            task_name="PersonaRumination",
+            scope_id=None,
+            success=True,
+            skipped=True,
+            reason="persona_arc disabled",
+        )
+
+    scopes, skip_reason = await _resolve_target_scopes(
+        plugin, "PersonaRumination", include_private=True, include_groups=True
+    )
+    if not scopes:
+        logger.debug(f"[Scheduler] PersonaRumination 跳过: {skip_reason}")
+        return ScheduledTaskResult(
+            task_name="PersonaRumination",
+            scope_id=None,
+            success=True,
+            skipped=True,
+            reason=skip_reason,
+        )
+
+    return await _run_task(
+        "PersonaRumination",
+        _persona_rumination_impl,
+        plugin,
+        swallow_errors=True,
+        log_scope_count=True,
+        scope_count=len(scopes),
+    )
+
+
 async def _persona_thought_impl(plugin):
     persona_sim = getattr(plugin, "persona_sim", None)
     if not persona_sim:
@@ -466,6 +512,105 @@ async def _persona_thought_impl(plugin):
             logger.warning(f"[Scheduler] PersonaThought scope={scope_id} 失败: {e}")
 
     logger.info(f"[Scheduler] PersonaThought 完成: {success_count}/{len(scopes)} 个 scope")
+
+
+async def _persona_rumination_impl(plugin):
+    import random
+
+    persona_arc = getattr(plugin, "persona_arc", None)
+    if not persona_arc or not persona_arc.enabled:
+        return
+
+    scopes, _ = await _resolve_target_scopes(plugin, "PersonaRumination", include_private=True, include_groups=True)
+    scopes = _dedupe_scopes(scopes)
+
+    six_hours_ago = time.time() - 6 * 3600
+    eight_hours_ago = time.time() - 8 * 3600
+
+    for scope_id in scopes:
+        try:
+            state = await persona_arc.dao.get_persona_arc_state(scope_id)
+            if state.updated_at < six_hours_ago:
+                existing = await persona_arc.ruminations.get_uninjected_ruminations(
+                    scope_id, persona_arc.profile.arc_id if persona_arc.profile else "", limit=1
+                )
+                if existing:
+                    continue
+
+                messages = await _get_recent_messages_for_rumination(plugin, scope_id)
+                if not messages:
+                    continue
+
+                rumination_text = await _generate_rumination_text(plugin, messages, scope_id)
+                if rumination_text:
+                    await persona_arc.ruminations.create_rumination(
+                        scope_id=scope_id,
+                        arc_id=persona_arc.profile.arc_id if persona_arc.profile else "",
+                        text=rumination_text,
+                        source_summary=f"基于最近 {len(messages)} 条消息生成",
+                    )
+                    logger.debug(f"[Scheduler] PersonaRumination 为 scope={scope_id} 生成了离线反刍")
+
+        except Exception as e:
+            logger.warning(f"[Scheduler] PersonaRumination scope={scope_id} 失败: {e}")
+
+
+async def _get_recent_messages_for_rumination(plugin, scope_id: str) -> list[str]:
+    try:
+        platform_insts = plugin.context.platform_manager.platform_insts
+        if not platform_insts:
+            return []
+        platform = platform_insts[0]
+        if not hasattr(platform, "get_client"):
+            return []
+        bot = platform.get_client()
+        if not bot:
+            return []
+
+        if scope_id.startswith("private_"):
+            user_id = scope_id.replace("private_", "")
+            result = await bot.call_action("get_friend_msg_history", user_id=int(user_id), count=20)
+        else:
+            result = await bot.call_action("get_group_msg_history", group_id=int(scope_id), count=20)
+
+        messages = result.get("messages", [])
+        from ..engine.context_injection import parse_message_chain
+
+        texts = []
+        for msg in reversed(messages):
+            text = await parse_message_chain(msg, plugin)
+            if text:
+                texts.append(text)
+        return texts
+    except Exception:
+        return []
+
+
+async def _generate_rumination_text(plugin, messages: list[str], scope_id: str) -> str:
+    try:
+        llm_provider = plugin.context.get_using_provider()
+        if not llm_provider:
+            return ""
+
+        history_text = "\n".join(messages[-10:]) if messages else ""
+
+        prompt = f"""你是当前 Persona Arc 的底层记忆弧线。请回顾最近对话和已学会情感，生成一句不超过50字的离线反刍。不要输出动作描写，不要括号，不要解释设定。
+
+最近对话：
+{history_text[:500]}"""
+
+        resp = await llm_provider.text_chat(
+            prompt="生成一句离线反刍",
+            system_prompt=prompt,
+            contexts=[],
+        )
+        text = getattr(resp, "completion_text", "") or ""
+        text = text.strip()
+        if text and len(text) <= 60:
+            return text
+        return ""
+    except Exception:
+        return ""
 
 
 async def scheduled_github_check(plugin):

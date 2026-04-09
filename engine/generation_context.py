@@ -115,8 +115,20 @@ class ContextBuilder:
             fallback = fallback.strip() + "\n\n[场景修正]\n当前是私聊场景，不是群聊。"
 
         if sim_block:
-            return sim_block + "\n\n" + fallback
-        return fallback
+            existing = sim_block + "\n\n" + fallback
+        else:
+            existing = fallback
+
+        arc_block = ""
+        if hasattr(self.plugin, "persona_arc") and self.plugin.persona_arc:
+            try:
+                arc_block = await self.plugin.persona_arc.build_prompt(str(scope_id))
+            except Exception:
+                pass
+
+        if arc_block:
+            return arc_block + "\n\n" + existing
+        return existing
 
     def _build_identity(self, ctx) -> str:
         affinity = getattr(ctx, "affinity", 50)

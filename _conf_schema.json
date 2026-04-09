@@ -675,5 +675,24 @@
                 "hint": "不戳回时随机选一条发送。"
             }
         }
+    },
+    "persona_arc": {
+        "type": "object",
+        "description": "人格弧线外挂",
+        "hint": "角色人格成长弧线配置，支持阶段化人格演变。",
+        "items": {
+            "persona_arc_enabled": {
+                "description": "启用人格弧线",
+                "type": "bool",
+                "default": false,
+                "hint": "开启后启用人格弧线系统，需要同时配置 active_arc_id。"
+            },
+            "persona_arc_active_arc_id": {
+                "description": "启用的弧线ID",
+                "type": "string",
+                "default": "amphoreus_demurge",
+                "hint": "指定启用的弧线配置ID，对应 engine/persona_arc/profiles/ 下的模块名。"
+            }
+        }
     }
 }

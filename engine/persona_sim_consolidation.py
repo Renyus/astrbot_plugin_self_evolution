@@ -130,6 +130,16 @@ class PersonaSimConsolidator:
             energy_after=energy_after,
         )
 
+        if hasattr(self.plugin, "persona_arc") and self.plugin.persona_arc:
+            try:
+                await self.plugin.persona_arc.on_consolidation(
+                    scope_id=scope_id,
+                    summary=summary_text,
+                    stats=summary_parts,
+                )
+            except Exception:
+                pass
+
         logger.info(f"[Consolidation] scope={scope_id} date={date_str} 完成: {summary_text[:80]}")
         return f"人格日结完成 [{date_str}]\n{summary_text}"
 

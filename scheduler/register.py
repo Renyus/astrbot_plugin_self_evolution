@@ -8,6 +8,7 @@ from .tasks import (
     scheduled_interject,
     scheduled_memory_summary,
     scheduled_persona_consolidation,
+    scheduled_persona_rumination,
     scheduled_persona_thought,
     scheduled_profile_build,
     scheduled_profile_cleanup,
@@ -153,6 +154,18 @@ async def register_tasks(plugin):
             persistent=True,
         )
         logger.info("[SelfEvolution] 已注册 PersonaThought: 0 1,13 * * *")
+
+        import random
+
+        rumination_cron = f"{random.randint(0, 59)} {random.randint(1, 3)} * * *"
+        await cron_mgr.add_basic_job(
+            name="SelfEvolution_PersonaRumination",
+            cron_expression=rumination_cron,
+            handler=lambda: scheduled_persona_rumination(plugin),
+            description="SelfEvolution: 离线反刍生成（随机1-3小时）",
+            persistent=True,
+        )
+        logger.info(f"[SelfEvolution] 已注册 PersonaRumination: {rumination_cron}")
 
         logger.info("[SelfEvolution] 调度任务注册完成")
 

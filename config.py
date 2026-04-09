@@ -551,3 +551,12 @@ class PluginConfig:
             "poke_complaint_texts",
             ["干嘛呢~", "有事说事！", "别闹", "正经点"],
         )
+
+    # persona_arc
+    @property
+    def persona_arc_enabled(self):
+        return self._get_nested_bool("persona_arc", "persona_arc_enabled", False)
+
+    @property
+    def persona_arc_active_arc_id(self):
+        return self._get_nested_str("persona_arc", "persona_arc_active_arc_id", "amphoreus_demurge")

@@ -190,6 +190,76 @@ unfinished_cues TEXT DEFAULT '[]'
 
 ---
 
+### ⚠️ Persona Arc 人格弧线（高级功能）
+
+> **门槛说明**：Persona Arc 是高级外挂功能，需要以下前置条件：
+> - 理解 AstrBot 外挂插件机制（加载、配置、数据目录）
+> - 理解人格阶段（Stage）的概念和阶段性表达约束
+> - 能够编写 Stage Prompt（多则几十行，少则也有十几行）
+> - 能够管理 SQLite 表结构（首次启用时自动创建）
+> - **不适合**不希望 Bot 有"成长感"、只想用开箱即用功能的用户
+
+通过 Progress 积累驱动人格阶段递进，配合情感图鉴和离线反刍实现养成体验。默认自带 `amphoreus_demurge` 德谬歌弧线，也支持自定义弧线。该模块保持外挂边界：核心插件只识别 `arc_id`、`stage`、`progress`、情感图鉴和反刍记录，具体角色设定只写在 Profile 中。
+
+#### 核心机制
+
+| 机制 | 说明 |
+|------|------|
+| Progress | 通过高质量故事消息、情感解锁、日结等途径积累 |
+| Stage | Progress 达到阈值后自动升级阶段，不可手动指定 |
+| 情感图鉴 | 记录用户在对话中明确表达的情绪体验 |
+| 离线反刍 | 后台定时生成内在残响，作为 Prompt 背景注入，注入后标记为已注入 |
+
+#### 默认阶段阈值
+
+`amphoreus_demurge` 默认提供三阶段：
+
+| Stage | 阈值 | 说明 |
+|-------|------|------|
+| Stage 0 | `0` | 纯桃子 |
+| Stage 1 | `30` | 觉醒中期 |
+| Stage 2 | `100` | 成熟德谬歌 / 大昔涟 |
+
+#### LLM 工具
+
+- `record_arc_emotion(emotion_name, feeling_description)`：当用户明确描述情绪体验时调用
+
+#### 命令
+
+| 命令 | 权限 | 说明 |
+|------|------|------|
+| `/arc status [scope]` | 管理员 | 查看弧线状态和下一阶段剩余 Progress |
+| `/arc emotions [scope]` | 管理员 | 查看已解锁情感列表 |
+| `/arc prompt [scope]` | 管理员 | 预览当前注入的 Prompt |
+| `/arc ruminations [scope]` | 管理员 | 查看离线反刍记录 |
+| `/arc debug_pour <amount> [reason]` | 管理员 | 调试增加 Progress，`amount` 必须大于 0 |
+
+> Persona Arc 不提供 `/arc set stage` 这类手动切阶段命令。调试命令只允许增加 Progress，阶段仍由阈值自动计算。
+
+#### 相关文件
+
+- `engine/persona_arc/manager.py` — 弧线管理器
+- `engine/persona_arc/emotions.py` — 情感图鉴服务
+- `engine/persona_arc/rumination.py` — 离线反刍服务
+- `engine/persona_arc/profiles/` — 弧线 Profile 定义
+- `engine/persona_arc/profiles/template.py` — **自定义弧线模板**
+
+#### 自定义弧线（开发者参考）
+
+1. 复制 `engine/persona_arc/profiles/template.py` 为 `your_arc_id.py`
+2. 修改 `arc_id`、`display_name`、`stages` 配置
+3. 在 `engine/persona_arc/profiles/__init__.py` 末尾添加 `from .your_arc_id import ARC`
+4. 在 `config.json` 中设置 `persona_arc.persona_arc_enabled=true` 和 `persona_arc.persona_arc_active_arc_id=your_arc_id`
+
+#### 配置项
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `persona_arc.persona_arc_enabled` | bool | `false` | 是否启用 Persona Arc |
+| `persona_arc.persona_arc_active_arc_id` | str | `amphoreus_demurge` | 当前激活的弧线 ID |
+
+---
+
 ### 记忆与画像
 
 维护用户画像（身份、偏好、特征、备注）和会话事件/每日总结，支持按群聊/私聊自动 scope 隔离。长期知识库可召回并注入 Prompt。
@@ -420,6 +490,7 @@ unfinished_cues TEXT DEFAULT '[]'
 - `interject_enabled` — 主动插话
 - `san_enabled` — SAN 系统
 - `entertainment_enabled` — 娱乐模块
+- `persona_arc_enabled` — **人格弧线（高级功能，见上方说明）**
 
 ### 记忆与画像
 

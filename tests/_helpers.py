@@ -74,6 +74,10 @@ def install_aiosqlite_stub() -> None:
             self._cursor.close()
 
         @property
+        def description(self):
+            return self._cursor.description
+
+        @property
         def rowcount(self):
             return self._cursor.rowcount
 
