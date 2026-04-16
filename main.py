@@ -12,11 +12,15 @@ from astrbot.api.all import AstrMessageEvent, Context, Star, register
 from astrbot.api.event import filter
 from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import StarTools
-from astrbot.core.message.components import Plain, WechatEmoji
+from astrbot.core.message.components import Plain
 
 from .commands.common import CommandContext, ensure_admin
 
 # 可选组件：不是所有 AstrBot 版本都有，按需 import
+try:
+    from astrbot.core.message.components import WechatEmoji
+except ImportError:
+    WechatEmoji = None
 try:
     from astrbot.core.message.components import Image as AstrImage
 except ImportError:
@@ -1083,7 +1087,7 @@ class SelfEvolutionPlugin(Star):
                 if cleaned:
                     self.eavesdropping._output_guard._add_recent(cleaned)
                     has_text = True
-            elif isinstance(comp, WechatEmoji):
+            elif WechatEmoji and isinstance(comp, WechatEmoji):
                 has_emoji = True
             elif AstrImage and isinstance(comp, AstrImage):
                 has_emoji = True
