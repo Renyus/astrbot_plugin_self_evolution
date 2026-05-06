@@ -11,6 +11,42 @@
 
 ## [Unreleased]
 
+### Persona Arc — 情感图鉴与离线反刍
+
+#### Added
+
+- **`engine/persona_arc/emotions.py`**：`PersonaArcEmotionService` 提供 `record_emotion`/`list_emotions`/`build_emotion_prompt`，按 `scope_id+arc_id+emotion_name` 去重，重复写入更新 `definition/source/confidence/updated_at`
+- **`engine/persona_arc/rumination.py`**：`PersonaArcRuminationService` 提供 `create_rumination`/`get_uninjected_ruminations`/`mark_injected`/`list_ruminations`/`build_rumination_prompt`
+- **`dao.py`**：新增 `persona_arc_emotions` 和 `persona_arc_ruminations` 两张表及对应 DAO 方法
+- **`engine/persona_arc/manager.py`**：组合 EmotionService 和 RuminationService，新增 `record_emotion()` 方法，`build_companion_prompt()` 在 prompt 末尾追加 `[人格弧线记忆]` 区块，`build_prompt()` 自动调用 `build_companion_prompt()`
+- **LLM tool `record_arc_emotion`**：当用户明确描述情绪体验时调用，记录到情感图鉴并增加 `arc_progress` 1.0（`reason=emotion_unlock`）
+- **定时任务 `scheduled_persona_rumination`**：每 1-3 小时为活跃 scope 生成离线反刍，后台视角不超过 50 字，写入后标记已注入
+- **`/arc emotions` 命令**：查看当前 scope 已解锁情感列表
+- **`/arc ruminations` 命令**：管理员查看最近反刍记录
+- **`engine/persona_arc/profiles/template.py`**：自定义弧线开发模板，附带完整注释说明
+- **amphoreus_demurge profile**：新增 companion hint（"已解锁情感和离线反刍只是内在底色"）
+
+#### Fixed
+
+- **`build_companion_prompt()` 未标记已注入**：读取 uninjected ruminations 后调用 `mark_injected(ids)`，避免重复注入
+- **`scheduler/tasks.py` 导入路径错误**：`from .engine.context_injection` → `from ..engine.context_injection`
+
+#### Changed
+
+- **权限收紧**：`/arc set`（手动设置阶段）完全删除；`/arc debug_pour` 需管理员 + amount > 0；`/arc status/prompt/emotions` 查看非当前 scope 需管理员
+- **amphoreus_demurge prompt 优化**：Stage 0 移除"软软"改"轻，自然"，禁止泛化情感描述；lore_guard 新增两条约束；Stage 2 "温柔" → "沉静、坚定"
+
+### Persona Sim — 能量系统修复
+
+#### Fixed
+
+- **`sleepy` 触发过于频繁**：`energy < 50 && 3h` → `energy < 20 && 3h`，大幅提高触发门槛
+- **`low_energy` 永远是最强 effect**：`eval_effect_triggers` 触发时强制 `intensity = 1`，不再抢走 `prompt_hint` 选择
+- **能量只降不升**：长时间 idle 超过 3 小时后能量开始恢复，系数 `×0.5` → `×1.0`
+- **正向互动不恢复体力**：`apply_interaction` 中 `quality=good` → energy +2，`quality=relief` → energy +3，`quality=brief` → energy ±0
+- **`_build_top_todo_desc` 语法错误**：修复 `"想眯一会儿"[2:]` 导致奇怪拼接
+- **`snapshot_to_prompt` 冗余**：当 top effect 和 top todo 同时描述困/累状态时，跳过 todo 避免重复
+
 ### SAN × Persona Sim 统一
 
 #### Changed
