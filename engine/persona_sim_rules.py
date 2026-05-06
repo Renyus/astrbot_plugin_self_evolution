@@ -219,6 +219,8 @@ def calc_state_delta(
     energy_delta = -elapsed_hours * 1.5
     if interaction_recent:
         energy_delta += elapsed_hours * 0.5
+    elif elapsed_hours > 3.0:
+        energy_delta += (elapsed_hours - 3.0) * 1.0
 
     mood_delta = -elapsed_hours * 0.8
     if interaction_recent:
@@ -283,6 +285,7 @@ def eval_effect_triggers(
         e = copy.copy(EFFECT_BY_ID["low_energy"])
         e.started_at = now
         e.expires_at = now + duration
+        e.intensity = 1
         e.prompt_hint = "提不起劲，什么都懒得做"
         e.source_detail = f"体力跌至{state.energy:.0f}，自然消耗累积"
         triggered.append(e)
@@ -325,7 +328,7 @@ def eval_effect_triggers(
         e.source_detail = "负面互动引发的烦躁感"
         triggered.append(e)
 
-    if state.energy < 50 and recent_interaction_hours > 3.0 and "sleepy" not in active_ids:
+    if state.energy < 20 and recent_interaction_hours > 3.0 and "sleepy" not in active_ids:
         e = copy.copy(EFFECT_BY_ID["sleepy"])
         e.started_at = now
         e.expires_at = now + duration
@@ -405,7 +408,7 @@ def apply_interaction(
     if quality == "good":
         mood_boost = 15.0
         social_boost = -20.0
-        energy_cost = -5.0
+        energy_cost = 2.0
     elif quality == "bad":
         mood_boost = -10.0
         social_boost = -10.0
@@ -413,7 +416,7 @@ def apply_interaction(
     elif quality == "brief":
         mood_boost = 3.0
         social_boost = -5.0
-        energy_cost = -1.0
+        energy_cost = 0.0
     elif quality == "awkward":
         mood_boost = -5.0
         social_boost = -5.0
@@ -421,7 +424,7 @@ def apply_interaction(
     elif quality == "relief":
         mood_boost = 20.0
         social_boost = -10.0
-        energy_cost = -3.0
+        energy_cost = 3.0
     else:
         mood_boost = 5.0
         social_boost = -15.0

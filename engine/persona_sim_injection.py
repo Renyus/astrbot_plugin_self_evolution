@@ -70,8 +70,9 @@ def _build_top_todo_desc(snapshot) -> str:
     if not todos:
         return ""
     top = todos[0]
-    todo_word = "想" if top.todo_type.value == "social" else "有点想"
-    return f"{todo_word}{top.title[2:]}" if top.title.startswith("想") else f"有点{top.title}"
+    if top.title.startswith("想"):
+        return f"有点{top.title}" if top.todo_type.value != "social" else top.title
+    return f"有点{top.title}"
 
 
 def snapshot_to_prompt(snapshot) -> str:
@@ -99,7 +100,13 @@ def snapshot_to_prompt(snapshot) -> str:
 
     todo_desc = _build_top_todo_desc(snapshot)
     if todo_desc:
-        parts.append(todo_desc)
+        tired_keywords = {"困", "累", "眯", "安静", "歇", "待着"}
+        if not (
+            effect_desc
+            and any(k in effect_desc for k in tired_keywords)
+            and any(k in todo_desc for k in tired_keywords)
+        ):
+            parts.append(todo_desc)
 
     if not parts:
         return ""
