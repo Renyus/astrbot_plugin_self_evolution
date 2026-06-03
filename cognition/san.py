@@ -194,8 +194,9 @@ class SANSystem:
         # 方式1: 白名单配置
         whitelist = self.plugin.cfg.target_scopes
         if whitelist:
-            logger.debug(f"[SAN] 使用白名单群列表: {whitelist}")
-            return whitelist
+            groups = [g for g in whitelist if not str(g).startswith("private_")]
+            logger.debug(f"[SAN] 使用白名单群列表 (已过滤私聊): {groups}")
+            return groups
         # 方式2: eavesdropping get_active_scopes()
         eavesdropping = getattr(self.plugin, "eavesdropping", None)
         if eavesdropping and hasattr(eavesdropping, "get_active_scopes"):
@@ -249,6 +250,9 @@ class SANSystem:
 
     async def _fetch_group_messages(self, group_id: str) -> list:
         """通过 NapCat API 获取群消息"""
+        if not group_id or str(group_id).startswith("private_"):
+            logger.debug(f"[SAN] 忽略私聊会话消息获取: {group_id}")
+            return []
         try:
             platform_insts = self.plugin.context.platform_manager.platform_insts
             if not platform_insts:
