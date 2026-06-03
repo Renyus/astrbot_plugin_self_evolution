@@ -6,9 +6,9 @@ Scheduler Tasks - 定时任务回调实现
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from typing import Callable, Coroutine, Any
+from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 logger = logging.getLogger("astrbot")
 
@@ -105,14 +105,14 @@ async def _resolve_target_scopes(
         return scopes, ""
 
     if include_groups and not include_private:
-        active_scopes = getattr(plugin, "eavesdropping", None) and plugin.eavesdropping.get_active_scopes() or []
+        active_scopes = (getattr(plugin, "eavesdropping", None) and plugin.eavesdropping.get_active_scopes()) or []
         scopes = [g for g in active_scopes if not str(g).startswith("private_")]
         if scopes:
             logger.debug(f"[Scheduler][{task_name}] 使用 get_active_scopes 群列表: {scopes}")
             return scopes, ""
 
     if include_private and include_groups:
-        scopes = getattr(plugin, "eavesdropping", None) and plugin.eavesdropping.get_active_scopes() or []
+        scopes = (getattr(plugin, "eavesdropping", None) and plugin.eavesdropping.get_active_scopes()) or []
         if scopes:
             logger.debug(f"[Scheduler][{task_name}] 使用 get_active_scopes (含私聊): {scopes}")
             return scopes, ""
@@ -515,7 +515,6 @@ async def _persona_thought_impl(plugin):
 
 
 async def _persona_rumination_impl(plugin):
-    import random
 
     persona_arc = getattr(plugin, "persona_arc", None)
     if not persona_arc or not persona_arc.enabled:
@@ -623,17 +622,26 @@ async def scheduled_github_check(plugin):
 
     repo = plugin.cfg.update_notify_repo
     branch = plugin.cfg.update_notify_branch
+    token = getattr(plugin.cfg, "update_github_token", "")
+
 
     import aiohttp
-    import json
 
     url = f"https://api.github.com/repos/{repo}/commits?per_page=3&sha={branch}"
+    headers = {"User-Agent": "AstrBot-SelfEvolution"}
+    if token and str(token).strip():
+        headers["Authorization"] = f"Bearer {str(token).strip()}"
+
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(
-                url, headers={"User-Agent": "AstrBot-SelfEvolution"}, timeout=aiohttp.ClientTimeout(total=10)
-            ) as resp:
-                if resp.status != 200:
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status == 403:
+                    logger.warning(
+                        "[Scheduler] GitHub API 访问受限 (403 Rate Limit Exceeded)。"
+                        "这通常是由于达到 IP 访问频率限制导致的。请考虑配置 update_github_token 提升请求配额，或调大 update_check_interval 检查频率。"
+                    )
+                    return
+                elif resp.status != 200:
                     logger.warning(f"[Scheduler] GitHub API 返回错误状态码: {resp.status} {resp.reason}")
                     return
                 commits = await resp.json()

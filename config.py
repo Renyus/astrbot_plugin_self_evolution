@@ -2,7 +2,6 @@
 Plugin configuration accessors.
 """
 
-import json
 
 
 class PluginConfig:
@@ -534,6 +533,10 @@ class PluginConfig:
     @property
     def update_check_interval(self):
         return self._get_nested_int("update_notify", "update_check_interval", 30)
+
+    @property
+    def update_github_token(self):
+        return self._get_nested("update_notify", "update_github_token", "")
 
     # poke
     @property

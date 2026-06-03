@@ -5,7 +5,6 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
 
 logger = logging.getLogger("astrbot")
 PRIVATE_SCOPE_PREFIX = "private_"
@@ -175,7 +174,7 @@ class SessionReflection:
             logger.warning(f"[Reflection] 保存会话反思失败: {e}")
             return False
 
-    async def get_and_consume_session_reflection(self, session_id: str, user_id: str) -> Optional[dict]:
+    async def get_and_consume_session_reflection(self, session_id: str, user_id: str) -> dict | None:
         """
         获取并消费会话反思（一次性）
 
@@ -339,13 +338,18 @@ class DailyBatchProcessor:
         if cursor is not None:
             kwargs["message_seq"] = cursor
 
-        if self._is_private_scope(scope_id):
-            private_user_id = self._get_private_scope_user_id(scope_id)
-            if not private_user_id:
-                return []
-            result = await bot.call_action("get_friend_msg_history", user_id=int(private_user_id), **kwargs)
-        else:
-            result = await bot.call_action("get_group_msg_history", group_id=int(scope_id), **kwargs)
+        try:
+            if self._is_private_scope(scope_id):
+                private_user_id = self._get_private_scope_user_id(scope_id)
+                if not private_user_id:
+                    return []
+                result = await bot.call_action("get_friend_msg_history", user_id=int(private_user_id), **kwargs)
+            else:
+                result = await bot.call_action("get_group_msg_history", group_id=int(scope_id), **kwargs)
+        except ValueError:
+            # Non-numeric IDs (like WebUI session 'Rat', test IDs) cannot be queried via OneBot/QQ API.
+            # Return empty list gracefully.
+            return []
 
         if isinstance(result, dict):
             return result.get("messages", []) or []

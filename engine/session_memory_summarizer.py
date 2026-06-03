@@ -1,6 +1,5 @@
 import asyncio
 import json
-import logging
 import re
 from datetime import datetime, timedelta
 
@@ -115,21 +114,26 @@ class SessionMemorySummarizer:
         if cursor is not None:
             kwargs["message_seq"] = cursor
 
-        if self._is_private_scope(scope_id):
-            private_user_id = self._get_private_scope_user_id(scope_id)
-            if not private_user_id:
-                return []
-            result = await bot.call_action(
-                "get_friend_msg_history",
-                user_id=int(private_user_id),
-                **kwargs,
-            )
-        else:
-            result = await bot.call_action(
-                "get_group_msg_history",
-                group_id=int(scope_id),
-                **kwargs,
-            )
+        try:
+            if self._is_private_scope(scope_id):
+                private_user_id = self._get_private_scope_user_id(scope_id)
+                if not private_user_id:
+                    return []
+                result = await bot.call_action(
+                    "get_friend_msg_history",
+                    user_id=int(private_user_id),
+                    **kwargs,
+                )
+            else:
+                result = await bot.call_action(
+                    "get_group_msg_history",
+                    group_id=int(scope_id),
+                    **kwargs,
+                )
+        except ValueError:
+            # Non-numeric IDs (like WebUI session 'Rat', test IDs) cannot be queried via OneBot/QQ API.
+            # Return empty list gracefully without triggering warnings.
+            return []
         if not isinstance(result, dict):
             return []
         return result.get("messages", [])

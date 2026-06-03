@@ -65,6 +65,7 @@ class ResultTextCleanTests(TestCase):
 class CommandReplyGatingTests(TestCase):
     def _mock_event(self, group_id="123456", extra=None):
         event = MagicMock()
+        event.is_at_or_wake_command = False
         event.get_group_id.return_value = group_id
         event.get_extra.side_effect = lambda k, **kw: (extra or {}).get(k, kw.get("default"))
         result = MagicMock()
@@ -98,6 +99,7 @@ class PlainComponentCleaningTests(TestCase):
 
     def _clean_chain(self, text: str, group_id="123456", extra=None) -> str:
         event = MagicMock()
+        event.is_at_or_wake_command = False
         event.get_group_id.return_value = group_id
         event.get_extra.side_effect = lambda k, **kw: (extra or {}).get(k, kw.get("default"))
 
