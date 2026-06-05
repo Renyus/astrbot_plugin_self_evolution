@@ -195,7 +195,7 @@ class SelfEvolutionPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context, config)
         self.config = config or {}
-        self.data_dir = StarTools.get_data_dir() / "self_evolution"
+        self.data_dir = StarTools.get_data_dir("astrbot_plugin_self_evolution") / "self_evolution"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.stickers_dir = self.data_dir / "stickers"
         self.stickers_dir.mkdir(parents=True, exist_ok=True)
