@@ -11,6 +11,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **插件数据目录初始化崩溃**：`StarTools.get_data_dir()` 显式传入插件名，避免部分运行环境下依赖 `inspect.stack()` 推断插件名失败。
+
 ### Persona Arc — 情感图鉴与离线反刍
 
 #### Added

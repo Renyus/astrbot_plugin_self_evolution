@@ -88,6 +88,29 @@ class ConfigContractTests(TestCase):
         self.assertNotIn("def _clean_messages(", main_text)
         self.assertNotIn("def _post_init(", main_text)
 
+    def test_main_uses_explicit_plugin_name_for_data_dir(self):
+        import ast
+
+        main_text = (ROOT / "main.py").read_text(encoding="utf-8")
+        tree = ast.parse(main_text)
+
+        get_data_dir_calls = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if (
+                isinstance(func, ast.Attribute)
+                and func.attr == "get_data_dir"
+                and isinstance(func.value, ast.Name)
+                and func.value.id == "StarTools"
+            ):
+                get_data_dir_calls.append(node)
+
+        self.assertEqual(len(get_data_dir_calls), 1)
+        self.assertEqual(len(get_data_dir_calls[0].args), 1)
+        self.assertEqual(get_data_dir_calls[0].args[0].value, "astrbot_plugin_self_evolution")
+
     def test_eavesdropping_dead_state_removed(self):
         eavesdropping_text = (ROOT / "engine" / "eavesdropping.py").read_text(encoding="utf-8")
         self.assertNotIn("_current_boredom_state", eavesdropping_text)
