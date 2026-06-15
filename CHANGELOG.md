@@ -30,6 +30,7 @@
 
 - **`build_companion_prompt()` 未标记已注入**：读取 uninjected ruminations 后调用 `mark_injected(ids)`，避免重复注入
 - **`scheduler/tasks.py` 导入路径错误**：`from .engine.context_injection` → `from ..engine.context_injection`
+- **SAN 白名单私聊 scope**：SAN 群分析会跳过 `private_` scope，避免将私聊 ID 当作群号解析
 
 #### Changed
 

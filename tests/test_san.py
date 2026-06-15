@@ -11,6 +11,29 @@ SANSystem = san_module.SANSystem
 
 
 class SANSystemTests(IsolatedAsyncioTestCase):
+    async def test_get_listened_groups_filters_private_scopes_from_whitelist(self):
+        plugin = SimpleNamespace(
+            cfg=SimpleNamespace(target_scopes=["7001", "private_1001", "7002"]),
+        )
+        san = SANSystem(plugin)
+
+        groups = await san._get_listened_groups()
+
+        self.assertEqual(groups, ["7001", "7002"])
+
+    async def test_fetch_group_messages_ignores_private_scope_without_bot_call(self):
+        bot = SimpleNamespace(call_action=AsyncMock())
+        plugin = SimpleNamespace(
+            cfg=SimpleNamespace(san_msg_count_per_group=50),
+            context=SimpleNamespace(platform_manager=SimpleNamespace(platform_insts=[SimpleNamespace(get_client=lambda: bot)])),
+        )
+        san = SANSystem(plugin)
+
+        messages = await san._fetch_group_messages("private_1001")
+
+        self.assertEqual(messages, [])
+        bot.call_action.assert_not_called()
+
     async def test_llm_analyze_uses_group_umo_for_provider_lookup(self):
         provider = SimpleNamespace(
             text_chat=AsyncMock(
