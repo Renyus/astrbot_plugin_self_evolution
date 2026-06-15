@@ -89,10 +89,37 @@ class ConfigContractTests(TestCase):
         self.assertNotIn("def _post_init(", main_text)
 
     def test_poke_reply_toggle_guards_poke_reply_task(self):
-        main_text = (ROOT / "main.py").read_text(encoding="utf-8")
+        import ast
 
-        self.assertIn("if target_id == bot_id and self.cfg.poke_reply_enabled:", main_text)
-        self.assertIn("asyncio.create_task(_poke_reply_async", main_text)
+        main_text = (ROOT / "main.py").read_text(encoding="utf-8")
+        tree = ast.parse(main_text)
+
+        guarded_poke_reply_tasks = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.If):
+                continue
+            for child in node.body:
+                if not isinstance(child, ast.Expr) or not isinstance(child.value, ast.Call):
+                    continue
+                child = child.value
+                if not (
+                    isinstance(child.func, ast.Attribute)
+                    and child.func.attr == "create_task"
+                    and isinstance(child.func.value, ast.Name)
+                    and child.func.value.id == "asyncio"
+                    and child.args
+                    and isinstance(child.args[0], ast.Call)
+                    and isinstance(child.args[0].func, ast.Name)
+                    and child.args[0].func.id == "_poke_reply_async"
+                ):
+                    continue
+                guarded_poke_reply_tasks.append(node)
+
+        self.assertEqual(len(guarded_poke_reply_tasks), 1)
+        condition = guarded_poke_reply_tasks[0].test
+        self.assertIsInstance(condition, ast.BoolOp)
+        self.assertIsInstance(condition.op, ast.And)
+        self.assertEqual(ast.unparse(condition), "target_id == bot_id and self.cfg.poke_reply_enabled")
 
     def test_eavesdropping_dead_state_removed(self):
         eavesdropping_text = (ROOT / "engine" / "eavesdropping.py").read_text(encoding="utf-8")
