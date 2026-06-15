@@ -10,6 +10,26 @@ SessionMemorySummarizer = load_engine_module("session_memory_summarizer").Sessio
 
 
 class SessionMemorySummarizerTests(IsolatedAsyncioTestCase):
+    async def test_get_scope_history_page_ignores_non_numeric_private_scope(self):
+        bot = SimpleNamespace(call_action=AsyncMock())
+        plugin = SimpleNamespace(cfg=SimpleNamespace(memory_debug_enabled=False))
+        summarizer = SessionMemorySummarizer(plugin)
+
+        messages = await summarizer._get_scope_history_page(bot, "private_Rat", 50)
+
+        self.assertEqual(messages, [])
+        bot.call_action.assert_not_called()
+
+    async def test_get_scope_history_page_ignores_non_numeric_group_scope(self):
+        bot = SimpleNamespace(call_action=AsyncMock())
+        plugin = SimpleNamespace(cfg=SimpleNamespace(memory_debug_enabled=False))
+        summarizer = SessionMemorySummarizer(plugin)
+
+        messages = await summarizer._get_scope_history_page(bot, "webchat_session", 50)
+
+        self.assertEqual(messages, [])
+        bot.call_action.assert_not_called()
+
     async def test_daily_summary_accepts_group_list_dict_payload(self):
         bot = SimpleNamespace(call_action=AsyncMock(return_value={"data": [{"group_id": 6001}, {"group_id": "6002"}]}))
         plugin = SimpleNamespace(

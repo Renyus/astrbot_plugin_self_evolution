@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import sys
+import types
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, call, patch
@@ -296,3 +298,49 @@ class SchedulerTasksTests(IsolatedAsyncioTestCase):
 
         plugin.profile.cleanup_expired_profiles.assert_awaited_once()
         plugin.profile_store.cleanup_expired_profiles.assert_not_awaited()
+
+    async def test_scheduled_github_check_sends_configured_token_header(self):
+        captured = {}
+
+        class FakeResponse:
+            status = 403
+            reason = "rate limit"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeSession:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def get(self, url, *, headers, timeout):
+                captured["url"] = url
+                captured["headers"] = headers
+                captured["timeout"] = timeout
+                return FakeResponse()
+
+        fake_aiohttp = types.SimpleNamespace(
+            ClientSession=lambda: FakeSession(),
+            ClientTimeout=lambda total: SimpleNamespace(total=total),
+        )
+        plugin = SimpleNamespace(
+            cfg=SimpleNamespace(
+                update_notify_group_id=["1001"],
+                update_notify_user_ids=[],
+                update_notify_repo="Renyus/astrbot_plugin_self_evolution",
+                update_notify_branch="master",
+                update_github_token="  test-token  ",
+            )
+        )
+
+        with patch.dict(sys.modules, {"aiohttp": fake_aiohttp}):
+            await tasks.scheduled_github_check(plugin)
+
+        self.assertEqual(captured["headers"]["Authorization"], "Bearer test-token")
+        self.assertEqual(captured["headers"]["User-Agent"], "AstrBot-SelfEvolution")

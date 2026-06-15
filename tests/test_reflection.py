@@ -172,6 +172,24 @@ class DailyBatchProcessorTests(IsolatedAsyncioTestCase):
         self.assertEqual(bot.call_action.await_args_list[0].kwargs, {"group_id": 8888, "count": 100})
         self.assertEqual(bot.call_action.await_args_list[1].kwargs, {"group_id": 8888, "count": 100, "message_seq": 999})
 
+    async def test_fetch_scope_history_page_ignores_non_numeric_private_scope(self):
+        bot = SimpleNamespace(call_action=AsyncMock())
+        processor = DailyBatchProcessor(SimpleNamespace())
+
+        messages = await processor._fetch_scope_history_page(bot, "private_Rat", 100)
+
+        self.assertEqual(messages, [])
+        bot.call_action.assert_not_called()
+
+    async def test_fetch_scope_history_page_ignores_non_numeric_group_scope(self):
+        bot = SimpleNamespace(call_action=AsyncMock())
+        processor = DailyBatchProcessor(SimpleNamespace())
+
+        messages = await processor._fetch_scope_history_page(bot, "webchat_session", 100)
+
+        self.assertEqual(messages, [])
+        bot.call_action.assert_not_called()
+
     async def test_save_group_daily_report_uses_summary_date(self):
         dao = SimpleNamespace(save_group_daily_report=AsyncMock())
         processor = DailyBatchProcessor(SimpleNamespace(dao=dao))

@@ -30,6 +30,8 @@
 
 - **`build_companion_prompt()` 未标记已注入**：读取 uninjected ruminations 后调用 `mark_injected(ids)`，避免重复注入
 - **`scheduler/tasks.py` 导入路径错误**：`from .engine.context_injection` → `from ..engine.context_injection`
+- **非数字 scope 历史拉取**：会话总结与反思遇到 `private_Rat`、`webchat_session` 等非 QQ 数字 ID 时会静默跳过，避免 `int()` 转换异常
+- **GitHub 更新检查 403**：新增可选 `update_github_token` 配置，请求 GitHub commits API 时可携带 Bearer token 以提升 rate limit
 
 #### Changed
 
