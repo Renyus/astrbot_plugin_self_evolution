@@ -88,6 +88,12 @@ class ConfigContractTests(TestCase):
         self.assertNotIn("def _clean_messages(", main_text)
         self.assertNotIn("def _post_init(", main_text)
 
+    def test_poke_reply_toggle_guards_poke_reply_task(self):
+        main_text = (ROOT / "main.py").read_text(encoding="utf-8")
+
+        self.assertIn("if target_id == bot_id and self.cfg.poke_reply_enabled:", main_text)
+        self.assertIn("asyncio.create_task(_poke_reply_async", main_text)
+
     def test_eavesdropping_dead_state_removed(self):
         eavesdropping_text = (ROOT / "engine" / "eavesdropping.py").read_text(encoding="utf-8")
         self.assertNotIn("_current_boredom_state", eavesdropping_text)

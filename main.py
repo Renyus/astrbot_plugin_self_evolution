@@ -920,7 +920,7 @@ class SelfEvolutionPlugin(Star):
                     sender_id = str(getattr(msg_obj.sender, "user_id", ""))
                     group_id = str(getattr(msg_obj, "group_id", "") or "")
                     bot_id = str(getattr(msg_obj, "self_id", "") or "")
-                    if target_id == bot_id:
+                    if target_id == bot_id and self.cfg.poke_reply_enabled:
                         asyncio.create_task(_poke_reply_async(self, target_id, sender_id, group_id, sender_id))
                     event.stop_event()
                     return

@@ -11,6 +11,12 @@
 
 ## [Unreleased]
 
+### Poke Interaction
+
+#### Fixed
+
+- **`poke_reply_enabled` 配置未生效**：戳一戳事件处理现在会检查开关，关闭后不再戳回或发送吐槽文本
+
 ### Persona Arc — 情感图鉴与离线反刍
 
 #### Added
